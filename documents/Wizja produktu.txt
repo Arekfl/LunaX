@@ -1,0 +1,49 @@
+Wizja produktu
+1. Wizja produktu
+Celem projektu jest stworzenie interaktywnego systemu wspomagającego eksplorację powierzchni Księżyca poprzez automatyczne wykrywanie potencjalnych wejść do jaskiń lawowych na zobrazowaniach satelitarnych. Produkt ma pełnić rolę inteligentnego narzędzia analitycznego, które wykorzystuje metody głębokiego uczenia do przeszukiwania dużych zbiorów danych obrazowych oraz wspiera użytkownika w procesie analizy, interpretacji i weryfikacji wyników.
+________________________________________
+2. Opis problemu
+Pomimo wysokiej jakości i dużej dostępności zdjęć satelitarnych powierzchni Księżyca, ich ręczna analiza w celu lokalizacji wejść do jaskiń lawowych jest czasochłonna, trudna do przeprowadzenia w dużej skali oraz obarczona subiektywną oceną. Charakterystyczne elementy krajobrazu, takie jak kratery, zagłębienia czy cienie rzucane przez nierówności terenu, często utrudniają jednoznaczną interpretację danych. W rezultacie szczegółowo przeanalizowana jest jedynie niewielka część powierzchni Księżyca.
+________________________________________
+3. Docelowi użytkownicy
+•	naukowcy i badacze zajmujący się geologią planetarną,
+•	inżynierowie planujący przyszłe misje kosmiczne i lokalizację baz,
+•	analitycy danych satelitarnych,
+•	studenci oraz zespoły badawcze zajmujące się eksploracją kosmosu.
+Użytkownik posiada wiedzę domenową, natomiast nie musi mieć specjalistycznej wiedzy z zakresu sztucznej inteligencji.
+________________________________________
+4. Proponowane rozwiązanie
+Projektowany system integruje metody wizji komputerowej i głębokiego uczenia z rozbudowanym interfejsem użytkownika. Model detekcji obiektów zostanie wytrenowany do identyfikacji struktur mogących odpowiadać wejściom do jaskiń lawowych na podstawie cech wizualnych zobrazowań satelitarnych. Użytkownik zachowuje możliwość aktywnej interakcji z wynikami analizy, ich interpretacji oraz weryfikacji.
+System realizuje podejście human in the loop, w którym sztuczna inteligencja wspomaga proces analizy poprzez automatyczną detekcję obiektów, natomiast ostateczna ocena i klasyfikacja wyników należą do użytkownika.
+________________________________________
+5. Kluczowe interakcje i funkcjonalności
+Wybór i eksploracja obszaru
+•	interaktywna mapa powierzchni Księżyca z obsługą różnych poziomów przybliżenia,
+•	wybór obszaru analizy poprzez zaznaczenie regionu na mapie lub podanie współrzędnych,
+•	możliwość wielokrotnego uruchamiania analizy dla różnych obszarów.
+Analiza i wizualizacja wyników
+•	automatyczne wykrywanie potencjalnych wejść do jaskiń lawowych,
+•	możliwość wyboru sposobu wizualizacji wyników, w tym: 
+o	obramowania detekcji (bounding boxes),
+o	wizualizacja punktowa wykrytych obiektów,
+o	wizualizacja warstwowa (overlay), polegająca na podświetleniu obszaru potencjalnego wejścia do jaskini na obrazie satelitarnym,
+•	dynamiczne włączanie i wyłączanie poszczególnych warstw wizualnych.
+Interakcja z wynikami i walidacja
+•	przypisywanie wykrytym obiektom statusów, takich jak: potwierdzone, do weryfikacji, odrzucone,
+•	możliwość przeglądania i filtrowania listy obiektów według statusu (np. wyświetlenie tylko punktów oznaczonych jako do weryfikacji),
+•	ręczna korekta detekcji oraz możliwość dodawania komentarzy do obiektów.
+Klasyfikacja rozszerzona
+•	możliwość przypisywania wykrytym obiektom dodatkowych klas, takich jak: 
+o	krater,
+o	inna struktura geologiczna,
+o	obiekt wymagający dalszych badań,
+•	filtrowanie i wyszukiwanie wyników na podstawie przypisanych klas i statusów.
+________________________________________
+6. Rola sztucznej inteligencji
+Model głębokiego uczenia zostanie wykorzystany do analizy zobrazowań satelitarnych i rozpoznawania cech charakterystycznych dla potencjalnych wejść do jaskiń lawowych, takich jak kształt otworu, kontrast dna względem otoczenia oraz charakterystyka cienia. Sztuczna inteligencja pełni funkcję inteligentnego filtra, który automatycznie ogranicza liczbę obszarów wymagających dalszej, eksperckiej analizy przez użytkownika.
+________________________________________
+7. Wartość produktu
+•	znaczące skrócenie czasu analizy dużych zbiorów danych obrazowych,
+•	wsparcie badań nad eksploracją powierzchni Księżyca i planowaniem przyszłych misji,
+•	możliwość identyfikacji nowych, dotąd nieopisanych struktur geologicznych,
+•	stworzenie skalowalnego narzędzia wspierającego współpracę człowieka z algorytmami sztucznej inteligencji.
