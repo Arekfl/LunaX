@@ -11,13 +11,19 @@ from app.schemas import (
     AnalysisRunResponse,
     BBox,
     Detection,
+    DetectionCommentUpdateRequest,
+    DetectionCommentUpdateResponse,
     DetectionsQueryParams,
     DetectionStatusUpdateRequest,
     DetectionStatusUpdateResponse,
     HealthResponse,
 )
 from app.analytics import query_detections, save_detections_to_parquet
-from app.storage import read_detection_statuses, upsert_detection_status
+from app.storage import (
+    read_detection_statuses,
+    upsert_detection_comment,
+    upsert_detection_status,
+)
 
 app = FastAPI(title="LunaX API", version="0.1.0")
 logger = logging.getLogger(__name__)
@@ -77,6 +83,14 @@ def update_detection_status(
 ) -> DetectionStatusUpdateResponse:
     upsert_detection_status(detection_id=id, status=payload.status)
     return DetectionStatusUpdateResponse(detection_id=id, status=payload.status)
+
+
+@app.patch("/detections/{id}/comment", response_model=DetectionCommentUpdateResponse)
+def update_detection_comment(
+    id: str, payload: DetectionCommentUpdateRequest
+) -> DetectionCommentUpdateResponse:
+    upsert_detection_comment(detection_id=id, comment=payload.comment)
+    return DetectionCommentUpdateResponse(detection_id=id, comment=payload.comment)
 
 
 @app.get("/detections/statuses", response_model=dict[str, str])

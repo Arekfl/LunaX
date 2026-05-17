@@ -87,19 +87,55 @@ def test_get_detection_statuses_returns_status_mapping(tmp_path, monkeypatch) ->
     }
 
 
+def test_patch_detection_comment_persists_comment_by_detection_id(tmp_path, monkeypatch) -> None:
+    comment_file = tmp_path / "detection_comments.json"
+    monkeypatch.setenv("DETECTION_COMMENT_FILE", str(comment_file))
+
+    response = client.patch(
+        "/detections/det-42/comment", json={"comment": "To verify manually"}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "detection_id": "det-42",
+        "comment": "To verify manually",
+    }
+
+    with comment_file.open("r", encoding="utf-8") as file_handle:
+        payload = json.load(file_handle)
+
+    assert payload["det-42"] == "To verify manually"
+
+
 def test_get_detections_query_filters_with_query_params(tmp_path, monkeypatch) -> None:
     parquet_file = tmp_path / "detections.parquet"
     status_file = tmp_path / "detection_statuses.json"
+    comment_file = tmp_path / "detection_comments.json"
     monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(parquet_file))
     monkeypatch.setenv("DETECTION_STATUS_FILE", str(status_file))
+    monkeypatch.setenv("DETECTION_COMMENT_FILE", str(comment_file))
 
     run_response = client.post("/analysis/run", json={"confidence_threshold": 0.0})
     assert run_response.status_code == 200
 
+    run_payload = run_response.json()
+    target_detection = next(
+        detection
+        for detection in run_payload["detections"]
+        if detection["class"] == "cave_candidate" and detection["confidence"] < 0.9
+    )
+    target_detection_id = target_detection["detection_id"]
+
     patch_response = client.patch(
-        "/detections/det-2/status", json={"status": "rejected"}
+        f"/detections/{target_detection_id}/status", json={"status": "rejected"}
     )
     assert patch_response.status_code == 200
+
+    comment_response = client.patch(
+        f"/detections/{target_detection_id}/comment",
+        json={"comment": "Potential false positive"},
+    )
+    assert comment_response.status_code == 200
 
     response = client.get(
         "/detections/query",
@@ -113,5 +149,46 @@ def test_get_detections_query_filters_with_query_params(tmp_path, monkeypatch) -
     assert response.status_code == 200
     payload = response.json()
     assert len(payload) == 1
-    assert payload[0]["detection_id"] == "det-2"
+    assert payload[0]["detection_id"] == target_detection_id
     assert payload[0]["status"] == "rejected"
+    assert payload[0]["comment"] == "Potential false positive"
+
+
+def test_get_detections_query_returns_rows_without_filters(tmp_path, monkeypatch) -> None:
+    parquet_file = tmp_path / "detections.parquet"
+    status_file = tmp_path / "detection_statuses.json"
+    comment_file = tmp_path / "detection_comments.json"
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(parquet_file))
+    monkeypatch.setenv("DETECTION_STATUS_FILE", str(status_file))
+    monkeypatch.setenv("DETECTION_COMMENT_FILE", str(comment_file))
+
+    run_response = client.post("/analysis/run", json={"confidence_threshold": 0.0})
+    assert run_response.status_code == 200
+
+    response = client.get("/detections/query")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert isinstance(payload, list)
+    assert len(payload) >= 2
+    assert {
+        "detection_id",
+        "analysis_id",
+        "class",
+        "confidence",
+        "bbox",
+        "status",
+        "comment",
+    }.issubset(payload[0].keys())
+
+
+def test_patch_detection_status_rejects_invalid_status_value() -> None:
+    response = client.patch("/detections/det-42/status", json={"status": "invalid"})
+
+    assert response.status_code == 422
+
+
+def test_get_detections_query_rejects_invalid_confidence_param() -> None:
+    response = client.get("/detections/query", params={"confidence": 1.5})
+
+    assert response.status_code == 422

@@ -7,7 +7,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from app.schemas import Detection
-from app.storage import read_detection_statuses
+from app.storage import read_detection_comments, read_detection_statuses
 
 
 def _get_detections_parquet_path() -> Path:
@@ -66,6 +66,7 @@ def query_detections(
         return []
 
     stored_statuses = read_detection_statuses()
+    stored_comments = read_detection_comments()
 
     connection = duckdb.connect(database=":memory:")
     try:
@@ -78,6 +79,15 @@ def query_detections(
                 list(stored_statuses.items()),
             )
 
+        connection.execute(
+            "CREATE TEMP TABLE comment_overrides (detection_id VARCHAR, comment VARCHAR)"
+        )
+        if stored_comments:
+            connection.executemany(
+                "INSERT INTO comment_overrides (detection_id, comment) VALUES (?, ?)",
+                list(stored_comments.items()),
+            )
+
         query = """
             SELECT
                 d.detection_id,
@@ -88,9 +98,11 @@ def query_detections(
                 d.bbox_y,
                 d.bbox_width,
                 d.bbox_height,
-                COALESCE(s.status, d.status, 'to_verify') AS status
+                COALESCE(s.status, d.status, 'to_verify') AS status,
+                COALESCE(c.comment, '') AS comment
             FROM read_parquet(?) AS d
             LEFT JOIN status_overrides AS s USING (detection_id)
+            LEFT JOIN comment_overrides AS c USING (detection_id)
             WHERE (? IS NULL OR COALESCE(s.status, d.status, 'to_verify') = ?)
               AND (? IS NULL OR d.class_name = ?)
               AND (? IS NULL OR d.confidence >= ?)
@@ -123,6 +135,7 @@ def query_detections(
                     "height": row[7],
                 },
                 "status": row[8],
+                "comment": row[9],
             }
             for row in rows
         ]

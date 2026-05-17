@@ -47,6 +47,15 @@ class DetectionStatusUpdateResponse(BaseModel):
     status: DetectionStatus
 
 
+class DetectionCommentUpdateRequest(BaseModel):
+    comment: str = Field(default="", max_length=2000)
+
+
+class DetectionCommentUpdateResponse(BaseModel):
+    detection_id: str
+    comment: str
+
+
 class DetectionsQueryParams(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
