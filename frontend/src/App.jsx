@@ -10,7 +10,6 @@ const IMAGE_BOUNDS = [
 const IMAGE_HEIGHT = IMAGE_BOUNDS[1][0];
 const IMAGE_WIDTH = IMAGE_BOUNDS[1][1];
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
-const DETECTION_STATUSES = ["confirmed", "to_verify", "rejected"];
 const DEFAULT_DETECTION_STATUS = "to_verify";
 const STATUS_COLOR_MAP = {
   confirmed: "#198754",
@@ -150,33 +149,47 @@ export default function App() {
     [detections, statusFilter]
   );
 
-  useEffect(() => {
-    const fetchStoredStatuses = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/detections/statuses`);
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
+  const fetchDetectionsAndStatuses = useCallback(async () => {
+    const [detectionsResponse, statusesResponse] = await Promise.all([
+      fetch(`${API_BASE_URL}/detections/query`),
+      fetch(`${API_BASE_URL}/detections/statuses`),
+    ]);
 
-        const payload = await response.json();
-        if (payload && typeof payload === "object" && !Array.isArray(payload)) {
-          setStoredStatuses(payload);
-        }
-      } catch (error) {
-        console.warn("Nie udalo sie pobrac zapisanych statusow detekcji:", error);
-      }
-    };
+    if (!detectionsResponse.ok) {
+      throw new Error(`Detections query HTTP ${detectionsResponse.status}`);
+    }
+    if (!statusesResponse.ok) {
+      throw new Error(`Detection statuses HTTP ${statusesResponse.status}`);
+    }
 
-    fetchStoredStatuses();
+    const detectionsPayload = await detectionsResponse.json();
+    const statusesPayload = await statusesResponse.json();
+
+    const queriedDetections = Array.isArray(detectionsPayload) ? detectionsPayload : [];
+    const statusMap =
+      statusesPayload && typeof statusesPayload === "object" && !Array.isArray(statusesPayload)
+        ? statusesPayload
+        : {};
+
+    setStoredStatuses(statusMap);
+
+    const mergedDetections = applyStatusesToDetections(queriedDetections, statusMap);
+    setDetections(mergedDetections);
+
+    return mergedDetections;
   }, []);
 
   useEffect(() => {
-    if (Object.keys(storedStatuses).length === 0) {
-      return;
-    }
+    const loadInitialDetections = async () => {
+      try {
+        await fetchDetectionsAndStatuses();
+      } catch (error) {
+        console.warn("Nie udalo sie pobrac detekcji lub statusow:", error);
+      }
+    };
 
-    setDetections((prevDetections) => applyStatusesToDetections(prevDetections, storedStatuses));
-  }, [storedStatuses]);
+    loadInitialDetections();
+  }, [fetchDetectionsAndStatuses]);
 
   useEffect(() => {
     if (!selectedDetection) {
@@ -242,18 +255,7 @@ export default function App() {
         throw new Error(`HTTP ${response.status}`);
       }
 
-      const payload = await response.json();
-      const apiDetections = Array.isArray(payload.detections) ? payload.detections : [];
-      const detectionsWithFallbackStatus = apiDetections.map((detection, index) => ({
-        ...detection,
-        status: DETECTION_STATUSES[index % DETECTION_STATUSES.length],
-      }));
-      const detectionsWithStatus = applyStatusesToDetections(
-        detectionsWithFallbackStatus,
-        storedStatuses
-      );
-
-      setDetections(detectionsWithStatus);
+      const detectionsWithStatus = await fetchDetectionsAndStatuses();
       setSelectedDetection(null);
 
       if (detectionsWithStatus.length === 0) {
