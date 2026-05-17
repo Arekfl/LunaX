@@ -363,9 +363,10 @@ export default function App() {
                     bounds={segment.bounds}
                     pathOptions={{
                       color,
-                      weight: isSelected ? 3 : 1,
+                      weight: isSelected ? 2 : 1,
+                      opacity: isSelected ? 0.8 : isHovered ? 0.55 : 0.32,
                       fillColor: color,
-                      fillOpacity: isSelected ? 0.22 : isHovered ? 0.16 : 0.06,
+                      fillOpacity: isSelected ? 0.14 : isHovered ? 0.08 : 0.04,
                     }}
                     eventHandlers={{
                       mouseover: () => setHoveredSegmentId(segment.id),
@@ -400,10 +401,11 @@ export default function App() {
                     bounds={detectionToBounds(detection)}
                     pathOptions={{
                       color: statusColor,
-                      weight: isSelected ? 4 : 2,
+                      weight: isSelected ? 5 : 3,
+                      opacity: 0.95,
                       fillColor: statusColor,
-                      fillOpacity: isSelected ? 0.32 : 0.1,
-                      dashArray: isSelected ? null : "6 4",
+                      fillOpacity: isSelected ? 0.3 : 0.14,
+                      dashArray: isSelected ? null : "5 4",
                     }}
                     eventHandlers={{
                       click: () => setSelectedDetection(detection),
