@@ -229,7 +229,10 @@ export default function App() {
 
   const handleResetHomeView = useCallback(() => {
     setSelectedSegment(null);
-    setFocusBounds(IMAGE_BOUNDS);
+    setFocusBounds([
+      [0, 0],
+      [IMAGE_HEIGHT, IMAGE_WIDTH],
+    ]);
     setManualCoords({
       xMin: "0",
       yMin: "0",
