@@ -45,3 +45,11 @@ class DetectionStatusUpdateRequest(BaseModel):
 class DetectionStatusUpdateResponse(BaseModel):
     detection_id: str
     status: DetectionStatus
+
+
+class DetectionsQueryParams(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    status: DetectionStatus | None = None
+    class_name: str | None = Field(default=None, alias="class")
+    confidence: float | None = Field(default=None, ge=0, le=1)

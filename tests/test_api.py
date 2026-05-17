@@ -85,3 +85,33 @@ def test_get_detection_statuses_returns_status_mapping(tmp_path, monkeypatch) ->
         "det-1": "to_verify",
         "det-2": "rejected",
     }
+
+
+def test_get_detections_query_filters_with_query_params(tmp_path, monkeypatch) -> None:
+    parquet_file = tmp_path / "detections.parquet"
+    status_file = tmp_path / "detection_statuses.json"
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(parquet_file))
+    monkeypatch.setenv("DETECTION_STATUS_FILE", str(status_file))
+
+    run_response = client.post("/analysis/run", json={"confidence_threshold": 0.0})
+    assert run_response.status_code == 200
+
+    patch_response = client.patch(
+        "/detections/det-2/status", json={"status": "rejected"}
+    )
+    assert patch_response.status_code == 200
+
+    response = client.get(
+        "/detections/query",
+        params={
+            "status": "rejected",
+            "class": "cave_candidate",
+            "confidence": 0.7,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["detection_id"] == "det-2"
+    assert payload[0]["status"] == "rejected"

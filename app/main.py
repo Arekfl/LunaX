@@ -1,6 +1,8 @@
+import logging
+from typing import Annotated
 from uuid import uuid4
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.schemas import (
@@ -8,13 +10,16 @@ from app.schemas import (
     AnalysisRunResponse,
     BBox,
     Detection,
+    DetectionsQueryParams,
     DetectionStatusUpdateRequest,
     DetectionStatusUpdateResponse,
     HealthResponse,
 )
+from app.analytics import query_detections, save_detections_to_parquet
 from app.storage import read_detection_statuses, upsert_detection_status
 
 app = FastAPI(title="LunaX API", version="0.1.0")
+logger = logging.getLogger(__name__)
 
 app.add_middleware(
     CORSMiddleware,
@@ -39,21 +44,21 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
             detection_id="det-1",
             analysis_id=analysis_id,
             confidence=0.93,
-            class_name="cave_candidate",
+            **{"class": "cave_candidate"},
             bbox=BBox(x=124.5, y=210.0, width=53.7, height=53.7),
         ),
         Detection(
             detection_id="det-2",
             analysis_id=analysis_id,
             confidence=0.78,
-            class_name="cave_candidate",
+            **{"class": "cave_candidate"},
             bbox=BBox(x=342.1, y=115.4, width=49.5, height=48.6),
         ),
         Detection(
             detection_id="det-3",
             analysis_id=analysis_id,
             confidence=0.56,
-            class_name="cave_candidate",
+            **{"class": "cave_candidate"},
             bbox=BBox(x=58.0, y=302.3, width=44.4, height=44.5),
         ),
     ]
@@ -63,6 +68,11 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
         for detection in mock_detections
         if detection.confidence >= payload.confidence_threshold
     ]
+
+    try:
+        save_detections_to_parquet(filtered_detections)
+    except Exception as exc:  # pragma: no cover - defensive logging for IO layer
+        logger.warning("Could not persist detections to parquet: %s", exc)
 
     return AnalysisRunResponse(
         analysis_id=analysis_id,
@@ -82,3 +92,14 @@ def update_detection_status(
 @app.get("/detections/statuses", response_model=dict[str, str])
 def get_detection_statuses() -> dict[str, str]:
     return read_detection_statuses()
+
+
+@app.get("/detections/query", response_model=list[dict])
+def get_detections_query(
+    params: Annotated[DetectionsQueryParams, Depends()]
+) -> list[dict]:
+    return query_detections(
+        status=params.status,
+        class_name=params.class_name,
+        min_confidence=params.confidence,
+    )
