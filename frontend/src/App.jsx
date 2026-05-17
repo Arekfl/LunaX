@@ -128,6 +128,7 @@ export default function App() {
   const segments = useMemo(() => buildSegments(), []);
   const [detections, setDetections] = useState([]);
   const [isLoadingDetections, setIsLoadingDetections] = useState(false);
+  const [showBboxes, setShowBboxes] = useState(true);
   const [storedStatuses, setStoredStatuses] = useState({});
   const [statusFilter, setStatusFilter] = useState("to_verify");
   const [hoveredSegmentId, setHoveredSegmentId] = useState(null);
@@ -351,7 +352,7 @@ export default function App() {
                 );
               })}
 
-              {filteredDetections.map((detection) => {
+              {showBboxes && filteredDetections.map((detection) => {
                 const isSelected = selectedDetection?.detection_id === detection.detection_id;
                 const statusColor = getStatusColor(detection.status);
 
@@ -457,6 +458,19 @@ export default function App() {
               <button className="btn btn-outline-secondary w-100 mt-3" onClick={handleGoToManual}>
                 Przejdz
               </button>
+
+              <div className="form-check form-switch mt-3">
+                <input
+                  className="form-check-input"
+                  type="checkbox"
+                  id="toggle-bboxes"
+                  checked={showBboxes}
+                  onChange={(event) => setShowBboxes(event.target.checked)}
+                />
+                <label className="form-check-label" htmlFor="toggle-bboxes">
+                  Pokaz bounding boxy
+                </label>
+              </div>
 
               {chosenMessage && <div className="alert alert-info py-2 mt-3 mb-0">{chosenMessage}</div>}
 
