@@ -33,3 +33,15 @@ class AnalysisRunResponse(BaseModel):
     analysis_id: str
     source: Literal["mock"]
     detections: list[Detection]
+
+
+DetectionStatus = Literal["confirmed", "to_verify", "rejected"]
+
+
+class DetectionStatusUpdateRequest(BaseModel):
+    status: DetectionStatus
+
+
+class DetectionStatusUpdateResponse(BaseModel):
+    detection_id: str
+    status: DetectionStatus

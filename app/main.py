@@ -3,7 +3,16 @@ from uuid import uuid4
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.schemas import AnalysisRunRequest, AnalysisRunResponse, BBox, Detection, HealthResponse
+from app.schemas import (
+    AnalysisRunRequest,
+    AnalysisRunResponse,
+    BBox,
+    Detection,
+    DetectionStatusUpdateRequest,
+    DetectionStatusUpdateResponse,
+    HealthResponse,
+)
+from app.storage import read_detection_statuses, upsert_detection_status
 
 app = FastAPI(title="LunaX API", version="0.1.0")
 
@@ -60,3 +69,16 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
         source="mock",
         detections=filtered_detections,
     )
+
+
+@app.patch("/detections/{id}/status", response_model=DetectionStatusUpdateResponse)
+def update_detection_status(
+    id: str, payload: DetectionStatusUpdateRequest
+) -> DetectionStatusUpdateResponse:
+    upsert_detection_status(detection_id=id, status=payload.status)
+    return DetectionStatusUpdateResponse(detection_id=id, status=payload.status)
+
+
+@app.get("/detections/statuses", response_model=dict[str, str])
+def get_detection_statuses() -> dict[str, str]:
+    return read_detection_statuses()

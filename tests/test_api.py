@@ -1,3 +1,5 @@
+import json
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -49,3 +51,37 @@ def test_analysis_run_returns_mock_detections_with_expected_json_structure() -> 
         assert bbox["y"] >= 0
         assert bbox["width"] > 0
         assert bbox["height"] > 0
+
+
+def test_patch_detection_status_persists_status_by_detection_id(tmp_path, monkeypatch) -> None:
+    status_file = tmp_path / "detection_statuses.json"
+    monkeypatch.setenv("DETECTION_STATUS_FILE", str(status_file))
+
+    response = client.patch("/detections/det-42/status", json={"status": "confirmed"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "detection_id": "det-42",
+        "status": "confirmed",
+    }
+
+    with status_file.open("r", encoding="utf-8") as file_handle:
+        payload = json.load(file_handle)
+
+    assert payload["det-42"] == "confirmed"
+
+
+def test_get_detection_statuses_returns_status_mapping(tmp_path, monkeypatch) -> None:
+    status_file = tmp_path / "detection_statuses.json"
+    monkeypatch.setenv("DETECTION_STATUS_FILE", str(status_file))
+
+    client.patch("/detections/det-1/status", json={"status": "to_verify"})
+    client.patch("/detections/det-2/status", json={"status": "rejected"})
+
+    response = client.get("/detections/statuses")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "det-1": "to_verify",
+        "det-2": "rejected",
+    }

@@ -11,6 +11,7 @@ const IMAGE_HEIGHT = IMAGE_BOUNDS[1][0];
 const IMAGE_WIDTH = IMAGE_BOUNDS[1][1];
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 const DETECTION_STATUSES = ["confirmed", "to_verify", "rejected"];
+const DEFAULT_DETECTION_STATUS = "to_verify";
 
 const GRID_SIZE = 4;
 const CELL_HEIGHT = IMAGE_HEIGHT / GRID_SIZE;
@@ -52,6 +53,13 @@ function detectionToBounds(detection) {
     [y, x],
     [y + height, x + width],
   ];
+}
+
+function applyStatusesToDetections(detectionList, statusMap) {
+  return detectionList.map((detection) => ({
+    ...detection,
+    status: statusMap[detection.detection_id] ?? detection.status ?? DEFAULT_DETECTION_STATUS,
+  }));
 }
 
 function FitBoundsOnChange({ bounds }) {
@@ -103,6 +111,7 @@ export default function App() {
   const segments = useMemo(() => buildSegments(), []);
   const [detections, setDetections] = useState([]);
   const [isLoadingDetections, setIsLoadingDetections] = useState(false);
+  const [storedStatuses, setStoredStatuses] = useState({});
   const [statusFilter, setStatusFilter] = useState("to_verify");
   const [hoveredSegmentId, setHoveredSegmentId] = useState(null);
   const [selectedSegment, setSelectedSegment] = useState(null);
@@ -122,6 +131,34 @@ export default function App() {
     () => detections.filter((detection) => detection.status === statusFilter),
     [detections, statusFilter]
   );
+
+  useEffect(() => {
+    const fetchStoredStatuses = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/detections/statuses`);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const payload = await response.json();
+        if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+          setStoredStatuses(payload);
+        }
+      } catch (error) {
+        console.warn("Nie udalo sie pobrac zapisanych statusow detekcji:", error);
+      }
+    };
+
+    fetchStoredStatuses();
+  }, []);
+
+  useEffect(() => {
+    if (Object.keys(storedStatuses).length === 0) {
+      return;
+    }
+
+    setDetections((prevDetections) => applyStatusesToDetections(prevDetections, storedStatuses));
+  }, [storedStatuses]);
 
   useEffect(() => {
     if (!selectedDetection) {
@@ -189,10 +226,14 @@ export default function App() {
 
       const payload = await response.json();
       const apiDetections = Array.isArray(payload.detections) ? payload.detections : [];
-      const detectionsWithStatus = apiDetections.map((detection, index) => ({
+      const detectionsWithFallbackStatus = apiDetections.map((detection, index) => ({
         ...detection,
         status: DETECTION_STATUSES[index % DETECTION_STATUSES.length],
       }));
+      const detectionsWithStatus = applyStatusesToDetections(
+        detectionsWithFallbackStatus,
+        storedStatuses
+      );
 
       setDetections(detectionsWithStatus);
       setSelectedDetection(null);
