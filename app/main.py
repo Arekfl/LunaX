@@ -14,35 +14,40 @@ def get_health() -> HealthResponse:
 
 @app.post("/analysis/run", response_model=AnalysisRunResponse)
 def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
+    analysis_id = str(uuid4())
+
     mock_detections = [
         Detection(
-            id="det-1",
-            label="cave_candidate",
-            score=0.93,
-            bbox=BBox(x_min=124.5, y_min=210.0, x_max=178.2, y_max=263.7),
+            detection_id="det-1",
+            analysis_id=analysis_id,
+            confidence=0.93,
+            class_name="cave_candidate",
+            bbox=BBox(x=124.5, y=210.0, width=53.7, height=53.7),
         ),
         Detection(
-            id="det-2",
-            label="cave_candidate",
-            score=0.78,
-            bbox=BBox(x_min=342.1, y_min=115.4, x_max=391.6, y_max=164.0),
+            detection_id="det-2",
+            analysis_id=analysis_id,
+            confidence=0.78,
+            class_name="cave_candidate",
+            bbox=BBox(x=342.1, y=115.4, width=49.5, height=48.6),
         ),
         Detection(
-            id="det-3",
-            label="cave_candidate",
-            score=0.56,
-            bbox=BBox(x_min=58.0, y_min=302.3, x_max=102.4, y_max=346.8),
+            detection_id="det-3",
+            analysis_id=analysis_id,
+            confidence=0.56,
+            class_name="cave_candidate",
+            bbox=BBox(x=58.0, y=302.3, width=44.4, height=44.5),
         ),
     ]
 
     filtered_detections = [
         detection
         for detection in mock_detections
-        if detection.score >= payload.confidence_threshold
+        if detection.confidence >= payload.confidence_threshold
     ]
 
     return AnalysisRunResponse(
-        analysis_id=str(uuid4()),
+        analysis_id=analysis_id,
         source="mock",
         detections=filtered_detections,
     )

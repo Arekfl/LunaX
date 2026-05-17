@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class HealthResponse(BaseModel):
@@ -8,17 +8,20 @@ class HealthResponse(BaseModel):
 
 
 class BBox(BaseModel):
-    x_min: float = Field(..., ge=0)
-    y_min: float = Field(..., ge=0)
-    x_max: float = Field(..., ge=0)
-    y_max: float = Field(..., ge=0)
+    x: float = Field(..., ge=0)
+    y: float = Field(..., ge=0)
+    width: float = Field(..., gt=0)
+    height: float = Field(..., gt=0)
 
 
 class Detection(BaseModel):
-    id: str
-    label: str
-    score: float = Field(..., ge=0, le=1)
+    model_config = ConfigDict(populate_by_name=True)
+
+    detection_id: str
+    analysis_id: str
     bbox: BBox
+    confidence: float = Field(..., ge=0, le=1)
+    class_name: str = Field(alias="class")
 
 
 class AnalysisRunRequest(BaseModel):
