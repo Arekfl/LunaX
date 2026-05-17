@@ -64,6 +64,23 @@ function detectionToBounds(detection) {
   ];
 }
 
+function getDetectionUniqueId(detection) {
+  const { analysis_id: analysisId, detection_id: detectionId, bbox } = detection;
+  return [analysisId ?? "no-analysis", detectionId, bbox.x, bbox.y, bbox.width, bbox.height].join("|");
+}
+
+function isSameDetection(leftDetection, rightDetection) {
+  if (!leftDetection || !rightDetection) {
+    return false;
+  }
+
+  return getDetectionUniqueId(leftDetection) === getDetectionUniqueId(rightDetection);
+}
+
+function resolveDetectionStatus(detection, statusMap) {
+  return statusMap[detection.detection_id] ?? detection.status ?? DEFAULT_DETECTION_STATUS;
+}
+
 function applyStatusesToDetections(detectionList, statusMap) {
   return detectionList.map((detection) => ({
     ...detection,
@@ -145,10 +162,14 @@ export default function App() {
 
   const selectedCoords = selectedSegment ? boundsToCoords(selectedSegment.bounds) : null;
 
-  const filteredDetections = useMemo(
-    () => detections.filter((detection) => detection.status === statusFilter),
-    [detections, statusFilter]
-  );
+  const filteredDetections = useMemo(() => {
+    return detections
+      .map((detection) => ({
+        ...detection,
+        status: resolveDetectionStatus(detection, storedStatuses),
+      }))
+      .filter((detection) => detection.status === statusFilter);
+  }, [detections, statusFilter, storedStatuses]);
 
   const fetchDetectionsAndStatuses = useCallback(async () => {
     const [detectionsResponse, statusesResponse] = await Promise.all([
@@ -198,7 +219,7 @@ export default function App() {
     }
 
     const isSelectedVisible = filteredDetections.some(
-      (detection) => detection.detection_id === selectedDetection.detection_id
+      (detection) => isSameDetection(detection, selectedDetection)
     );
 
     if (!isSelectedVisible) {
@@ -354,7 +375,7 @@ export default function App() {
 
               {selectedDetection && (
                 <Rectangle
-                  key={`overlay-${selectedDetection.detection_id}`}
+                  key={`overlay-${getDetectionUniqueId(selectedDetection)}`}
                   bounds={detectionToBounds(selectedDetection)}
                   pathOptions={{
                     color: "#fd7e14",
@@ -367,12 +388,12 @@ export default function App() {
               )}
 
               {showBboxes && filteredDetections.map((detection) => {
-                const isSelected = selectedDetection?.detection_id === detection.detection_id;
+                const isSelected = isSameDetection(selectedDetection, detection);
                 const statusColor = getStatusColor(detection.status);
 
                 return (
                   <Rectangle
-                    key={detection.detection_id}
+                    key={getDetectionUniqueId(detection)}
                     bounds={detectionToBounds(detection)}
                     pathOptions={{
                       color: statusColor,
@@ -515,38 +536,39 @@ export default function App() {
                 </button>
               </div>
 
-              {detections.length === 0 ? (
-                <div className="small text-muted">Brak detekcji. Kliknij "Wybierz obszar".</div>
-              ) : filteredDetections.length === 0 ? (
-                <div className="small text-muted">Brak detekcji dla statusu: {statusFilter}.</div>
-              ) : (
-                <div className="list-group">
-                  {filteredDetections.map((detection) => {
-                    const isSelected =
-                      selectedDetection?.detection_id === detection.detection_id;
-                    const statusBadgeClass = getStatusBadgeClass(detection.status);
+              <div className="detection-list-scroll">
+                {detections.length === 0 ? (
+                  <div className="small text-muted">Brak detekcji. Kliknij "Wybierz obszar".</div>
+                ) : filteredDetections.length === 0 ? (
+                  <div className="small text-muted">Brak detekcji dla statusu: {statusFilter}.</div>
+                ) : (
+                  <div className="list-group">
+                    {filteredDetections.map((detection) => {
+                      const isSelected = isSameDetection(selectedDetection, detection);
+                      const statusBadgeClass = getStatusBadgeClass(detection.status);
 
-                    return (
-                      <button
-                        key={detection.detection_id}
-                        type="button"
-                        onClick={() => setSelectedDetection(detection)}
-                        className={`list-group-item list-group-item-action text-start ${
-                          isSelected ? "bg-primary-subtle border-primary" : ""
-                        }`}
-                      >
-                        <div><strong>{detection.detection_id}</strong></div>
-                        <div className="small mt-1">
-                          <span className={`badge ${statusBadgeClass}`}>{detection.status}</span>
-                        </div>
-                        <div className="small text-muted">
-                          confidence: {Number(detection.confidence).toFixed(2)}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+                      return (
+                        <button
+                          key={getDetectionUniqueId(detection)}
+                          type="button"
+                          onClick={() => setSelectedDetection(detection)}
+                          className={`list-group-item list-group-item-action text-start ${
+                            isSelected ? "bg-primary-subtle border-primary" : ""
+                          }`}
+                        >
+                          <div><strong>{detection.detection_id}</strong></div>
+                          <div className="small mt-1">
+                            <span className={`badge ${statusBadgeClass}`}>{detection.status}</span>
+                          </div>
+                          <div className="small text-muted">
+                            confidence: {Number(detection.confidence).toFixed(2)}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

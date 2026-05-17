@@ -28,3 +28,9 @@ body {
   line-height: 26px;
   text-align: center;
 }
+
+.detection-list-scroll {
+  max-height: clamp(260px, 48vh, 520px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
