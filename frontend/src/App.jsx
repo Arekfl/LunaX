@@ -352,6 +352,20 @@ export default function App() {
                 );
               })}
 
+              {selectedDetection && (
+                <Rectangle
+                  key={`overlay-${selectedDetection.detection_id}`}
+                  bounds={detectionToBounds(selectedDetection)}
+                  pathOptions={{
+                    color: "#fd7e14",
+                    weight: 0,
+                    fillColor: "#fd7e14",
+                    fillOpacity: 0.28,
+                    interactive: false,
+                  }}
+                />
+              )}
+
               {showBboxes && filteredDetections.map((detection) => {
                 const isSelected = selectedDetection?.detection_id === detection.detection_id;
                 const statusColor = getStatusColor(detection.status);
