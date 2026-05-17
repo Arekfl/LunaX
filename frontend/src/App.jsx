@@ -88,6 +88,12 @@ function applyStatusesToDetections(detectionList, statusMap) {
   }));
 }
 
+function buildCommentDrafts(detectionList) {
+  return Object.fromEntries(
+    detectionList.map((detection) => [detection.detection_id, detection.comment ?? ""])
+  );
+}
+
 function getStatusColor(status) {
   return STATUS_COLOR_MAP[status] ?? STATUS_COLOR_MAP[DEFAULT_DETECTION_STATUS];
 }
@@ -152,6 +158,8 @@ export default function App() {
   const [selectedSegment, setSelectedSegment] = useState(null);
   const [selectedDetection, setSelectedDetection] = useState(null);
   const [hoveredDetectionId, setHoveredDetectionId] = useState(null);
+  const [commentDrafts, setCommentDrafts] = useState({});
+  const [savingCommentById, setSavingCommentById] = useState({});
   const [focusBounds, setFocusBounds] = useState(IMAGE_BOUNDS);
   const [chosenMessage, setChosenMessage] = useState("");
   const [manualCoords, setManualCoords] = useState({
@@ -198,6 +206,7 @@ export default function App() {
 
     const mergedDetections = applyStatusesToDetections(queriedDetections, statusMap);
     setDetections(mergedDetections);
+    setCommentDrafts(buildCommentDrafts(mergedDetections));
 
     return mergedDetections;
   }, []);
@@ -349,6 +358,52 @@ export default function App() {
     });
     setFocusBounds(manualBounds);
     setChosenMessage("Przejscie do recznie wskazanego obszaru.");
+  };
+
+  const handleSaveComment = async (detectionId) => {
+    const currentComment = commentDrafts[detectionId] ?? "";
+
+    setSavingCommentById((prev) => ({
+      ...prev,
+      [detectionId]: true,
+    }));
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/detections/${detectionId}/comment`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ comment: currentComment }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const payload = await response.json();
+
+      setDetections((prev) =>
+        prev.map((detection) =>
+          detection.detection_id === detectionId
+            ? { ...detection, comment: payload.comment }
+            : detection
+        )
+      );
+      setCommentDrafts((prev) => ({
+        ...prev,
+        [detectionId]: payload.comment,
+      }));
+      setChosenMessage("Komentarz zapisany.");
+    } catch (error) {
+      console.error("Blad podczas zapisu komentarza:", error);
+      setChosenMessage("Nie udalo sie zapisac komentarza.");
+    } finally {
+      setSavingCommentById((prev) => ({
+        ...prev,
+        [detectionId]: false,
+      }));
+    }
   };
 
   return (
@@ -572,12 +627,11 @@ export default function App() {
                       const isSelected = isSameDetection(selectedDetection, detection);
                       const isHovered = hoveredDetectionId === detectionUniqueId;
                       const statusBadgeClass = getStatusBadgeClass(detection.status);
+                      const isSavingComment = Boolean(savingCommentById[detection.detection_id]);
 
                       return (
-                        <button
+                        <div
                           key={detectionUniqueId}
-                          type="button"
-                          onClick={() => setSelectedDetection(detection)}
                           onMouseEnter={() => setHoveredDetectionId(detectionUniqueId)}
                           onMouseLeave={() => setHoveredDetectionId(null)}
                           className={`list-group-item list-group-item-action text-start ${
@@ -592,14 +646,43 @@ export default function App() {
                               : undefined
                           }
                         >
-                          <div><strong>{detection.detection_id}</strong></div>
-                          <div className="small mt-1">
-                            <span className={`badge ${statusBadgeClass}`}>{detection.status}</span>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedDetection(detection)}
+                            className="btn btn-link text-decoration-none text-reset p-0 w-100 text-start"
+                          >
+                            <div><strong>{detection.detection_id}</strong></div>
+                            <div className="small mt-1">
+                              <span className={`badge ${statusBadgeClass}`}>{detection.status}</span>
+                            </div>
+                            <div className="small text-muted">
+                              confidence: {Number(detection.confidence).toFixed(2)}
+                            </div>
+                          </button>
+
+                          <div className="d-flex gap-2 mt-2">
+                            <input
+                              className="form-control form-control-sm"
+                              type="text"
+                              placeholder="Dodaj komentarz"
+                              value={commentDrafts[detection.detection_id] ?? detection.comment ?? ""}
+                              onChange={(event) =>
+                                setCommentDrafts((prev) => ({
+                                  ...prev,
+                                  [detection.detection_id]: event.target.value,
+                                }))
+                              }
+                            />
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-outline-primary"
+                              onClick={() => handleSaveComment(detection.detection_id)}
+                              disabled={isSavingComment}
+                            >
+                              {isSavingComment ? "Zapis..." : "Zapisz"}
+                            </button>
                           </div>
-                          <div className="small text-muted">
-                            confidence: {Number(detection.confidence).toFixed(2)}
-                          </div>
-                        </button>
+                        </div>
                       );
                     })}
                   </div>
