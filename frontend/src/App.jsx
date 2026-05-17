@@ -9,6 +9,7 @@ const IMAGE_BOUNDS = [
 
 const IMAGE_HEIGHT = IMAGE_BOUNDS[1][0];
 const IMAGE_WIDTH = IMAGE_BOUNDS[1][1];
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 const GRID_SIZE = 4;
 const CELL_HEIGHT = IMAGE_HEIGHT / GRID_SIZE;
@@ -99,26 +100,8 @@ function HomeControl({ onHomeClick }) {
 
 export default function App() {
   const segments = useMemo(() => buildSegments(), []);
-  const detections = useMemo(
-    () => [
-      {
-        detection_id: "det-001",
-        confidence: 0.93,
-        bbox: { x: 420, y: 240, width: 170, height: 130 },
-      },
-      {
-        detection_id: "det-002",
-        confidence: 0.81,
-        bbox: { x: 980, y: 390, width: 210, height: 160 },
-      },
-      {
-        detection_id: "det-003",
-        confidence: 0.67,
-        bbox: { x: 1410, y: 610, width: 160, height: 120 },
-      },
-    ],
-    []
-  );
+  const [detections, setDetections] = useState([]);
+  const [isLoadingDetections, setIsLoadingDetections] = useState(false);
   const [hoveredSegmentId, setHoveredSegmentId] = useState(null);
   const [selectedSegment, setSelectedSegment] = useState(null);
   const [selectedDetection, setSelectedDetection] = useState(null);
@@ -159,18 +142,50 @@ export default function App() {
     });
   };
 
-  const handleChooseArea = () => {
+  const handleChooseArea = async () => {
     if (!selectedSegment) {
       setChosenMessage("Najpierw wybierz segment na mapie lub wpisz wspolrzedne.");
       return;
     }
 
-    if (selectedSegment.id === "manual") {
-      setChosenMessage("Wybrano obszar recznie.");
-      return;
-    }
+    setIsLoadingDetections(true);
 
-    setChosenMessage(`Wybrano ${selectedSegment.id}.`);
+    try {
+      const response = await fetch(`${API_BASE_URL}/analysis/run`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          region_id: selectedSegment.id,
+          confidence_threshold: 0.5,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const payload = await response.json();
+      const apiDetections = Array.isArray(payload.detections) ? payload.detections : [];
+
+      setDetections(apiDetections);
+      setSelectedDetection(null);
+
+      if (apiDetections.length === 0) {
+        setChosenMessage("Analiza zakonczona. Brak detekcji dla wybranego obszaru.");
+        return;
+      }
+
+      setChosenMessage(`Analiza zakonczona. Pobrano ${apiDetections.length} detekcji.`);
+    } catch (error) {
+      console.error("Blad podczas pobierania detekcji:", error);
+      setChosenMessage("Nie udalo sie pobrac detekcji z backendu FastAPI.");
+      setDetections([]);
+      setSelectedDetection(null);
+    } finally {
+      setIsLoadingDetections(false);
+    }
   };
 
   const handleGoToManual = () => {
@@ -294,7 +309,7 @@ export default function App() {
               )}
 
               <button className="btn btn-primary w-100 mb-3" onClick={handleChooseArea}>
-                Wybierz obszar
+                {isLoadingDetections ? "Analizowanie..." : "Wybierz obszar"}
               </button>
 
               <div className="small text-muted mb-2">Przejdz do wspolrzednych</div>
@@ -358,28 +373,32 @@ export default function App() {
               <hr className="my-4" />
               <h6 className="mb-3">Detekcje</h6>
 
-              <div className="list-group">
-                {detections.map((detection) => {
-                  const isSelected =
-                    selectedDetection?.detection_id === detection.detection_id;
+              {detections.length === 0 ? (
+                <div className="small text-muted">Brak detekcji. Kliknij "Wybierz obszar".</div>
+              ) : (
+                <div className="list-group">
+                  {detections.map((detection) => {
+                    const isSelected =
+                      selectedDetection?.detection_id === detection.detection_id;
 
-                  return (
-                    <button
-                      key={detection.detection_id}
-                      type="button"
-                      onClick={() => setSelectedDetection(detection)}
-                      className={`list-group-item list-group-item-action text-start ${
-                        isSelected ? "bg-primary-subtle border-primary" : ""
-                      }`}
-                    >
-                      <div><strong>{detection.detection_id}</strong></div>
-                      <div className="small text-muted">
-                        confidence: {detection.confidence.toFixed(2)}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+                    return (
+                      <button
+                        key={detection.detection_id}
+                        type="button"
+                        onClick={() => setSelectedDetection(detection)}
+                        className={`list-group-item list-group-item-action text-start ${
+                          isSelected ? "bg-primary-subtle border-primary" : ""
+                        }`}
+                      >
+                        <div><strong>{detection.detection_id}</strong></div>
+                        <div className="small text-muted">
+                          confidence: {Number(detection.confidence).toFixed(2)}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>
