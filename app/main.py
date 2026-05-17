@@ -5,6 +5,7 @@ from uuid import uuid4
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from ai.adapter import run_inference
 from app.schemas import (
     AnalysisRunRequest,
     AnalysisRunResponse,
@@ -39,28 +40,17 @@ def get_health() -> HealthResponse:
 def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
     analysis_id = str(uuid4())
 
+    adapter_detections = run_inference(image=payload.region_id)
+
     mock_detections = [
         Detection(
-            detection_id="det-1",
+            detection_id=detection["detection_id"],
             analysis_id=analysis_id,
-            confidence=0.93,
-            **{"class": "cave_candidate"},
-            bbox=BBox(x=124.5, y=210.0, width=53.7, height=53.7),
-        ),
-        Detection(
-            detection_id="det-2",
-            analysis_id=analysis_id,
-            confidence=0.78,
-            **{"class": "cave_candidate"},
-            bbox=BBox(x=342.1, y=115.4, width=49.5, height=48.6),
-        ),
-        Detection(
-            detection_id="det-3",
-            analysis_id=analysis_id,
-            confidence=0.56,
-            **{"class": "cave_candidate"},
-            bbox=BBox(x=58.0, y=302.3, width=44.4, height=44.5),
-        ),
+            confidence=detection["confidence"],
+            **{"class": detection["class"]},
+            bbox=BBox(**detection["bbox"]),
+        )
+        for detection in adapter_detections
     ]
 
     filtered_detections = [
