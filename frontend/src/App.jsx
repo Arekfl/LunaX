@@ -44,6 +44,14 @@ function boundsToCoords(bounds) {
   return { xMin, yMin, xMax, yMax };
 }
 
+function detectionToBounds(detection) {
+  const { x, y, width, height } = detection.bbox;
+  return [
+    [y, x],
+    [y + height, x + width],
+  ];
+}
+
 function FitBoundsOnChange({ bounds }) {
   const map = useMap();
 
@@ -91,8 +99,29 @@ function HomeControl({ onHomeClick }) {
 
 export default function App() {
   const segments = useMemo(() => buildSegments(), []);
+  const detections = useMemo(
+    () => [
+      {
+        detection_id: "det-001",
+        confidence: 0.93,
+        bbox: { x: 420, y: 240, width: 170, height: 130 },
+      },
+      {
+        detection_id: "det-002",
+        confidence: 0.81,
+        bbox: { x: 980, y: 390, width: 210, height: 160 },
+      },
+      {
+        detection_id: "det-003",
+        confidence: 0.67,
+        bbox: { x: 1410, y: 610, width: 160, height: 120 },
+      },
+    ],
+    []
+  );
   const [hoveredSegmentId, setHoveredSegmentId] = useState(null);
   const [selectedSegment, setSelectedSegment] = useState(null);
+  const [selectedDetection, setSelectedDetection] = useState(null);
   const [focusBounds, setFocusBounds] = useState(IMAGE_BOUNDS);
   const [chosenMessage, setChosenMessage] = useState("");
   const [manualCoords, setManualCoords] = useState({
@@ -220,6 +249,24 @@ export default function App() {
                   />
                 );
               })}
+
+              {detections.map((detection) => {
+                const isSelected = selectedDetection?.detection_id === detection.detection_id;
+
+                return (
+                  <Rectangle
+                    key={detection.detection_id}
+                    bounds={detectionToBounds(detection)}
+                    pathOptions={{
+                      color: isSelected ? "#ffc107" : "#20c997",
+                      weight: isSelected ? 3 : 1,
+                      fillColor: isSelected ? "#ffc107" : "#20c997",
+                      fillOpacity: isSelected ? 0.28 : 0.08,
+                      dashArray: isSelected ? null : "4 4",
+                    }}
+                  />
+                );
+              })}
             </MapContainer>
           </div>
         </div>
@@ -307,6 +354,32 @@ export default function App() {
               </button>
 
               {chosenMessage && <div className="alert alert-info py-2 mt-3 mb-0">{chosenMessage}</div>}
+
+              <hr className="my-4" />
+              <h6 className="mb-3">Detekcje</h6>
+
+              <div className="list-group">
+                {detections.map((detection) => {
+                  const isSelected =
+                    selectedDetection?.detection_id === detection.detection_id;
+
+                  return (
+                    <button
+                      key={detection.detection_id}
+                      type="button"
+                      onClick={() => setSelectedDetection(detection)}
+                      className={`list-group-item list-group-item-action text-start ${
+                        isSelected ? "bg-primary-subtle border-primary" : ""
+                      }`}
+                    >
+                      <div><strong>{detection.detection_id}</strong></div>
+                      <div className="small text-muted">
+                        confidence: {detection.confidence.toFixed(2)}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
