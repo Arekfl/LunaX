@@ -88,12 +88,6 @@ function applyStatusesToDetections(detectionList, statusMap) {
   }));
 }
 
-function buildCommentDrafts(detectionList) {
-  return Object.fromEntries(
-    detectionList.map((detection) => [detection.detection_id, detection.comment ?? ""])
-  );
-}
-
 function getStatusColor(status) {
   return STATUS_COLOR_MAP[status] ?? STATUS_COLOR_MAP[DEFAULT_DETECTION_STATUS];
 }
@@ -158,8 +152,8 @@ export default function App() {
   const [selectedSegment, setSelectedSegment] = useState(null);
   const [selectedDetection, setSelectedDetection] = useState(null);
   const [hoveredDetectionId, setHoveredDetectionId] = useState(null);
-  const [commentDrafts, setCommentDrafts] = useState({});
-  const [savingCommentById, setSavingCommentById] = useState({});
+  const [inputComment, setInputComment] = useState("");
+  const [editingDetectionId, setEditingDetectionId] = useState(null);
   const [focusBounds, setFocusBounds] = useState(IMAGE_BOUNDS);
   const [chosenMessage, setChosenMessage] = useState("");
   const [manualCoords, setManualCoords] = useState({
@@ -206,7 +200,6 @@ export default function App() {
 
     const mergedDetections = applyStatusesToDetections(queriedDetections, statusMap);
     setDetections(mergedDetections);
-    setCommentDrafts(buildCommentDrafts(mergedDetections));
 
     return mergedDetections;
   }, []);
@@ -250,6 +243,21 @@ export default function App() {
       setHoveredDetectionId(null);
     }
   }, [filteredDetections, hoveredDetectionId]);
+
+  useEffect(() => {
+    if (!editingDetectionId) {
+      return;
+    }
+
+    const isEditingVisible = filteredDetections.some(
+      (detection) => detection.detection_id === editingDetectionId
+    );
+
+    if (!isEditingVisible) {
+      setEditingDetectionId(null);
+      setInputComment("");
+    }
+  }, [filteredDetections, editingDetectionId]);
 
   const handleResetHomeView = useCallback(() => {
     setSelectedSegment(null);
@@ -360,16 +368,23 @@ export default function App() {
     setChosenMessage("Przejscie do recznie wskazanego obszaru.");
   };
 
-  const handleSaveComment = async (detectionId) => {
-    const currentComment = commentDrafts[detectionId] ?? "";
+  const handleStartEditComment = (detection) => {
+    setSelectedDetection(detection);
+    setEditingDetectionId(detection.detection_id);
+    setInputComment(detection.comment ?? "");
+  };
 
-    setSavingCommentById((prev) => ({
-      ...prev,
-      [detectionId]: true,
-    }));
+  const handleSaveComment = async (detectionId) => {
+    const targetDetectionId = editingDetectionId ?? detectionId;
+    const currentComment = inputComment;
+
+    if (!editingDetectionId && currentComment.trim().length === 0) {
+      setChosenMessage("Wpisz komentarz przed zapisem.");
+      return;
+    }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/detections/${detectionId}/comment`, {
+      const response = await fetch(`${API_BASE_URL}/detections/${targetDetectionId}/comment`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -385,24 +400,52 @@ export default function App() {
 
       setDetections((prev) =>
         prev.map((detection) =>
-          detection.detection_id === detectionId
+          detection.detection_id === targetDetectionId
             ? { ...detection, comment: payload.comment }
             : detection
         )
       );
-      setCommentDrafts((prev) => ({
-        ...prev,
-        [detectionId]: payload.comment,
-      }));
-      setChosenMessage("Komentarz zapisany.");
+
+      setInputComment("");
+      setEditingDetectionId(null);
+      setChosenMessage(editingDetectionId ? "Komentarz zaktualizowany." : "Komentarz zapisany.");
     } catch (error) {
       console.error("Blad podczas zapisu komentarza:", error);
       setChosenMessage("Nie udalo sie zapisac komentarza.");
-    } finally {
-      setSavingCommentById((prev) => ({
-        ...prev,
-        [detectionId]: false,
-      }));
+    }
+  };
+
+  const handleDeleteComment = async (detectionId) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/detections/${detectionId}/comment`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ comment: "" }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      setDetections((prev) =>
+        prev.map((detection) =>
+          detection.detection_id === detectionId
+            ? { ...detection, comment: "" }
+            : detection
+        )
+      );
+
+      if (editingDetectionId === detectionId) {
+        setEditingDetectionId(null);
+        setInputComment("");
+      }
+
+      setChosenMessage("Komentarz usuniety.");
+    } catch (error) {
+      console.error("Blad podczas usuwania komentarza:", error);
+      setChosenMessage("Nie udalo sie usunac komentarza.");
     }
   };
 
@@ -627,7 +670,10 @@ export default function App() {
                       const isSelected = isSameDetection(selectedDetection, detection);
                       const isHovered = hoveredDetectionId === detectionUniqueId;
                       const statusBadgeClass = getStatusBadgeClass(detection.status);
-                      const isSavingComment = Boolean(savingCommentById[detection.detection_id]);
+                      const commentText = (detection.comment ?? "").trim();
+                      const hasComment = commentText.length > 0;
+                      const isEditingThis = editingDetectionId === detection.detection_id;
+                      const isInputVisible = isEditingThis || (!hasComment && isSelected);
 
                       return (
                         <div
@@ -660,28 +706,96 @@ export default function App() {
                             </div>
                           </button>
 
-                          <div className="d-flex gap-2 mt-2">
-                            <input
-                              className="form-control form-control-sm"
-                              type="text"
-                              placeholder="Dodaj komentarz"
-                              value={commentDrafts[detection.detection_id] ?? detection.comment ?? ""}
-                              onChange={(event) =>
-                                setCommentDrafts((prev) => ({
-                                  ...prev,
-                                  [detection.detection_id]: event.target.value,
-                                }))
-                              }
-                            />
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-outline-primary"
-                              onClick={() => handleSaveComment(detection.detection_id)}
-                              disabled={isSavingComment}
-                            >
-                              {isSavingComment ? "Zapis..." : "Zapisz"}
-                            </button>
+                          {hasComment && (
+                            <div className="small border rounded bg-light px-2 py-1 mt-2 d-flex align-items-start justify-content-between gap-2">
+                              <div className="flex-grow-1">
+                                <strong>Komentarz:</strong> {commentText}
+                              </div>
+                              <div className="d-flex gap-1">
+                                {!isEditingThis && (
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm btn-outline-secondary px-2 py-0"
+                                    onClick={() => handleStartEditComment(detection)}
+                                    title="Edytuj komentarz"
+                                    aria-label="Edytuj komentarz"
+                                  >
+                                    <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
+                                      <path
+                                        fill="currentColor"
+                                        d="M12.854 1.146a.5.5 0 0 1 0 .708L6.207 8.5H4v-2.207l6.646-6.647a.5.5 0 0 1 .708 0l1.5 1.5zm-8.354 8.354L10.646 3.354l2 2L6.5 11.5H4.5v-2zM2 13h12v1H2v-1z"
+                                      />
+                                    </svg>
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-outline-danger px-2 py-0"
+                                  onClick={() => handleDeleteComment(detection.detection_id)}
+                                  title="Usun komentarz"
+                                  aria-label="Usun komentarz"
+                                >
+                                  <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
+                                    <path
+                                      fill="currentColor"
+                                      d="M5.5 5.5a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm5 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6zM1 3.5A.5.5 0 0 1 1.5 3H4V2a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v1h2.5a.5.5 0 0 1 0 1h-.538l-.853 10.66A1 1 0 0 1 12.112 15H3.888a1 1 0 0 1-.997-.84L2.038 4.5H1.5a.5.5 0 0 1-.5-.5zM5 2v1h6V2H5z"
+                                    />
+                                  </svg>
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="d-flex gap-2 mt-2 flex-wrap">
+                            {hasComment ? (
+                              null
+                            ) : (
+                              !isInputVisible && (
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-outline-primary"
+                                  onClick={() => {
+                                    setSelectedDetection(detection);
+                                    setEditingDetectionId(null);
+                                    setInputComment("");
+                                  }}
+                                >
+                                  Dodaj komentarz
+                                </button>
+                              )
+                            )}
                           </div>
+
+                          {isInputVisible && (
+                            <div className="d-flex gap-2 mt-2">
+                              <input
+                                className="form-control form-control-sm"
+                                type="text"
+                                placeholder="Wpisz komentarz"
+                                value={inputComment}
+                                onChange={(event) => setInputComment(event.target.value)}
+                              />
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline-primary"
+                                onClick={() => handleSaveComment(detection.detection_id)}
+                              >
+                                {isEditingThis ? "Zapisz zmiany" : "Zapisz"}
+                              </button>
+                              {isEditingThis && (
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-outline-secondary"
+                                  onClick={() => {
+                                    setEditingDetectionId(null);
+                                    setInputComment("");
+                                  }}
+                                >
+                                  Anuluj
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
