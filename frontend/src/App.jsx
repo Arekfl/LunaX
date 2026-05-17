@@ -534,7 +534,7 @@ export default function App() {
               {chosenMessage && <div className="alert alert-info py-2 mt-3 mb-0">{chosenMessage}</div>}
 
               <hr className="my-4" />
-              <h6 className="mb-3">Detekcje</h6>
+              <h6 className="mb-3">Detekcje ({filteredDetections.length})</h6>
 
               <div className="btn-group btn-group-sm w-100 mb-3" role="group" aria-label="Filtr statusu detekcji">
                 <button
