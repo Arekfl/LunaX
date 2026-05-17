@@ -151,6 +151,7 @@ export default function App() {
   const [hoveredSegmentId, setHoveredSegmentId] = useState(null);
   const [selectedSegment, setSelectedSegment] = useState(null);
   const [selectedDetection, setSelectedDetection] = useState(null);
+  const [hoveredDetectionId, setHoveredDetectionId] = useState(null);
   const [focusBounds, setFocusBounds] = useState(IMAGE_BOUNDS);
   const [chosenMessage, setChosenMessage] = useState("");
   const [manualCoords, setManualCoords] = useState({
@@ -226,6 +227,20 @@ export default function App() {
       setSelectedDetection(null);
     }
   }, [filteredDetections, selectedDetection]);
+
+  useEffect(() => {
+    if (!hoveredDetectionId) {
+      return;
+    }
+
+    const isHoveredVisible = filteredDetections.some(
+      (detection) => getDetectionUniqueId(detection) === hoveredDetectionId
+    );
+
+    if (!isHoveredVisible) {
+      setHoveredDetectionId(null);
+    }
+  }, [filteredDetections, hoveredDetectionId]);
 
   const handleResetHomeView = useCallback(() => {
     setSelectedSegment(null);
@@ -392,22 +407,26 @@ export default function App() {
               )}
 
               {showBboxes && filteredDetections.map((detection) => {
+                const detectionUniqueId = getDetectionUniqueId(detection);
                 const isSelected = isSameDetection(selectedDetection, detection);
+                const isHovered = hoveredDetectionId === detectionUniqueId;
                 const statusColor = getStatusColor(detection.status);
 
                 return (
                   <Rectangle
-                    key={getDetectionUniqueId(detection)}
+                    key={detectionUniqueId}
                     bounds={detectionToBounds(detection)}
                     pathOptions={{
                       color: statusColor,
-                      weight: isSelected ? 5 : 3,
-                      opacity: 0.95,
+                      weight: isSelected ? 5 : isHovered ? 4 : 3,
+                      opacity: isSelected ? 0.95 : isHovered ? 0.9 : 0.85,
                       fillColor: statusColor,
-                      fillOpacity: isSelected ? 0.3 : 0.14,
-                      dashArray: isSelected ? null : "5 4",
+                      fillOpacity: isSelected ? 0.3 : isHovered ? 0.2 : 0.14,
+                      dashArray: isSelected || isHovered ? null : "5 4",
                     }}
                     eventHandlers={{
+                      mouseover: () => setHoveredDetectionId(detectionUniqueId),
+                      mouseout: () => setHoveredDetectionId(null),
                       click: () => setSelectedDetection(detection),
                     }}
                   />
@@ -549,17 +568,29 @@ export default function App() {
                 ) : (
                   <div className="list-group">
                     {filteredDetections.map((detection) => {
+                      const detectionUniqueId = getDetectionUniqueId(detection);
                       const isSelected = isSameDetection(selectedDetection, detection);
+                      const isHovered = hoveredDetectionId === detectionUniqueId;
                       const statusBadgeClass = getStatusBadgeClass(detection.status);
 
                       return (
                         <button
-                          key={getDetectionUniqueId(detection)}
+                          key={detectionUniqueId}
                           type="button"
                           onClick={() => setSelectedDetection(detection)}
+                          onMouseEnter={() => setHoveredDetectionId(detectionUniqueId)}
+                          onMouseLeave={() => setHoveredDetectionId(null)}
                           className={`list-group-item list-group-item-action text-start ${
                             isSelected ? "bg-primary-subtle border-primary" : ""
                           }`}
+                          style={
+                            !isSelected && isHovered
+                              ? {
+                                  backgroundColor: "rgba(255, 193, 7, 0.08)",
+                                  boxShadow: "inset 0 0 0 1px rgba(255, 193, 7, 0.55)",
+                                }
+                              : undefined
+                          }
                         >
                           <div><strong>{detection.detection_id}</strong></div>
                           <div className="small mt-1">
