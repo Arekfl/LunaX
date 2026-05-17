@@ -45,3 +45,9 @@ Build produkcyjny (odpalamy w katalogu frontend):
 ```bash
 npm run build
 ```
+
+
+Jak uruchomić:
+
+Backend: uv run python main.py
+Frontend: cd frontend && npm run dev

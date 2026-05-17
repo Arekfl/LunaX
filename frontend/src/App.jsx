@@ -10,6 +10,7 @@ const IMAGE_BOUNDS = [
 const IMAGE_HEIGHT = IMAGE_BOUNDS[1][0];
 const IMAGE_WIDTH = IMAGE_BOUNDS[1][1];
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+const DETECTION_STATUSES = ["confirmed", "to_verify", "rejected"];
 
 const GRID_SIZE = 4;
 const CELL_HEIGHT = IMAGE_HEIGHT / GRID_SIZE;
@@ -102,6 +103,7 @@ export default function App() {
   const segments = useMemo(() => buildSegments(), []);
   const [detections, setDetections] = useState([]);
   const [isLoadingDetections, setIsLoadingDetections] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("to_verify");
   const [hoveredSegmentId, setHoveredSegmentId] = useState(null);
   const [selectedSegment, setSelectedSegment] = useState(null);
   const [selectedDetection, setSelectedDetection] = useState(null);
@@ -115,6 +117,25 @@ export default function App() {
   });
 
   const selectedCoords = selectedSegment ? boundsToCoords(selectedSegment.bounds) : null;
+
+  const filteredDetections = useMemo(
+    () => detections.filter((detection) => detection.status === statusFilter),
+    [detections, statusFilter]
+  );
+
+  useEffect(() => {
+    if (!selectedDetection) {
+      return;
+    }
+
+    const isSelectedVisible = filteredDetections.some(
+      (detection) => detection.detection_id === selectedDetection.detection_id
+    );
+
+    if (!isSelectedVisible) {
+      setSelectedDetection(null);
+    }
+  }, [filteredDetections, selectedDetection]);
 
   const handleResetHomeView = useCallback(() => {
     setSelectedSegment(null);
@@ -168,16 +189,20 @@ export default function App() {
 
       const payload = await response.json();
       const apiDetections = Array.isArray(payload.detections) ? payload.detections : [];
+      const detectionsWithStatus = apiDetections.map((detection, index) => ({
+        ...detection,
+        status: DETECTION_STATUSES[index % DETECTION_STATUSES.length],
+      }));
 
-      setDetections(apiDetections);
+      setDetections(detectionsWithStatus);
       setSelectedDetection(null);
 
-      if (apiDetections.length === 0) {
+      if (detectionsWithStatus.length === 0) {
         setChosenMessage("Analiza zakonczona. Brak detekcji dla wybranego obszaru.");
         return;
       }
 
-      setChosenMessage(`Analiza zakonczona. Pobrano ${apiDetections.length} detekcji.`);
+      setChosenMessage(`Analiza zakonczona. Pobrano ${detectionsWithStatus.length} detekcji.`);
     } catch (error) {
       console.error("Blad podczas pobierania detekcji:", error);
       setChosenMessage("Nie udalo sie pobrac detekcji z backendu FastAPI.");
@@ -265,7 +290,7 @@ export default function App() {
                 );
               })}
 
-              {detections.map((detection) => {
+              {filteredDetections.map((detection) => {
                 const isSelected = selectedDetection?.detection_id === detection.detection_id;
 
                 return (
@@ -278,6 +303,9 @@ export default function App() {
                       fillColor: isSelected ? "#ffc107" : "#20c997",
                       fillOpacity: isSelected ? 0.28 : 0.08,
                       dashArray: isSelected ? null : "4 4",
+                    }}
+                    eventHandlers={{
+                      click: () => setSelectedDetection(detection),
                     }}
                   />
                 );
@@ -373,11 +401,37 @@ export default function App() {
               <hr className="my-4" />
               <h6 className="mb-3">Detekcje</h6>
 
+              <div className="btn-group btn-group-sm w-100 mb-3" role="group" aria-label="Filtr statusu detekcji">
+                <button
+                  type="button"
+                  className={`btn ${statusFilter === "confirmed" ? "btn-success" : "btn-outline-success"}`}
+                  onClick={() => setStatusFilter("confirmed")}
+                >
+                  confirmed
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${statusFilter === "to_verify" ? "btn-warning" : "btn-outline-warning"}`}
+                  onClick={() => setStatusFilter("to_verify")}
+                >
+                  to_verify
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${statusFilter === "rejected" ? "btn-danger" : "btn-outline-danger"}`}
+                  onClick={() => setStatusFilter("rejected")}
+                >
+                  rejected
+                </button>
+              </div>
+
               {detections.length === 0 ? (
                 <div className="small text-muted">Brak detekcji. Kliknij "Wybierz obszar".</div>
+              ) : filteredDetections.length === 0 ? (
+                <div className="small text-muted">Brak detekcji dla statusu: {statusFilter}.</div>
               ) : (
                 <div className="list-group">
-                  {detections.map((detection) => {
+                  {filteredDetections.map((detection) => {
                     const isSelected =
                       selectedDetection?.detection_id === detection.detection_id;
 
@@ -391,6 +445,7 @@ export default function App() {
                         }`}
                       >
                         <div><strong>{detection.detection_id}</strong></div>
+                        <div className="small">status: {detection.status}</div>
                         <div className="small text-muted">
                           confidence: {Number(detection.confidence).toFixed(2)}
                         </div>
