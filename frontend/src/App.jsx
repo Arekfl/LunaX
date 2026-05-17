@@ -12,6 +12,16 @@ const IMAGE_WIDTH = IMAGE_BOUNDS[1][1];
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 const DETECTION_STATUSES = ["confirmed", "to_verify", "rejected"];
 const DEFAULT_DETECTION_STATUS = "to_verify";
+const STATUS_COLOR_MAP = {
+  confirmed: "#198754",
+  to_verify: "#ffc107",
+  rejected: "#dc3545",
+};
+const STATUS_BADGE_CLASS_MAP = {
+  confirmed: "text-bg-success",
+  to_verify: "text-bg-warning",
+  rejected: "text-bg-danger",
+};
 
 const GRID_SIZE = 4;
 const CELL_HEIGHT = IMAGE_HEIGHT / GRID_SIZE;
@@ -60,6 +70,14 @@ function applyStatusesToDetections(detectionList, statusMap) {
     ...detection,
     status: statusMap[detection.detection_id] ?? detection.status ?? DEFAULT_DETECTION_STATUS,
   }));
+}
+
+function getStatusColor(status) {
+  return STATUS_COLOR_MAP[status] ?? STATUS_COLOR_MAP[DEFAULT_DETECTION_STATUS];
+}
+
+function getStatusBadgeClass(status) {
+  return STATUS_BADGE_CLASS_MAP[status] ?? "text-bg-secondary";
 }
 
 function FitBoundsOnChange({ bounds }) {
@@ -333,17 +351,18 @@ export default function App() {
 
               {filteredDetections.map((detection) => {
                 const isSelected = selectedDetection?.detection_id === detection.detection_id;
+                const statusColor = getStatusColor(detection.status);
 
                 return (
                   <Rectangle
                     key={detection.detection_id}
                     bounds={detectionToBounds(detection)}
                     pathOptions={{
-                      color: isSelected ? "#ffc107" : "#20c997",
-                      weight: isSelected ? 3 : 1,
-                      fillColor: isSelected ? "#ffc107" : "#20c997",
-                      fillOpacity: isSelected ? 0.28 : 0.08,
-                      dashArray: isSelected ? null : "4 4",
+                      color: statusColor,
+                      weight: isSelected ? 4 : 2,
+                      fillColor: statusColor,
+                      fillOpacity: isSelected ? 0.32 : 0.1,
+                      dashArray: isSelected ? null : "6 4",
                     }}
                     eventHandlers={{
                       click: () => setSelectedDetection(detection),
@@ -475,6 +494,7 @@ export default function App() {
                   {filteredDetections.map((detection) => {
                     const isSelected =
                       selectedDetection?.detection_id === detection.detection_id;
+                    const statusBadgeClass = getStatusBadgeClass(detection.status);
 
                     return (
                       <button
@@ -486,7 +506,9 @@ export default function App() {
                         }`}
                       >
                         <div><strong>{detection.detection_id}</strong></div>
-                        <div className="small">status: {detection.status}</div>
+                        <div className="small mt-1">
+                          <span className={`badge ${statusBadgeClass}`}>{detection.status}</span>
+                        </div>
                         <div className="small text-muted">
                           confidence: {Number(detection.confidence).toFixed(2)}
                         </div>
