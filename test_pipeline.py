@@ -12,8 +12,8 @@ def download_lunar_region():
     print("Łączenie z serwerem WMS USGS...")
     
     # 1. ZWIĘKSZAMY OBSZAR (delta = 2.0 stopnie zamiast 0.5)
-    lon_min = -58.0
-    lat_min = 13.0
+    lon_min = -55.0
+    lat_min = 11.0
     delta = 2.0 
     lon_max = lon_min + delta
     lat_max = lat_min + delta
@@ -74,7 +74,7 @@ def main():
 
     # 3. Szukanie obiektów (conf=0.25 odrzuca bardzo słabe trafienia)
     print("Rozpoczynam analizę obrazu...")
-    results = model.predict(source=image, conf=0.25, imgsz=1280, device=0)
+    results = model.predict(source=image, conf=0.02, imgsz=1280, device=0)
     result = results[0]
     
     # 4. Rysowanie ramek i zapis
