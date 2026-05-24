@@ -1,7 +1,9 @@
 import json
+from pathlib import Path
 from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
+import pandas as pd
 from PIL import Image
 
 from app.main import app
@@ -193,6 +195,59 @@ def test_analysis_run_keeps_geo_bbox_before_download(monkeypatch) -> None:
     mode, geo_bbox = mocked_download.call_args.args
     assert mode == "detail"
     assert geo_bbox == [-10.0, -5.0, 10.0, 5.0]
+
+
+def test_analysis_run_saves_no_detection_images_and_metadata_per_sample(
+    tmp_path, monkeypatch
+) -> None:
+    no_detections_image_dir = tmp_path / "images" / "no_detections"
+    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    detections_parquet_file = tmp_path / "detections.parquet"
+
+    monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
+    monkeypatch.setenv("NO_DETECTIONS_PARQUET_FILE", str(no_detections_parquet_file))
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+
+    mocked_download = Mock(return_value=Image.new("L", (64, 64), color=128))
+    monkeypatch.setattr("app.main.download_tile", mocked_download)
+    monkeypatch.setattr("app.main.run_inference", Mock(return_value=[]))
+
+    response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "detail",
+            "numSamples": 3,
+            "confidenceThreshold": 0.5,
+            "bbox": [-10.0, -5.0, 10.0, 5.0],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["detections"] == []
+
+    saved_images = sorted(no_detections_image_dir.glob("*.png"))
+    assert len(saved_images) == 3
+    assert all("detail" in saved_image.name for saved_image in saved_images)
+    assert all("lat-" in saved_image.name for saved_image in saved_images)
+    assert all("lon-" in saved_image.name for saved_image in saved_images)
+
+    metadata = pd.read_parquet(no_detections_parquet_file)
+    assert len(metadata) == 3
+    assert {
+        "image_id",
+        "path",
+        "status",
+        "lat",
+        "lon",
+        "resolution",
+        "timestamp",
+    }.issubset(metadata.columns)
+    assert set(metadata["status"]) == {"no_detections"}
+    assert set(metadata["resolution"]) == {"detail"}
+    assert set(round(float(value), 6) for value in metadata["lat"]) == {0.0}
+    assert set(round(float(value), 6) for value in metadata["lon"]) == {0.0}
+    assert all(Path(path_value).exists() for path_value in metadata["path"])
 
 
 def test_patch_detection_status_persists_status_by_detection_id(tmp_path, monkeypatch) -> None:

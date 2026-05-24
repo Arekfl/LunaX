@@ -2,9 +2,11 @@ import os
 from pathlib import Path
 from typing import Sequence
 from datetime import datetime, timezone
+from uuid import uuid4
 
 import duckdb
 import pandas as pd
+from PIL import Image
 
 from app.schemas import Detection
 from app.storage import read_detection_comments, read_detection_statuses
@@ -18,6 +20,76 @@ def _get_detections_parquet_path() -> Path:
     return Path(__file__).resolve().parents[1] / "data" / "detections.parquet"
 
 
+def _get_no_detections_parquet_path() -> Path:
+    configured_path = os.getenv("NO_DETECTIONS_PARQUET_FILE")
+    if configured_path:
+        return Path(configured_path)
+
+    return Path(__file__).resolve().parents[1] / "data" / "no_detections.parquet"
+
+
+def _get_no_detections_image_dir() -> Path:
+    configured_path = os.getenv("NO_DETECTIONS_IMAGE_DIR")
+    if configured_path:
+        return Path(configured_path)
+
+    return Path(__file__).resolve().parents[1] / "data" / "images" / "no_detections"
+
+
+def _append_rows_to_parquet(parquet_file: Path, rows: list[dict]) -> Path:
+    parquet_file.parent.mkdir(parents=True, exist_ok=True)
+
+    if not rows:
+        return parquet_file
+
+    new_frame = pd.DataFrame(rows)
+
+    if parquet_file.exists():
+        existing_frame = pd.read_parquet(parquet_file)
+        combined_frame = pd.concat([existing_frame, new_frame], ignore_index=True)
+        combined_frame.to_parquet(parquet_file, index=False)
+    else:
+        new_frame.to_parquet(parquet_file, index=False)
+
+    return parquet_file
+
+
+def save_no_detections_image_and_metadata(
+    image: Image.Image,
+    *,
+    lon: float,
+    lat: float,
+    resolution: str,
+    timestamp: str | None = None,
+) -> dict[str, str | float]:
+    analysis_timestamp = timestamp or datetime.now(timezone.utc).isoformat()
+    image_id = f"img-{uuid4().hex}"
+    timestamp_token = analysis_timestamp.replace(":", "-")
+    filename = (
+        f"{timestamp_token}_lat-{lat:.6f}_lon-{lon:.6f}_{resolution}_{image_id}.png"
+    )
+
+    image_dir = _get_no_detections_image_dir()
+    image_dir.mkdir(parents=True, exist_ok=True)
+    image_path = image_dir / filename
+    image.save(image_path, format="PNG")
+
+    metadata_row: dict[str, str | float] = {
+        "image_id": image_id,
+        "path": str(image_path),
+        "status": "no_detections",
+        "lat": float(lat),
+        "lon": float(lon),
+        "resolution": resolution,
+        "timestamp": analysis_timestamp,
+    }
+
+    parquet_file = _get_no_detections_parquet_path()
+    _append_rows_to_parquet(parquet_file, [metadata_row])
+
+    return metadata_row
+
+
 def save_detections_to_parquet(
     detections: Sequence[Detection],
     default_status: str = "to_verify",
@@ -25,7 +97,6 @@ def save_detections_to_parquet(
     timestamp: str | None = None,
 ) -> Path:
     parquet_file = _get_detections_parquet_path()
-    parquet_file.parent.mkdir(parents=True, exist_ok=True)
 
     analysis_timestamp = timestamp or datetime.now(timezone.utc).isoformat()
 
@@ -56,16 +127,7 @@ def save_detections_to_parquet(
     if not rows:
         return parquet_file
 
-    new_frame = pd.DataFrame(rows)
-
-    if parquet_file.exists():
-        existing_frame = pd.read_parquet(parquet_file)
-        combined_frame = pd.concat([existing_frame, new_frame], ignore_index=True)
-        combined_frame.to_parquet(parquet_file, index=False)
-    else:
-        new_frame.to_parquet(parquet_file, index=False)
-
-    return parquet_file
+    return _append_rows_to_parquet(parquet_file, rows)
 
 
 def query_detections(

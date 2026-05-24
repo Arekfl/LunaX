@@ -21,6 +21,7 @@ from app.schemas import (
     HealthResponse,
 )
 from app.analytics import query_detections, save_detections_to_parquet
+from app.analytics import save_no_detections_image_and_metadata
 from app.storage import (
     read_detection_statuses,
     upsert_detection_comment,
@@ -90,29 +91,45 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
     analysis_id = str(uuid4())
     analysis_timestamp = datetime.now(timezone.utc).isoformat()
     geo_bbox = _normalize_analysis_bbox_to_geo(payload.bbox)
+    center_lon = (geo_bbox[0] + geo_bbox[2]) / 2.0
+    center_lat = (geo_bbox[1] + geo_bbox[3]) / 2.0
 
-    adapter_detections = []
+    filtered_detections: list[Detection] = []
     for _ in range(payload.num_samples):
         tile_image = download_tile(payload.resolution_mode, geo_bbox)
         sample_detections = run_inference(image=tile_image)
-        adapter_detections.extend(sample_detections)
 
-    mock_detections = [
-        Detection(
-            detection_id=detection["detection_id"],
-            analysis_id=analysis_id,
-            confidence=detection["confidence"],
-            **{"class": detection["class"]},
-            bbox=BBox(**detection["bbox"]),
-        )
-        for detection in adapter_detections
-    ]
+        sample_model_detections = [
+            Detection(
+                detection_id=detection["detection_id"],
+                analysis_id=analysis_id,
+                confidence=detection["confidence"],
+                **{"class": detection["class"]},
+                bbox=BBox(**detection["bbox"]),
+            )
+            for detection in sample_detections
+        ]
 
-    filtered_detections = [
-        detection
-        for detection in mock_detections
-        if detection.confidence >= payload.confidence_threshold
-    ]
+        sample_filtered_detections = [
+            detection
+            for detection in sample_model_detections
+            if detection.confidence >= payload.confidence_threshold
+        ]
+
+        if sample_filtered_detections:
+            filtered_detections.extend(sample_filtered_detections)
+            continue
+
+        try:
+            save_no_detections_image_and_metadata(
+                tile_image,
+                lon=center_lon,
+                lat=center_lat,
+                resolution=payload.resolution_mode,
+                timestamp=analysis_timestamp,
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging for IO layer
+            logger.warning("Could not persist no-detection image metadata: %s", exc)
 
     try:
         save_detections_to_parquet(
