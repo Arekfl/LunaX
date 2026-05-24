@@ -1,6 +1,7 @@
 from app.analytics import query_detections, save_detections_to_parquet
 from app.schemas import BBox, Detection
 from app.storage import upsert_detection_comment, upsert_detection_status
+import pandas as pd
 
 
 def _sample_detections() -> list[Detection]:
@@ -57,3 +58,25 @@ def test_query_detections_filters_by_status_class_and_confidence(tmp_path, monke
     assert rejected_rows[0]["detection_id"] == "det-b"
     assert rejected_rows[0]["status"] == "rejected"
     assert rejected_rows[0]["comment"] == "Review required"
+
+
+def test_save_detections_to_parquet_persists_requested_fields(tmp_path, monkeypatch) -> None:
+    parquet_file = tmp_path / "detections.parquet"
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(parquet_file))
+
+    save_detections_to_parquet(
+        _sample_detections()[:1],
+        resolution_mode="ultra",
+        timestamp="2026-05-24T12:00:00+00:00",
+    )
+
+    frame = pd.read_parquet(parquet_file)
+    row = frame.iloc[0]
+
+    assert row["detection_id"] == "det-a"
+    assert isinstance(row["bbox"], dict)
+    assert set(row["bbox"].keys()) == {"x", "y", "width", "height"}
+    assert row["confidence"] == 0.92
+    assert row["class"] == "cave_candidate"
+    assert row["resolutionMode"] == "ultra"
+    assert row["timestamp"] == "2026-05-24T12:00:00+00:00"

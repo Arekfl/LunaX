@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 from typing import Annotated
 from uuid import uuid4
 
@@ -46,6 +47,7 @@ def get_health() -> HealthResponse:
 @app.post("/analysis/run", response_model=AnalysisRunResponse)
 def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
     analysis_id = str(uuid4())
+    analysis_timestamp = datetime.now(timezone.utc).isoformat()
 
     adapter_detections = []
     for _ in range(payload.num_samples):
@@ -71,7 +73,11 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
     ]
 
     try:
-        save_detections_to_parquet(filtered_detections)
+        save_detections_to_parquet(
+            filtered_detections,
+            resolution_mode=payload.resolution_mode,
+            timestamp=analysis_timestamp,
+        )
     except Exception as exc:  # pragma: no cover - defensive logging for IO layer
         logger.warning("Could not persist detections to parquet: %s", exc)
 

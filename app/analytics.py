@@ -1,10 +1,10 @@
 import os
 from pathlib import Path
 from typing import Sequence
+from datetime import datetime, timezone
 
 import duckdb
-import pyarrow as pa
-import pyarrow.parquet as pq
+import pandas as pd
 
 from app.schemas import Detection
 from app.storage import read_detection_comments, read_detection_statuses
@@ -19,22 +19,36 @@ def _get_detections_parquet_path() -> Path:
 
 
 def save_detections_to_parquet(
-    detections: Sequence[Detection], default_status: str = "to_verify"
+    detections: Sequence[Detection],
+    default_status: str = "to_verify",
+    resolution_mode: str = "detail",
+    timestamp: str | None = None,
 ) -> Path:
     parquet_file = _get_detections_parquet_path()
     parquet_file.parent.mkdir(parents=True, exist_ok=True)
+
+    analysis_timestamp = timestamp or datetime.now(timezone.utc).isoformat()
 
     rows = [
         {
             "detection_id": detection.detection_id,
             "analysis_id": detection.analysis_id,
+            "class": detection.class_name,
             "class_name": detection.class_name,
             "confidence": float(detection.confidence),
+            "bbox": {
+                "x": float(detection.bbox.x),
+                "y": float(detection.bbox.y),
+                "width": float(detection.bbox.width),
+                "height": float(detection.bbox.height),
+            },
             "bbox_x": float(detection.bbox.x),
             "bbox_y": float(detection.bbox.y),
             "bbox_width": float(detection.bbox.width),
             "bbox_height": float(detection.bbox.height),
             "status": default_status,
+            "resolutionMode": resolution_mode,
+            "timestamp": analysis_timestamp,
         }
         for detection in detections
     ]
@@ -42,16 +56,14 @@ def save_detections_to_parquet(
     if not rows:
         return parquet_file
 
-    new_table = pa.Table.from_pylist(rows)
+    new_frame = pd.DataFrame(rows)
 
     if parquet_file.exists():
-        existing_table = pq.read_table(parquet_file)
-        combined_table = pa.concat_tables(
-            [existing_table, new_table], promote_options="default"
-        )
-        pq.write_table(combined_table, parquet_file)
+        existing_frame = pd.read_parquet(parquet_file)
+        combined_frame = pd.concat([existing_frame, new_frame], ignore_index=True)
+        combined_frame.to_parquet(parquet_file, index=False)
     else:
-        pq.write_table(new_table, parquet_file)
+        new_frame.to_parquet(parquet_file, index=False)
 
     return parquet_file
 
