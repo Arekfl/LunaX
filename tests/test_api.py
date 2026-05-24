@@ -13,6 +13,29 @@ def _mock_tile(*_args, **_kwargs):
     return Image.new("L", (64, 64), color=128)
 
 
+def _mock_inference(*_args, **_kwargs):
+    return [
+        {
+            "detection_id": "det-mock-1",
+            "bbox": {"x": 10.0, "y": 20.0, "width": 30.0, "height": 40.0},
+            "confidence": 0.93,
+            "class": "cave_candidate",
+        },
+        {
+            "detection_id": "det-mock-2",
+            "bbox": {"x": 50.0, "y": 60.0, "width": 35.0, "height": 45.0},
+            "confidence": 0.78,
+            "class": "cave_candidate",
+        },
+        {
+            "detection_id": "det-mock-3",
+            "bbox": {"x": 70.0, "y": 80.0, "width": 20.0, "height": 30.0},
+            "confidence": 0.56,
+            "class": "crater",
+        },
+    ]
+
+
 def test_health_returns_ok_status_and_json_structure() -> None:
     response = client.get("/health")
 
@@ -22,6 +45,7 @@ def test_health_returns_ok_status_and_json_structure() -> None:
 
 def test_analysis_run_returns_mock_detections_with_expected_json_structure(monkeypatch) -> None:
     monkeypatch.setattr("app.main.download_tile", _mock_tile)
+    monkeypatch.setattr("app.main.run_inference", _mock_inference)
 
     response = client.post("/analysis/run", json={})
 
@@ -63,6 +87,7 @@ def test_analysis_run_returns_mock_detections_with_expected_json_structure(monke
 
 def test_analysis_run_aggregates_results_from_num_samples(monkeypatch) -> None:
     monkeypatch.setattr("app.main.download_tile", _mock_tile)
+    monkeypatch.setattr("app.main.run_inference", _mock_inference)
 
     response = client.post(
         "/analysis/run",
@@ -141,6 +166,7 @@ def test_get_detections_query_filters_with_query_params(tmp_path, monkeypatch) -
     monkeypatch.setenv("DETECTION_STATUS_FILE", str(status_file))
     monkeypatch.setenv("DETECTION_COMMENT_FILE", str(comment_file))
     monkeypatch.setattr("app.main.download_tile", _mock_tile)
+    monkeypatch.setattr("app.main.run_inference", _mock_inference)
 
     run_response = client.post("/analysis/run", json={"confidenceThreshold": 0.0})
     assert run_response.status_code == 200
@@ -189,6 +215,7 @@ def test_get_detections_query_returns_rows_without_filters(tmp_path, monkeypatch
     monkeypatch.setenv("DETECTION_STATUS_FILE", str(status_file))
     monkeypatch.setenv("DETECTION_COMMENT_FILE", str(comment_file))
     monkeypatch.setattr("app.main.download_tile", _mock_tile)
+    monkeypatch.setattr("app.main.run_inference", _mock_inference)
 
     run_response = client.post("/analysis/run", json={"confidenceThreshold": 0.0})
     assert run_response.status_code == 200

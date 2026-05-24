@@ -1,7 +1,8 @@
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import TypedDict
 from uuid import uuid4
 
+from PIL import Image
 from ultralytics import YOLO
 
 
@@ -30,32 +31,43 @@ def _next_detection_id() -> str:
     return f"det-{uuid4().hex}"
 
 
-def run_inference(image: Any) -> list[AdapterDetection]:
-    """Run mock inference.
+def _resolve_class_name(names: object, class_index: int) -> str:
+    if isinstance(names, dict):
+        return str(names.get(class_index, class_index))
+    if isinstance(names, list) and 0 <= class_index < len(names):
+        return str(names[class_index])
+    return str(class_index)
 
-    The `image` argument is a placeholder for future model inputs
-    (image array, tile path, or selected area metadata).
-    """
 
-    _ = image
+def run_inference(image: Image.Image) -> list[AdapterDetection]:
+    """Run YOLO inference on a single PIL image and return adapter detections."""
 
-    return [
-        {
-            "detection_id": _next_detection_id(),
-            "bbox": {"x": 124.5, "y": 210.0, "width": 53.7, "height": 53.7},
-            "confidence": 0.93,
-            "class": "cave_candidate",
-        },
-        {
-            "detection_id": _next_detection_id(),
-            "bbox": {"x": 342.1, "y": 115.4, "width": 49.5, "height": 48.6},
-            "confidence": 0.78,
-            "class": "cave_candidate",
-        },
-        {
-            "detection_id": _next_detection_id(),
-            "bbox": {"x": 580.0, "y": 302.3, "width": 44.4, "height": 44.5},
-            "confidence": 0.56,
-            "class": "crater",
-        },
-    ]
+    results = model(image, verbose=False)
+    detections: list[AdapterDetection] = []
+
+    for result in results:
+        boxes = result.boxes
+        if boxes is None:
+            continue
+
+        for box in boxes:
+            x1, y1, x2, y2 = [float(value) for value in box.xyxy[0].tolist()]
+            confidence = float(box.conf[0].item())
+            class_index = int(box.cls[0].item())
+            class_name = _resolve_class_name(result.names, class_index)
+
+            detections.append(
+                {
+                    "detection_id": _next_detection_id(),
+                    "bbox": {
+                        "x": x1,
+                        "y": y1,
+                        "width": max(0.0, x2 - x1),
+                        "height": max(0.0, y2 - y1),
+                    },
+                    "confidence": confidence,
+                    "class": class_name,
+                }
+            )
+
+    return detections
