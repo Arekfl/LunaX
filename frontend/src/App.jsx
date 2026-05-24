@@ -26,6 +26,7 @@ const STATUS_BADGE_CLASS_MAP = {
   rejected: "text-bg-danger",
 };
 const DETECTION_BBOX_PROXIMITY_THRESHOLD = 12;
+const NO_DETECTIONS_FILTER = "no_detections";
 const RESOLUTION_DESCRIPTION_MAP = {
   preview: "Szybki podglad, nizsza dokladnosc.",
   detail: "Zbalansowany tryb do codziennej analizy.",
@@ -232,6 +233,40 @@ function getStatusBadgeClass(status) {
   return STATUS_BADGE_CLASS_MAP[status] ?? "text-bg-secondary";
 }
 
+function getFileNameFromPath(filePath) {
+  if (!filePath) {
+    return "";
+  }
+
+  const normalizedPath = String(filePath).replaceAll("\\", "/");
+  const parts = normalizedPath.split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? "";
+}
+
+function getDetectionPreviewUrl(detection) {
+  const bboxMinMax = parseBBoxToMinMax(detection?.bbox);
+  if (!bboxMinMax) {
+    return null;
+  }
+
+  const { xMin, yMin, xMax, yMax } = bboxMinMax;
+  const params = new URLSearchParams({
+    map: "/maps/earth/moon_simp_cyl.map",
+    SERVICE: "WMS",
+    VERSION: "1.1.1",
+    REQUEST: "GetMap",
+    LAYERS: "KaguyaTC_Ortho",
+    STYLES: "",
+    FORMAT: "image/png",
+    SRS: "EPSG:4326",
+    BBOX: `${xMin},${yMin},${xMax},${yMax}`,
+    WIDTH: "512",
+    HEIGHT: "512",
+  });
+
+  return `https://planetarymaps.usgs.gov/cgi-bin/mapserv?${params.toString()}`;
+}
+
 function FitBoundsOnChange({ bounds }) {
   const map = useMap();
 
@@ -316,11 +351,13 @@ export default function App() {
   const [bboxHistory, setBBoxHistory] = useState([GEO_BOUNDS]);
   const [gridCells, setGridCells] = useState(() => buildGridCells(GEO_BOUNDS, 0));
   const [detections, setDetections] = useState([]);
+  const [noDetections, setNoDetections] = useState([]);
   const [currentAnalysisId, setCurrentAnalysisId] = useState(null);
   const [isLoadingDetections, setIsLoadingDetections] = useState(false);
   const [analysisOverlayBounds, setAnalysisOverlayBounds] = useState(null);
   const [analysisStatus, setAnalysisStatus] = useState(null);
   const [showBboxes, setShowBboxes] = useState(true);
+  const [viewMode, setViewMode] = useState("map");
   const [resolutionMode, setResolutionMode] = useState("detail");
   const [numSamples, setNumSamples] = useState(5);
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
@@ -343,6 +380,7 @@ export default function App() {
 
   const selectedCoords = selectedSegment ? boundsToCoords(selectedSegment.bounds) : null;
   const isAnalysisLoading = isLoadingDetections || analysisStatus === "loading";
+  const isNoDetectionsFilterSelected = statusFilter === NO_DETECTIONS_FILTER;
 
   useEffect(() => {
     setGridCells(buildGridCells(selectedBBox, currentLevel));
@@ -358,6 +396,10 @@ export default function App() {
 
     return getDisplayDetectionsForStatus(statusFilteredDetections, statusFilter);
   }, [detections, statusFilter, storedStatuses]);
+
+  const detectionSectionCount = isNoDetectionsFilterSelected
+    ? noDetections.length
+    : filteredDetections.length;
 
   const fetchDetectionStatuses = useCallback(async () => {
     const statusesResponse = await fetch(`${API_BASE_URL}/detections/statuses`);
@@ -396,17 +438,30 @@ export default function App() {
     return mergedDetections;
   }, [fetchDetectionStatuses]);
 
+  const fetchNoDetections = useCallback(async () => {
+    const response = await fetch(`${API_BASE_URL}/no-detections/query`);
+
+    if (!response.ok) {
+      throw new Error(`No-detections query HTTP ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const images = Array.isArray(payload) ? payload : [];
+    setNoDetections(images);
+    return images;
+  }, []);
+
   useEffect(() => {
-    const loadInitialDetections = async () => {
+    const loadInitialData = async () => {
       try {
-        await fetchDetectionsAndStatuses();
+        await Promise.all([fetchDetectionsAndStatuses(), fetchNoDetections()]);
       } catch (error) {
-        console.warn("Nie udalo sie pobrac detekcji lub statusow:", error);
+        console.warn("Nie udalo sie pobrac danych poczatkowych:", error);
       }
     };
 
-    loadInitialDetections();
-  }, [fetchDetectionsAndStatuses]);
+    loadInitialData();
+  }, [fetchDetectionsAndStatuses, fetchNoDetections]);
 
   useEffect(() => {
     if (!selectedDetection) {
@@ -516,6 +571,8 @@ export default function App() {
       setSelectedBBox(parentBounds);
       setFocusBounds(parentBounds);
       setSelectedSegment(null);
+      setSelectedDetection(null);
+      setHoveredDetectionId(null);
 
       const coords = boundsToCoords(parentBounds);
       setManualCoords({
@@ -631,6 +688,11 @@ export default function App() {
 
       setCurrentAnalysisId(analysisId);
       setDetections(detectionsWithStatus);
+      try {
+        await fetchNoDetections();
+      } catch (refreshError) {
+        console.warn("Nie udalo sie odswiezyc listy no_detections:", refreshError);
+      }
       setSelectedDetection(null);
       setAnalysisStatus("success");
 
@@ -774,134 +836,204 @@ export default function App() {
     <div className="container-fluid py-3">
       <div className="row g-3">
         <div className="col-lg-9">
-          <div className="map-shell border rounded shadow-sm">
-            <MapContainer
-              crs={L.CRS.EPSG4326}
-              bounds={GEO_BOUNDS}
-              maxBounds={GEO_BOUNDS}
-              maxBoundsViscosity={1.0}
-              minZoom={0}
-              maxZoom={18}
-              zoomSnap={0.1}
-              zoomDelta={0.5}
-              whenCreated={(mapInstance) => {
-                mapRef.current = mapInstance;
-              }}
-            >
-              <WMSTileLayer
-                url="https://planetarymaps.usgs.gov/cgi-bin/mapserv"
-                map="/maps/earth/moon_simp_cyl.map"
-                service="WMS"
-                version="1.1.1"
+          <div className={viewMode === "map" ? "" : "d-none"}>
+            <div className="map-shell border rounded shadow-sm">
+              <MapContainer
                 crs={L.CRS.EPSG4326}
-                layers="KaguyaTC_Ortho"
-                format="image/png"
-                transparent={false}
-                noWrap
-              />
-              <ZoomOutLevelControl
-                currentLevel={currentLevel}
-                onStepOut={handleStepOutLevel}
-                suppressZoomOutRef={suppressZoomOutRef}
-              />
-              <FitBoundsOnChange bounds={focusBounds} />
-              <HomeControl onHomeClick={handleResetHomeView} />
+                bounds={GEO_BOUNDS}
+                maxBounds={GEO_BOUNDS}
+                maxBoundsViscosity={1.0}
+                minZoom={0}
+                maxZoom={18}
+                zoomSnap={0.1}
+                zoomDelta={0.5}
+                whenCreated={(mapInstance) => {
+                  mapRef.current = mapInstance;
+                }}
+              >
+                <WMSTileLayer
+                  url="https://planetarymaps.usgs.gov/cgi-bin/mapserv"
+                  map="/maps/earth/moon_simp_cyl.map"
+                  service="WMS"
+                  version="1.1.1"
+                  crs={L.CRS.EPSG4326}
+                  layers="KaguyaTC_Ortho"
+                  format="image/png"
+                  transparent={false}
+                  noWrap
+                />
+                <ZoomOutLevelControl
+                  currentLevel={currentLevel}
+                  onStepOut={handleStepOutLevel}
+                  suppressZoomOutRef={suppressZoomOutRef}
+                />
+                <FitBoundsOnChange bounds={focusBounds} />
+                <HomeControl onHomeClick={handleResetHomeView} />
 
-              {gridCells.map((segment) => {
-                const isHovered = hoveredSegmentId === segment.id;
-                const isSelected = selectedSegment?.id === segment.id;
+                {gridCells.map((segment) => {
+                  const isHovered = hoveredSegmentId === segment.id;
+                  const isSelected = selectedSegment?.id === segment.id;
 
-                let color = "#0d6efd";
-                if (isSelected) {
-                  color = "#dc3545";
-                } else if (isHovered) {
-                  color = "#fd7e14";
-                }
+                  let color = "#0d6efd";
+                  if (isSelected) {
+                    color = "#dc3545";
+                  } else if (isHovered) {
+                    color = "#fd7e14";
+                  }
 
-                return (
+                  return (
+                    <Rectangle
+                      key={segment.id}
+                      bounds={segment.bounds}
+                      pathOptions={{
+                        color,
+                        weight: isSelected ? 2 : 1,
+                        opacity: isSelected ? 0.8 : isHovered ? 0.55 : 0.32,
+                        fillColor: color,
+                        fillOpacity: isSelected ? 0.14 : isHovered ? 0.08 : 0.04,
+                      }}
+                      eventHandlers={{
+                        mouseover: () => setHoveredSegmentId(segment.id),
+                        mouseout: () => setHoveredSegmentId(null),
+                        click: () => handleSelectSegment(segment),
+                      }}
+                    />
+                  );
+                })}
+
+                {isAnalysisLoading && analysisOverlayBounds && (
                   <Rectangle
-                    key={segment.id}
-                    bounds={segment.bounds}
+                    bounds={analysisOverlayBounds}
                     pathOptions={{
-                      color,
-                      weight: isSelected ? 2 : 1,
-                      opacity: isSelected ? 0.8 : isHovered ? 0.55 : 0.32,
-                      fillColor: color,
-                      fillOpacity: isSelected ? 0.14 : isHovered ? 0.08 : 0.04,
-                    }}
-                    eventHandlers={{
-                      mouseover: () => setHoveredSegmentId(segment.id),
-                      mouseout: () => setHoveredSegmentId(null),
-                      click: () => handleSelectSegment(segment),
+                      color: "#0d6efd",
+                      weight: 1,
+                      opacity: 0.75,
+                      fillColor: "#0d6efd",
+                      fillOpacity: 0.24,
+                      dashArray: "6 4",
+                      interactive: false,
                     }}
                   />
-                );
-              })}
+                )}
 
-              {isAnalysisLoading && analysisOverlayBounds && (
-                <Rectangle
-                  bounds={analysisOverlayBounds}
-                  pathOptions={{
-                    color: "#0d6efd",
-                    weight: 1,
-                    opacity: 0.75,
-                    fillColor: "#0d6efd",
-                    fillOpacity: 0.24,
-                    dashArray: "6 4",
-                    interactive: false,
-                  }}
-                />
-              )}
-
-              {selectedDetection && (
-                <Rectangle
-                  key={`overlay-${getDetectionUniqueId(selectedDetection)}`}
-                  bounds={detectionToBounds(selectedDetection)}
-                  pathOptions={{
-                    color: "#fd7e14",
-                    weight: 0,
-                    fillColor: "#fd7e14",
-                    fillOpacity: 0.28,
-                    interactive: false,
-                  }}
-                />
-              )}
-
-              {showBboxes && filteredDetections.map((detection, detectionIndex) => {
-                const detectionUniqueId = getDetectionUniqueId(detection);
-                const detectionRenderKey = `${detectionUniqueId}|${detectionIndex}`;
-                const isSelected = isSameDetection(selectedDetection, detection);
-                const isHovered = hoveredDetectionId === detectionUniqueId;
-                const statusColor = getStatusColor(detection.status);
-
-                return (
+                {selectedDetection && (
                   <Rectangle
-                    key={detectionRenderKey}
-                    bounds={detectionToBounds(detection)}
+                    key={`overlay-${getDetectionUniqueId(selectedDetection)}`}
+                    bounds={detectionToBounds(selectedDetection)}
                     pathOptions={{
-                      color: statusColor,
-                      weight: isSelected ? 5 : isHovered ? 4 : 3,
-                      opacity: isSelected ? 0.95 : isHovered ? 0.9 : 0.85,
-                      fillColor: statusColor,
-                      fillOpacity: isSelected ? 0.3 : isHovered ? 0.2 : 0.14,
-                      dashArray: isSelected || isHovered ? null : "5 4",
-                    }}
-                    eventHandlers={{
-                      mouseover: () => setHoveredDetectionId(detectionUniqueId),
-                      mouseout: () => setHoveredDetectionId(null),
-                      click: () => handleSelectDetection(detection),
+                      color: "#fd7e14",
+                      weight: 0,
+                      fillColor: "#fd7e14",
+                      fillOpacity: 0.28,
+                      interactive: false,
                     }}
                   />
-                );
-              })}
-            </MapContainer>
+                )}
+
+                {showBboxes && filteredDetections.map((detection, detectionIndex) => {
+                  const detectionUniqueId = getDetectionUniqueId(detection);
+                  const detectionRenderKey = `${detectionUniqueId}|${detectionIndex}`;
+                  const isSelected = isSameDetection(selectedDetection, detection);
+                  const isHovered = hoveredDetectionId === detectionUniqueId;
+                  const statusColor = getStatusColor(detection.status);
+
+                  return (
+                    <Rectangle
+                      key={detectionRenderKey}
+                      bounds={detectionToBounds(detection)}
+                      pathOptions={{
+                        color: statusColor,
+                        weight: isSelected ? 5 : isHovered ? 4 : 3,
+                        opacity: isSelected ? 0.95 : isHovered ? 0.9 : 0.85,
+                        fillColor: statusColor,
+                        fillOpacity: isSelected ? 0.3 : isHovered ? 0.2 : 0.14,
+                        dashArray: isSelected || isHovered ? null : "5 4",
+                      }}
+                      eventHandlers={{
+                        mouseover: () => setHoveredDetectionId(detectionUniqueId),
+                        mouseout: () => setHoveredDetectionId(null),
+                        click: () => handleSelectDetection(detection),
+                      }}
+                    />
+                  );
+                })}
+              </MapContainer>
+            </div>
           </div>
+
+          {viewMode === "gallery" && (
+            <div className="gallery-shell border rounded shadow-sm p-3">
+              <h5 className="mb-1">Przegladarka zdjec</h5>
+              <div className="small text-muted mb-3">
+                Widok kart oparty o aktualnie widoczne detekcje (filtr statusu jest zachowany).
+              </div>
+
+              {detections.length === 0 ? (
+                <div className="small text-muted">Brak detekcji. Kliknij "Uruchom analize".</div>
+              ) : filteredDetections.length === 0 ? (
+                <div className="small text-muted">Brak detekcji dla statusu: {statusFilter}.</div>
+              ) : (
+                <div className="row g-3">
+                  {filteredDetections.map((detection, detectionIndex) => {
+                    const detectionUniqueId = getDetectionUniqueId(detection);
+                    const detectionRenderKey = `${detectionUniqueId}|${detectionIndex}`;
+                    const statusBadgeClass = getStatusBadgeClass(detection.status);
+                    const previewUrl = getDetectionPreviewUrl(detection);
+
+                    return (
+                      <div className="col-sm-6 col-xl-4" key={`gallery-${detectionRenderKey}`}>
+                        <div className="card h-100 shadow-sm border-0">
+                          {previewUrl ? (
+                            <img
+                              src={previewUrl}
+                              alt={`Podglad detekcji ${detection.detection_id}`}
+                              loading="lazy"
+                              className="gallery-preview card-img-top"
+                            />
+                          ) : (
+                            <div className="gallery-preview-fallback card-img-top">Brak podgladu</div>
+                          )}
+                          <div className="card-body py-2">
+                            <div className="fw-semibold small">{detection.detection_id}</div>
+                            <div className="small mt-1">
+                              <span className={`badge ${statusBadgeClass}`}>{detection.status}</span>
+                            </div>
+                            <div className="small text-muted">
+                              confidence: {Number(detection.confidence).toFixed(2)}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="col-lg-3">
           <div className="card shadow-sm">
             <div className="card-body">
               <h5 className="card-title">Panel obszaru</h5>
+
+              <div className="small text-muted mb-2">Widok aplikacji</div>
+              <div className="btn-group btn-group-sm w-100 mb-3" role="group" aria-label="Tryb widoku aplikacji">
+                <button
+                  type="button"
+                  className={`btn ${viewMode === "map" ? "btn-primary" : "btn-outline-primary"}`}
+                  onClick={() => setViewMode("map")}
+                >
+                  Mapa
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${viewMode === "gallery" ? "btn-primary" : "btn-outline-primary"}`}
+                  onClick={() => setViewMode("gallery")}
+                >
+                  Przegladarka zdjec
+                </button>
+              </div>
 
               <div className="small text-muted mb-2">Wybrany segment</div>
               {selectedSegment ? (
@@ -1110,7 +1242,7 @@ export default function App() {
               {chosenMessage && <div className="alert alert-info py-2 mt-3 mb-0">{chosenMessage}</div>}
 
               <hr className="my-4" />
-              <h6 className="mb-3">Detekcje ({filteredDetections.length})</h6>
+              <h6 className="mb-3">Detekcje ({detectionSectionCount})</h6>
 
               <div className="btn-group btn-group-sm w-100 mb-3" role="group" aria-label="Filtr statusu detekcji">
                 <button
@@ -1134,10 +1266,43 @@ export default function App() {
                 >
                   rejected
                 </button>
+                <button
+                  type="button"
+                  className={`btn ${statusFilter === NO_DETECTIONS_FILTER ? "btn-secondary" : "btn-outline-secondary"}`}
+                  onClick={() => setStatusFilter(NO_DETECTIONS_FILTER)}
+                >
+                  no_detections
+                </button>
               </div>
 
               <div className="detection-list-scroll" ref={detectionListRef}>
-                {detections.length === 0 ? (
+                {isNoDetectionsFilterSelected ? (
+                  noDetections.length === 0 ? (
+                    <div className="small text-muted">
+                      Brak przeanalizowanych zdjec z wynikiem no_detections.
+                    </div>
+                  ) : (
+                    <div className="list-group">
+                      {noDetections.map((image, imageIndex) => {
+                        const itemKey = `${image.image_id || "no-id"}|${image.timestamp || "no-ts"}|${imageIndex}`;
+                        const imageName = getFileNameFromPath(image.path);
+
+                        return (
+                          <div key={itemKey} className="list-group-item text-start">
+                            <div><strong>{image.image_id || "no_detections"}</strong></div>
+                            {imageName && <div className="small text-muted">plik: {imageName}</div>}
+                            <div className="small text-muted">rozdzielczosc: {image.resolution || "-"}</div>
+                            <div className="small text-muted">
+                              lat: {typeof image.lat === "number" ? image.lat.toFixed(6) : "-"}, lon:{" "}
+                              {typeof image.lon === "number" ? image.lon.toFixed(6) : "-"}
+                            </div>
+                            {image.timestamp && <div className="small text-muted">czas: {image.timestamp}</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )
+                ) : detections.length === 0 ? (
                   <div className="small text-muted">Brak detekcji. Kliknij "Uruchom analize".</div>
                 ) : filteredDetections.length === 0 ? (
                   <div className="small text-muted">Brak detekcji dla statusu: {statusFilter}.</div>

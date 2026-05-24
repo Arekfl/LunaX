@@ -90,6 +90,49 @@ def save_no_detections_image_and_metadata(
     return metadata_row
 
 
+def query_no_detections() -> list[dict]:
+    parquet_file = _get_no_detections_parquet_path()
+    if not parquet_file.exists():
+        return []
+
+    no_detections_frame = pd.read_parquet(parquet_file)
+    if no_detections_frame.empty:
+        return []
+
+    expected_columns = [
+        "image_id",
+        "path",
+        "status",
+        "lat",
+        "lon",
+        "resolution",
+        "timestamp",
+    ]
+    for column_name in expected_columns:
+        if column_name not in no_detections_frame.columns:
+            no_detections_frame[column_name] = None
+
+    sorted_frame = no_detections_frame[expected_columns].sort_values(
+        by="timestamp", ascending=False, na_position="last"
+    )
+
+    records: list[dict] = []
+    for row in sorted_frame.to_dict(orient="records"):
+        records.append(
+            {
+                "image_id": str(row["image_id"]) if row["image_id"] is not None else "",
+                "path": str(row["path"]) if row["path"] is not None else "",
+                "status": str(row["status"]) if row["status"] is not None else "no_detections",
+                "lat": float(row["lat"]) if pd.notna(row["lat"]) else None,
+                "lon": float(row["lon"]) if pd.notna(row["lon"]) else None,
+                "resolution": str(row["resolution"]) if row["resolution"] is not None else "",
+                "timestamp": str(row["timestamp"]) if row["timestamp"] is not None else "",
+            }
+        )
+
+    return records
+
+
 def save_detections_to_parquet(
     detections: Sequence[Detection],
     default_status: str = "to_verify",

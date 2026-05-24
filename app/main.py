@@ -20,7 +20,7 @@ from app.schemas import (
     DetectionStatusUpdateResponse,
     HealthResponse,
 )
-from app.analytics import query_detections, save_detections_to_parquet
+from app.analytics import query_detections, query_no_detections, save_detections_to_parquet
 from app.analytics import save_no_detections_image_and_metadata
 from app.storage import (
     read_detection_statuses,
@@ -179,3 +179,8 @@ def get_detections_query(
         resolution_mode=params.resolution_mode,
         analysis_id=params.analysis_id,
     )
+
+
+@app.get("/no-detections/query", response_model=list[dict])
+def get_no_detections_query() -> list[dict]:
+    return query_no_detections()

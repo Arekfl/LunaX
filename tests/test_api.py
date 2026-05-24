@@ -250,6 +250,49 @@ def test_analysis_run_saves_no_detection_images_and_metadata_per_sample(
     assert all(Path(path_value).exists() for path_value in metadata["path"])
 
 
+def test_get_no_detections_query_returns_saved_images(tmp_path, monkeypatch) -> None:
+    no_detections_image_dir = tmp_path / "images" / "no_detections"
+    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    detections_parquet_file = tmp_path / "detections.parquet"
+
+    monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
+    monkeypatch.setenv("NO_DETECTIONS_PARQUET_FILE", str(no_detections_parquet_file))
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+
+    monkeypatch.setattr("app.main.download_tile", Mock(return_value=Image.new("L", (64, 64), color=128)))
+    monkeypatch.setattr("app.main.run_inference", Mock(return_value=[]))
+
+    run_response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "preview",
+            "numSamples": 2,
+            "confidenceThreshold": 0.5,
+            "bbox": [-20.0, -10.0, 20.0, 10.0],
+        },
+    )
+    assert run_response.status_code == 200
+
+    response = client.get("/no-detections/query")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert isinstance(payload, list)
+    assert len(payload) == 2
+    assert {
+        "image_id",
+        "path",
+        "status",
+        "lat",
+        "lon",
+        "resolution",
+        "timestamp",
+    }.issubset(payload[0].keys())
+    assert all(item["status"] == "no_detections" for item in payload)
+    assert all(item["resolution"] == "preview" for item in payload)
+    assert all(Path(item["path"]).exists() for item in payload)
+
+
 def test_patch_detection_status_persists_status_by_detection_id(tmp_path, monkeypatch) -> None:
     status_file = tmp_path / "detection_statuses.json"
     monkeypatch.setenv("DETECTION_STATUS_FILE", str(status_file))
