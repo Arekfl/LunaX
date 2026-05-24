@@ -207,3 +207,7 @@ marimo/_lsp/
 __marimo__/
 
 .github/prompts/plan-lunaX.prompt.md
+
+#datasets
+lunar_surface_dataset/
+lunar_surface_dataset_test/

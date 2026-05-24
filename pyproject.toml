@@ -10,5 +10,7 @@ dependencies = [
 	"httpx>=0.28.1",
 	"pyarrow>=20.0.0",
 	"pytest>=8.3.5",
+	"requests>=2.34.2",
+	"ultralytics>=8.4.53",
 	"uvicorn>=0.35.0",
 ]
