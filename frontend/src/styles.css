@@ -79,3 +79,32 @@ body {
   overflow-y: auto;
   padding-right: 2px;
 }
+
+@media (min-width: 992px) {
+  .app-shell {
+    height: 100vh;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+
+  .app-main-row {
+    height: 100%;
+    min-height: 0;
+    align-items: stretch;
+  }
+
+  .app-sidebar-column {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .sidebar-card {
+    height: 100%;
+  }
+
+  .sidebar-card-body {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}

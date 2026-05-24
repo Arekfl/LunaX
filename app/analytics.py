@@ -84,6 +84,7 @@ def _find_no_detections_row_by_hash(
     row = matching.iloc[0]
     return {
         "image_id": str(row.get("image_id") or ""),
+        "analysis_id": str(row.get("analysis_id") or ""),
         "path": str(row.get("path") or ""),
         "status": str(row.get("status") or "no_detections"),
         "lat": float(row["lat"]) if "lat" in matching.columns and pd.notna(row["lat"]) else 0.0,
@@ -97,6 +98,7 @@ def _find_no_detections_row_by_hash(
 def save_no_detections_image_and_metadata(
     image: Image.Image,
     *,
+    analysis_id: str | None = None,
     lon: float,
     lat: float,
     resolution: str,
@@ -105,24 +107,31 @@ def save_no_detections_image_and_metadata(
     analysis_timestamp = timestamp or datetime.now(timezone.utc).isoformat()
     parquet_file = _get_no_detections_parquet_path()
     content_hash, png_bytes = _compute_png_hash_and_bytes(image)
+    image_id = f"img-{uuid4().hex}"
 
     existing_row = _find_no_detections_row_by_hash(parquet_file, content_hash)
+    image_path: Path | None = None
     if existing_row is not None:
-        return existing_row
+        existing_path_raw = existing_row.get("path")
+        if isinstance(existing_path_raw, str) and existing_path_raw:
+            candidate_path = Path(existing_path_raw)
+            if candidate_path.exists() and candidate_path.is_file():
+                image_path = candidate_path
 
-    image_id = f"img-{uuid4().hex}"
-    timestamp_token = analysis_timestamp.replace(":", "-")
-    filename = (
-        f"{timestamp_token}_lat-{lat:.6f}_lon-{lon:.6f}_{resolution}_{image_id}.png"
-    )
+    if image_path is None:
+        timestamp_token = analysis_timestamp.replace(":", "-")
+        filename = (
+            f"{timestamp_token}_lat-{lat:.6f}_lon-{lon:.6f}_{resolution}_{image_id}.png"
+        )
 
-    image_dir = _get_no_detections_image_dir()
-    image_dir.mkdir(parents=True, exist_ok=True)
-    image_path = image_dir / filename
-    image_path.write_bytes(png_bytes)
+        image_dir = _get_no_detections_image_dir()
+        image_dir.mkdir(parents=True, exist_ok=True)
+        image_path = image_dir / filename
+        image_path.write_bytes(png_bytes)
 
     metadata_row: dict[str, str | float] = {
         "image_id": image_id,
+        "analysis_id": str(analysis_id) if analysis_id else "",
         "path": str(image_path),
         "status": "no_detections",
         "lat": float(lat),
@@ -148,6 +157,7 @@ def query_no_detections() -> list[dict]:
 
     expected_columns = [
         "image_id",
+        "analysis_id",
         "path",
         "status",
         "lat",
@@ -168,6 +178,7 @@ def query_no_detections() -> list[dict]:
         records.append(
             {
                 "image_id": str(row["image_id"]) if row["image_id"] is not None else "",
+                "analysis_id": str(row["analysis_id"]) if row["analysis_id"] is not None else "",
                 "path": str(row["path"]) if row["path"] is not None else "",
                 "status": str(row["status"]) if row["status"] is not None else "no_detections",
                 "lat": float(row["lat"]) if pd.notna(row["lat"]) else None,

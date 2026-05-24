@@ -406,6 +406,28 @@ export default function App() {
     return getDisplayDetectionsForStatus(statusFilteredDetections, statusFilter);
   }, [detections, statusFilter, storedStatuses]);
 
+  const groupedNoDetections = useMemo(() => {
+    const groups = new Map();
+
+    for (const image of noDetections) {
+      const analysisId =
+        typeof image.analysis_id === "string" && image.analysis_id.trim().length > 0
+          ? image.analysis_id
+          : "legacy_no_analysis_id";
+
+      if (!groups.has(analysisId)) {
+        groups.set(analysisId, []);
+      }
+
+      groups.get(analysisId).push(image);
+    }
+
+    return Array.from(groups.entries()).map(([analysisId, images]) => ({
+      analysisId,
+      images,
+    }));
+  }, [noDetections]);
+
   const detectionSectionCount = isNoDetectionsFilterSelected
     ? noDetections.length
     : filteredDetections.length;
@@ -861,8 +883,8 @@ export default function App() {
   }, []);
 
   return (
-    <div className="container-fluid py-3">
-      <div className="row g-3">
+    <div className="container-fluid py-3 app-shell">
+      <div className="row g-3 app-main-row">
         <div className="col-lg-9">
           <div className={viewMode === "map" ? "" : "d-none"}>
             <div className="map-shell border rounded shadow-sm">
@@ -1081,9 +1103,9 @@ export default function App() {
           )}
         </div>
 
-        <div className="col-lg-3">
-          <div className="card shadow-sm">
-            <div className="card-body">
+        <div className="col-lg-3 app-sidebar-column">
+          <div className="card shadow-sm sidebar-card">
+            <div className="card-body sidebar-card-body">
               <h5 className="card-title">Panel obszaru</h5>
 
               <div className="small text-muted mb-2">Widok aplikacji</div>
@@ -1352,33 +1374,43 @@ export default function App() {
                     </div>
                   ) : (
                     <div className="list-group">
-                      {noDetections.map((image, imageIndex) => {
-                        const itemKey = `${image.image_id || "no-id"}|${image.timestamp || "no-ts"}|${imageIndex}`;
-                        const imageName = getFileNameFromPath(image.path);
-                        const isActive = selectedNoDetectionImage?.image_id === image.image_id;
+                      {groupedNoDetections.map((group) => (
+                        <div key={`group-${group.analysisId}`} className="border-bottom pb-2 mb-2">
+                          <div className="small fw-semibold text-muted px-1 mb-1">
+                            sesja: {group.analysisId} ({group.images.length})
+                          </div>
 
-                        return (
-                          <button
-                            type="button"
-                            key={itemKey}
-                            className={`list-group-item list-group-item-action text-start ${
-                              isActive ? "active" : ""
-                            }`}
-                            onClick={() => handleOpenNoDetectionImage(image)}
-                          >
-                            <div><strong>{image.image_id || "no_detections"}</strong></div>
-                            {imageName && <div className={isActive ? "small text-white-50" : "small text-muted"}>plik: {imageName}</div>}
-                            <div className={isActive ? "small text-white-50" : "small text-muted"}>rozdzielczosc: {image.resolution || "-"}</div>
-                            <div className={isActive ? "small text-white-50" : "small text-muted"}>
-                              lat: {typeof image.lat === "number" ? image.lat.toFixed(6) : "-"}, lon:{" "}
-                              {typeof image.lon === "number" ? image.lon.toFixed(6) : "-"}
-                            </div>
-                            {image.timestamp && (
-                              <div className={isActive ? "small text-white-50" : "small text-muted"}>czas: {image.timestamp}</div>
-                            )}
-                          </button>
-                        );
-                      })}
+                          <div className="list-group">
+                            {group.images.map((image, imageIndex) => {
+                              const itemKey = `${image.image_id || "no-id"}|${image.timestamp || "no-ts"}|${imageIndex}`;
+                              const imageName = getFileNameFromPath(image.path);
+                              const isActive = selectedNoDetectionImage?.image_id === image.image_id;
+
+                              return (
+                                <button
+                                  type="button"
+                                  key={itemKey}
+                                  className={`list-group-item list-group-item-action text-start ${
+                                    isActive ? "active" : ""
+                                  }`}
+                                  onClick={() => handleOpenNoDetectionImage(image)}
+                                >
+                                  <div><strong>{image.image_id || "no_detections"}</strong></div>
+                                  {imageName && <div className={isActive ? "small text-white-50" : "small text-muted"}>plik: {imageName}</div>}
+                                  <div className={isActive ? "small text-white-50" : "small text-muted"}>rozdzielczosc: {image.resolution || "-"}</div>
+                                  <div className={isActive ? "small text-white-50" : "small text-muted"}>
+                                    lat: {typeof image.lat === "number" ? image.lat.toFixed(6) : "-"}, lon:{" "}
+                                    {typeof image.lon === "number" ? image.lon.toFixed(6) : "-"}
+                                  </div>
+                                  {image.timestamp && (
+                                    <div className={isActive ? "small text-white-50" : "small text-muted"}>czas: {image.timestamp}</div>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )
                 ) : detections.length === 0 ? (

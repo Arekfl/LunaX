@@ -106,6 +106,28 @@ def test_analysis_run_aggregates_results_from_num_samples(monkeypatch) -> None:
     assert len(payload["detections"]) >= 6
 
 
+def test_analysis_run_uses_distinct_sample_bboxes_for_multiple_samples(monkeypatch) -> None:
+    mocked_download = Mock(return_value=Image.new("L", (64, 64), color=128))
+    monkeypatch.setattr("app.main.download_tile", mocked_download)
+    monkeypatch.setattr("app.main.run_inference", Mock(return_value=[]))
+
+    response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "detail",
+            "numSamples": 4,
+            "confidenceThreshold": 1.0,
+            "bbox": [-10.0, -5.0, 10.0, 5.0],
+        },
+    )
+
+    assert response.status_code == 200
+    assert mocked_download.call_count == 4
+
+    bboxes = [call.args[1] for call in mocked_download.call_args_list]
+    assert len({tuple(round(value, 8) for value in bbox) for bbox in bboxes}) == 4
+
+
 def test_analysis_run_generates_new_analysis_id_for_each_run(monkeypatch) -> None:
     monkeypatch.setattr("app.main.download_tile", _mock_tile)
     monkeypatch.setattr("app.main.run_inference", _mock_inference)
@@ -233,9 +255,10 @@ def test_analysis_run_saves_no_detection_images_and_metadata_per_sample(
     assert all("lon-" in saved_image.name for saved_image in saved_images)
 
     metadata = pd.read_parquet(no_detections_parquet_file)
-    assert len(metadata) == 1
+    assert len(metadata) == 3
     assert {
         "image_id",
+        "analysis_id",
         "path",
         "status",
         "lat",
@@ -245,10 +268,14 @@ def test_analysis_run_saves_no_detection_images_and_metadata_per_sample(
         "content_hash",
     }.issubset(metadata.columns)
     assert set(metadata["status"]) == {"no_detections"}
+    assert metadata["analysis_id"].nunique() == 1
+    assert metadata["analysis_id"].iloc[0] == payload["analysis_id"]
     assert set(metadata["resolution"]) == {"detail"}
-    assert set(round(float(value), 6) for value in metadata["lat"]) == {0.0}
-    assert set(round(float(value), 6) for value in metadata["lon"]) == {0.0}
+    assert metadata["lat"].between(-5.0, 5.0).all()
+    assert metadata["lon"].between(-10.0, 10.0).all()
+    assert metadata[["lat", "lon"]].drop_duplicates().shape[0] == 3
     assert all(Path(path_value).exists() for path_value in metadata["path"])
+    assert metadata["content_hash"].nunique() == 1
 
 
 def test_get_no_detections_query_returns_saved_images(tmp_path, monkeypatch) -> None:
@@ -273,15 +300,17 @@ def test_get_no_detections_query_returns_saved_images(tmp_path, monkeypatch) -> 
         },
     )
     assert run_response.status_code == 200
+    run_payload = run_response.json()
 
     response = client.get("/no-detections/query")
 
     assert response.status_code == 200
     payload = response.json()
     assert isinstance(payload, list)
-    assert len(payload) == 1
+    assert len(payload) == 2
     assert {
         "image_id",
+        "analysis_id",
         "path",
         "status",
         "lat",
@@ -290,8 +319,48 @@ def test_get_no_detections_query_returns_saved_images(tmp_path, monkeypatch) -> 
         "timestamp",
     }.issubset(payload[0].keys())
     assert all(item["status"] == "no_detections" for item in payload)
+    assert all(item["analysis_id"] == run_payload["analysis_id"] for item in payload)
     assert all(item["resolution"] == "preview" for item in payload)
     assert all(Path(item["path"]).exists() for item in payload)
+
+
+def test_no_detections_reuses_file_but_keeps_entries_per_sample(tmp_path, monkeypatch) -> None:
+    no_detections_image_dir = tmp_path / "images" / "no_detections"
+    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    detections_parquet_file = tmp_path / "detections.parquet"
+
+    monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
+    monkeypatch.setenv("NO_DETECTIONS_PARQUET_FILE", str(no_detections_parquet_file))
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+
+    monkeypatch.setattr("app.main.download_tile", Mock(return_value=Image.new("L", (64, 64), color=128)))
+    monkeypatch.setattr("app.main.run_inference", Mock(return_value=[]))
+
+    response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "ultra",
+            "numSamples": 10,
+            "confidenceThreshold": 0.5,
+            "bbox": [-56.25, 28.125, -50.625, 30.9375],
+        },
+    )
+    assert response.status_code == 200
+    run_payload = response.json()
+
+    files = sorted(no_detections_image_dir.glob("*.png"))
+    assert len(files) == 1
+
+    metadata = pd.read_parquet(no_detections_parquet_file)
+    assert len(metadata) == 10
+    assert metadata["content_hash"].nunique() == 1
+    assert set(metadata["analysis_id"]) == {run_payload["analysis_id"]}
+
+    list_response = client.get("/no-detections/query")
+    assert list_response.status_code == 200
+    payload = list_response.json()
+    assert len(payload) == 10
+    assert all(item["analysis_id"] == run_payload["analysis_id"] for item in payload)
 
 
 def test_get_no_detections_image_returns_png(tmp_path, monkeypatch) -> None:

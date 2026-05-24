@@ -1,4 +1,5 @@
 import logging
+import math
 from datetime import datetime, timezone
 from typing import Annotated
 from uuid import uuid4
@@ -92,17 +93,43 @@ def _normalize_analysis_bbox_to_geo(bbox: list[float]) -> list[float]:
     return _pixel_bbox_to_geo_bbox(bbox)
 
 
+def _build_sample_bbox(
+    base_bbox: list[float], sample_index: int, total_samples: int
+) -> list[float]:
+    if total_samples <= 1:
+        return list(base_bbox)
+
+    x_min, y_min, x_max, y_max = base_bbox
+    cols = math.ceil(math.sqrt(total_samples))
+    rows = math.ceil(total_samples / cols)
+
+    cell_width = (x_max - x_min) / cols
+    cell_height = (y_max - y_min) / rows
+
+    col = sample_index % cols
+    row = sample_index // cols
+
+    sample_x_min = x_min + col * cell_width
+    sample_y_min = y_min + row * cell_height
+    sample_x_max = x_max if col == cols - 1 else x_min + (col + 1) * cell_width
+    sample_y_max = y_max if row == rows - 1 else y_min + (row + 1) * cell_height
+
+    return [sample_x_min, sample_y_min, sample_x_max, sample_y_max]
+
+
 @app.post("/analysis/run", response_model=AnalysisRunResponse)
 def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
     analysis_id = str(uuid4())
     analysis_timestamp = datetime.now(timezone.utc).isoformat()
     geo_bbox = _normalize_analysis_bbox_to_geo(payload.bbox)
-    center_lon = (geo_bbox[0] + geo_bbox[2]) / 2.0
-    center_lat = (geo_bbox[1] + geo_bbox[3]) / 2.0
 
     filtered_detections: list[Detection] = []
-    for _ in range(payload.num_samples):
-        tile_image = download_tile(payload.resolution_mode, geo_bbox)
+    for sample_index in range(payload.num_samples):
+        sample_bbox = _build_sample_bbox(geo_bbox, sample_index, payload.num_samples)
+        center_lon = (sample_bbox[0] + sample_bbox[2]) / 2.0
+        center_lat = (sample_bbox[1] + sample_bbox[3]) / 2.0
+
+        tile_image = download_tile(payload.resolution_mode, sample_bbox)
         sample_detections = run_inference(image=tile_image)
 
         sample_model_detections = [
@@ -129,6 +156,7 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
         try:
             save_no_detections_image_and_metadata(
                 tile_image,
+                analysis_id=analysis_id,
                 lon=center_lon,
                 lat=center_lat,
                 resolution=payload.resolution_mode,
