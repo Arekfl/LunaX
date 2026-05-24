@@ -30,6 +30,9 @@ from app.storage import (
 app = FastAPI(title="LunaX API", version="0.1.0")
 logger = logging.getLogger(__name__)
 
+IMAGE_WIDTH = 2048.0
+IMAGE_HEIGHT = 1024.0
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -44,14 +47,36 @@ def get_health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
+def _clamp(value: float, lower: float, upper: float) -> float:
+    return max(lower, min(upper, value))
+
+
+def _pixel_bbox_to_geo_bbox(pixel_bbox: list[float]) -> list[float]:
+    # Converts [x_min, y_min, x_max, y_max] pixels to [lon_min, lat_min, lon_max, lat_max].
+    x_min, y_min, x_max, y_max = pixel_bbox
+
+    lon_min = (x_min / IMAGE_WIDTH) * 360.0 - 180.0
+    lon_max = (x_max / IMAGE_WIDTH) * 360.0 - 180.0
+    lat_a = 90.0 - (y_min / IMAGE_HEIGHT) * 180.0
+    lat_b = 90.0 - (y_max / IMAGE_HEIGHT) * 180.0
+
+    return [
+        _clamp(min(lon_min, lon_max), -180.0, 180.0),
+        _clamp(min(lat_a, lat_b), -90.0, 90.0),
+        _clamp(max(lon_min, lon_max), -180.0, 180.0),
+        _clamp(max(lat_a, lat_b), -90.0, 90.0),
+    ]
+
+
 @app.post("/analysis/run", response_model=AnalysisRunResponse)
 def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
     analysis_id = str(uuid4())
     analysis_timestamp = datetime.now(timezone.utc).isoformat()
+    geo_bbox = _pixel_bbox_to_geo_bbox(payload.bbox)
 
     adapter_detections = []
     for _ in range(payload.num_samples):
-        tile_image = download_tile(payload.resolution_mode, payload.bbox)
+        tile_image = download_tile(payload.resolution_mode, geo_bbox)
         sample_detections = run_inference(image=tile_image)
         adapter_detections.extend(sample_detections)
 

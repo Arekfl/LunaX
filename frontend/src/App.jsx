@@ -181,6 +181,15 @@ function deduplicateDetectionsByProximity(detectionList, threshold) {
   return deduplicated;
 }
 
+function getDisplayDetectionsForStatus(detectionList, status) {
+  return deduplicateDetectionsByProximity(
+    detectionList
+      .filter((detection) => detectionToBounds(detection))
+      .filter((detection) => detection.status === status),
+    DETECTION_BBOX_PROXIMITY_THRESHOLD
+  );
+}
+
 function getDetectionUniqueId(detection) {
   const { analysis_id: analysisId, detection_id: detectionId, bbox } = detection;
   return [analysisId ?? "no-analysis", detectionId, bbox.x, bbox.y, bbox.width, bbox.height].join("|");
@@ -297,14 +306,9 @@ export default function App() {
       .map((detection) => ({
         ...detection,
         status: resolveDetectionStatus(detection, storedStatuses),
-      }))
-      .filter((detection) => detectionToBounds(detection))
-      .filter((detection) => detection.status === statusFilter);
+      }));
 
-    return deduplicateDetectionsByProximity(
-      statusFilteredDetections,
-      DETECTION_BBOX_PROXIMITY_THRESHOLD
-    );
+    return getDisplayDetectionsForStatus(statusFilteredDetections, statusFilter);
   }, [detections, statusFilter, storedStatuses]);
 
   const fetchDetectionStatuses = useCallback(async () => {
@@ -525,6 +529,21 @@ export default function App() {
 
       const statusMap = await fetchDetectionStatuses();
       const detectionsWithStatus = applyStatusesToDetections(runDetections, statusMap);
+      const visibleWithCurrentFilter = getDisplayDetectionsForStatus(
+        detectionsWithStatus,
+        statusFilter
+      );
+
+      if (detectionsWithStatus.length > 0 && visibleWithCurrentFilter.length === 0) {
+        const fallbackStatus = ["to_verify", "confirmed", "rejected"].find(
+          (candidateStatus) =>
+            getDisplayDetectionsForStatus(detectionsWithStatus, candidateStatus).length > 0
+        );
+
+        if (fallbackStatus) {
+          setStatusFilter(fallbackStatus);
+        }
+      }
 
       setCurrentAnalysisId(analysisId);
       setDetections(detectionsWithStatus);

@@ -35,7 +35,7 @@ class AnalysisRunRequest(BaseModel):
     num_samples: int = Field(default=1, ge=1, le=20, alias="numSamples")
     confidence_threshold: float = Field(0.5, ge=0, le=1, alias="confidenceThreshold")
     bbox: list[float] = Field(
-        default_factory=lambda: [-22.2, 4.1, -21.7, 4.6],
+        default_factory=lambda: [0.0, 0.0, 2048.0, 1024.0],
         min_length=4,
         max_length=4,
     )
