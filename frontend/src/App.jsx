@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
-import { MapContainer, Rectangle, useMap, WMSTileLayer } from "react-leaflet";
+import { MapContainer, Rectangle, useMap, useMapEvents, WMSTileLayer } from "react-leaflet";
 
 const GEO_BOUNDS = [
   [-90, -180],
@@ -33,16 +33,12 @@ const RESOLUTION_DESCRIPTION_MAP = {
 };
 
 const GRID_SIZE = 4;
-const MAX_GRID_LEVEL = 2;
-const GRID_LEVEL_CONFIG = [
-  { rows: GRID_SIZE, cols: GRID_SIZE },
-  { rows: GRID_SIZE, cols: GRID_SIZE },
-  { rows: GRID_SIZE, cols: GRID_SIZE },
-];
+const GRID_ROWS = GRID_SIZE;
+const GRID_COLS = GRID_SIZE;
 
 function buildGridCells(bounds, level) {
-  const levelConfig = GRID_LEVEL_CONFIG[Math.min(level, GRID_LEVEL_CONFIG.length - 1)];
-  const { rows, cols } = levelConfig;
+  const rows = GRID_ROWS;
+  const cols = GRID_COLS;
   const [[latMin, lonMin], [latMax, lonMax]] = bounds;
   const cellHeight = (latMax - latMin) / rows;
   const cellWidth = (lonMax - lonMin) / cols;
@@ -281,12 +277,43 @@ function HomeControl({ onHomeClick }) {
   return null;
 }
 
+function ZoomOutLevelControl({ currentLevel, onStepOut, suppressZoomOutRef }) {
+  const lastZoomRef = useRef(null);
+  const map = useMapEvents({
+    zoomend() {
+      const currentZoom = map.getZoom();
+      const previousZoom = lastZoomRef.current;
+
+      if (suppressZoomOutRef.current > 0) {
+        suppressZoomOutRef.current -= 1;
+        lastZoomRef.current = currentZoom;
+        return;
+      }
+
+      if (typeof previousZoom === "number" && currentZoom < previousZoom && currentLevel > 0) {
+        onStepOut();
+      }
+
+      lastZoomRef.current = currentZoom;
+    },
+  });
+
+  useEffect(() => {
+    lastZoomRef.current = map.getZoom();
+  }, [map]);
+
+  return null;
+}
+
 export default function App() {
   const mapRef = useRef(null);
   const detectionListRef = useRef(null);
   const detectionItemRefs = useRef(new Map());
+  const suppressZoomOutRef = useRef(0);
   const [currentLevel, setCurrentLevel] = useState(0);
+  const [isLevelLocked, setIsLevelLocked] = useState(false);
   const [selectedBBox, setSelectedBBox] = useState(GEO_BOUNDS);
+  const [bboxHistory, setBBoxHistory] = useState([GEO_BOUNDS]);
   const [gridCells, setGridCells] = useState(() => buildGridCells(GEO_BOUNDS, 0));
   const [detections, setDetections] = useState([]);
   const [currentAnalysisId, setCurrentAnalysisId] = useState(null);
@@ -460,6 +487,7 @@ export default function App() {
   const handleResetHomeView = useCallback(() => {
     setCurrentLevel(0);
     setSelectedBBox(GEO_BOUNDS);
+    setBBoxHistory([GEO_BOUNDS]);
     setGridCells(buildGridCells(GEO_BOUNDS, 0));
     setSelectedSegment(null);
     setFocusBounds(GEO_BOUNDS);
@@ -472,16 +500,44 @@ export default function App() {
     setChosenMessage("Widok zresetowany do calej mapy.");
   }, []);
 
+  const handleStepOutLevel = useCallback(() => {
+    setBBoxHistory((prevHistory) => {
+      if (prevHistory.length <= 1) {
+        return prevHistory;
+      }
+
+      const nextHistory = prevHistory.slice(0, -1);
+      const parentBounds = nextHistory[nextHistory.length - 1];
+
+      // Ignore only the immediate zoom event from this programmatic fitBounds.
+      suppressZoomOutRef.current = 1;
+
+      setCurrentLevel(nextHistory.length - 1);
+      setSelectedBBox(parentBounds);
+      setFocusBounds(parentBounds);
+      setSelectedSegment(null);
+
+      const coords = boundsToCoords(parentBounds);
+      setManualCoords({
+        xMin: String(coords.xMin),
+        yMin: String(coords.yMin),
+        xMax: String(coords.xMax),
+        yMax: String(coords.yMax),
+      });
+
+      return nextHistory;
+    });
+  }, []);
+
   const handleSelectSegment = (segment) => {
     setSelectedSegment(segment);
     setChosenMessage("");
 
-    if (currentLevel < MAX_GRID_LEVEL) {
-      setCurrentLevel(currentLevel + 1);
+    if (!isLevelLocked) {
+      setCurrentLevel((prevLevel) => prevLevel + 1);
       setSelectedBBox(segment.bounds);
+      setBBoxHistory((prevHistory) => [...prevHistory, segment.bounds]);
       setFocusBounds(segment.bounds);
-    } else {
-      setFocusBounds(selectedBBox);
     }
 
     const coords = boundsToCoords(segment.bounds);
@@ -725,7 +781,7 @@ export default function App() {
               maxBounds={GEO_BOUNDS}
               maxBoundsViscosity={1.0}
               minZoom={0}
-              maxZoom={8}
+              maxZoom={18}
               zoomSnap={0.1}
               zoomDelta={0.5}
               whenCreated={(mapInstance) => {
@@ -742,6 +798,11 @@ export default function App() {
                 format="image/png"
                 transparent={false}
                 noWrap
+              />
+              <ZoomOutLevelControl
+                currentLevel={currentLevel}
+                onStepOut={handleStepOutLevel}
+                suppressZoomOutRef={suppressZoomOutRef}
               />
               <FitBoundsOnChange bounds={focusBounds} />
               <HomeControl onHomeClick={handleResetHomeView} />
@@ -873,6 +934,23 @@ export default function App() {
               <button className="btn btn-outline-secondary w-100 mb-2" onClick={handleResetHomeView}>
                 Reset widoku
               </button>
+
+              <div className="form-check form-switch mb-2">
+                <input
+                  className="form-check-input"
+                  type="checkbox"
+                  id="toggle-lock-level"
+                  checked={isLevelLocked}
+                  onChange={(event) => setIsLevelLocked(event.target.checked)}
+                />
+                <label className="form-check-label" htmlFor="toggle-lock-level">
+                  Lock level
+                </label>
+              </div>
+
+              <div className="small text-muted mb-2">
+                {isLevelLocked ? "Klik tylko zaznacza segment." : "Klik schodzi poziom nizej."}
+              </div>
 
               <div className="small text-muted mb-3">Poziom siatki: {currentLevel}</div>
 
