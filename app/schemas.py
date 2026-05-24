@@ -25,6 +25,15 @@ class Detection(BaseModel):
 
 
 AnalysisResolutionMode = Literal["preview", "detail", "ultra"]
+AnalysisWmsSource = Literal["usgs", "lroc_ildi"]
+AnalysisWmsLayer = Literal[
+    "auto",
+    "LROC_WAC",
+    "KaguyaTC_Ortho",
+    "luna_wac_global",
+    "luna_nac_gigapan",
+    "luna_pds_nac_stamp",
+]
 
 
 class AnalysisRunRequest(BaseModel):
@@ -32,6 +41,8 @@ class AnalysisRunRequest(BaseModel):
 
     region_id: str | None = None
     resolution_mode: AnalysisResolutionMode = Field(default="detail", alias="resolutionMode")
+    wms_source: AnalysisWmsSource = Field(default="usgs", alias="wmsSource")
+    wms_layer: AnalysisWmsLayer = Field(default="auto", alias="wmsLayer")
     num_samples: int = Field(default=1, ge=1, le=20, alias="numSamples")
     confidence_threshold: float = Field(0.5, ge=0, le=1, alias="confidenceThreshold")
     bbox: list[float] = Field(

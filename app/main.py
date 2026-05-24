@@ -175,6 +175,8 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
     analysis_id = str(uuid4())
     analysis_timestamp = datetime.now(timezone.utc).isoformat()
     geo_bbox = _normalize_analysis_bbox_to_geo(payload.bbox)
+    selected_wms_source = payload.wms_source
+    selected_wms_layer = None if payload.wms_layer == "auto" else payload.wms_layer
 
     filtered_detections: list[Detection] = []
     for sample_index in range(payload.num_samples):
@@ -182,7 +184,17 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
         center_lon = (sample_bbox[0] + sample_bbox[2]) / 2.0
         center_lat = (sample_bbox[1] + sample_bbox[3]) / 2.0
 
-        tile_image = download_tile(payload.resolution_mode, sample_bbox)
+        try:
+            tile_image = download_tile(
+                payload.resolution_mode,
+                sample_bbox,
+                wms_layer_name=selected_wms_layer,
+                wms_source=selected_wms_source,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=f"WMS download failed: {exc}") from exc
         sample_detections = run_inference(
             image=tile_image,
             confidence_threshold=payload.confidence_threshold,

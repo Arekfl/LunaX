@@ -13,10 +13,23 @@ from PIL import Image
 MOON_RADIUS_M = 1737400.0
 METERS_PER_DEG = (2.0 * math.pi * MOON_RADIUS_M) / 360.0
 
-WMS_URL = "https://planetarymaps.usgs.gov/cgi-bin/mapserv"
-WMS_MAP = "/maps/earth/moon_simp_cyl.map"
 WMS_VERSION = "1.1.1"
 WMS_SRS = "EPSG:4326"
+
+WMS_SOURCE_CONFIGS: dict[str, dict[str, str | None]] = {
+    "usgs": {
+        "url": "https://planetarymaps.usgs.gov/cgi-bin/mapserv",
+        "map": "/maps/earth/moon_simp_cyl.map",
+        "version": WMS_VERSION,
+        "srs": WMS_SRS,
+    },
+    "lroc_ildi": {
+        "url": "https://wms.im-ldi.com/",
+        "map": None,
+        "version": WMS_VERSION,
+        "srs": WMS_SRS,
+    },
+}
 REQUEST_TIMEOUT = 25
 
 MAX_RETRIES_PER_TILE = 6
@@ -71,14 +84,32 @@ def _local_name(tag: str) -> str:
     return tag.split("}")[-1]
 
 
-def _fetch_wms_capabilities() -> str:
+def _get_source_config(source_name: str) -> dict[str, str | None]:
+    if source_name not in WMS_SOURCE_CONFIGS:
+        available_sources = ", ".join(sorted(WMS_SOURCE_CONFIGS.keys()))
+        raise ValueError(
+            f"Unknown WMS source '{source_name}'. Supported sources: {available_sources}"
+        )
+
+    return WMS_SOURCE_CONFIGS[source_name]
+
+
+def _fetch_wms_capabilities(source_name: str) -> str:
+    source_config = _get_source_config(source_name)
     params = {
-        "map": WMS_MAP,
         "service": "WMS",
-        "version": WMS_VERSION,
+        "version": str(source_config["version"]),
         "request": "GetCapabilities",
     }
-    response = requests.get(WMS_URL, params=params, timeout=REQUEST_TIMEOUT)
+    map_path = source_config["map"]
+    if map_path:
+        params["map"] = map_path
+
+    response = requests.get(
+        str(source_config["url"]),
+        params=params,
+        timeout=REQUEST_TIMEOUT,
+    )
     response.raise_for_status()
     return response.text
 
@@ -128,7 +159,11 @@ def _rank_layer(layer_name: str, layer_title: str) -> int:
     return score
 
 
-def _pick_layer(layers: list[dict[str, str]], forced_layer_name: str | None = None) -> str:
+def _pick_layer(
+    layers: list[dict[str, str]],
+    forced_layer_name: str | None = None,
+    source_name: str = "usgs",
+) -> str:
     if not layers:
         raise RuntimeError("No layers found in WMS GetCapabilities response.")
 
@@ -138,6 +173,9 @@ def _pick_layer(layers: list[dict[str, str]], forced_layer_name: str | None = No
             raise ValueError(f"Forced layer not found: {forced_layer_name}")
         return forced_layer_name
 
+    if source_name == "lroc_ildi" and "luna_wac_global" in layer_names:
+        return "luna_wac_global"
+
     ranked = sorted(
         layers,
         key=lambda item: _rank_layer(item["name"], item["title"]),
@@ -146,11 +184,11 @@ def _pick_layer(layers: list[dict[str, str]], forced_layer_name: str | None = No
     return ranked[0]["name"]
 
 
-@lru_cache(maxsize=1)
-def _get_selected_layer() -> str:
-    capabilities = _fetch_wms_capabilities()
+@lru_cache(maxsize=32)
+def _get_selected_layer(source_name: str, forced_layer_name: str | None = None) -> str:
+    capabilities = _fetch_wms_capabilities(source_name)
     layers = _parse_layers(capabilities)
-    return _pick_layer(layers, FORCE_LAYER_NAME)
+    return _pick_layer(layers, forced_layer_name, source_name=source_name)
 
 
 def _normalize_bbox(bbox: Sequence[float]) -> UserBBox:
@@ -219,12 +257,19 @@ def _has_vertical_white_stripes(gray_image: Image.Image) -> bool:
     return len(wide_runs) > 0
 
 
-def download_tile(mode: str, bbox: Sequence[float]) -> Image.Image:
+def download_tile(
+    mode: str,
+    bbox: Sequence[float],
+    wms_layer_name: str | None = None,
+    wms_source: str = "usgs",
+) -> Image.Image:
     """Download a single lunar tile from USGS WMS and return it as a PIL image.
 
     Args:
         mode: One of "preview", "detail", "ultra".
         bbox: Bounding box in EPSG:4326 as [xmin, ymin, xmax, ymax].
+        wms_layer_name: Optional explicit layer name (for example: "LROC_WAC").
+        wms_source: Name of WMS source configuration.
 
     Returns:
         PIL.Image.Image in grayscale ("L"). No files are written to disk.
@@ -241,21 +286,27 @@ def download_tile(mode: str, bbox: Sequence[float]) -> Image.Image:
 
     normalized_bbox = _normalize_bbox(bbox)
     request_bbox = _build_request_bbox(normalized_bbox, delta_deg)
-    selected_layer = _get_selected_layer()
+    source_config = _get_source_config(wms_source)
+    selected_layer = _get_selected_layer(
+        wms_source,
+        wms_layer_name or FORCE_LAYER_NAME,
+    )
 
     params: dict[str, Any] = {
-        "map": WMS_MAP,
         "request": "GetMap",
         "service": "WMS",
-        "version": WMS_VERSION,
+        "version": str(source_config["version"]),
         "layers": selected_layer,
         "styles": "",
-        "srs": WMS_SRS,
+        "srs": str(source_config["srs"]),
         "bbox": f"{request_bbox[0]},{request_bbox[1]},{request_bbox[2]},{request_bbox[3]}",
         "width": image_size,
         "height": image_size,
         "format": wms_image_format,
     }
+    map_path = source_config["map"]
+    if map_path:
+        params["map"] = map_path
 
     headers = {
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
@@ -266,7 +317,7 @@ def download_tile(mode: str, bbox: Sequence[float]) -> Image.Image:
     for attempt in range(1, MAX_RETRIES_PER_TILE + 1):
         try:
             response = requests.get(
-                WMS_URL,
+                str(source_config["url"]),
                 params=params,
                 headers=headers,
                 timeout=REQUEST_TIMEOUT,
@@ -279,7 +330,13 @@ def download_tile(mode: str, bbox: Sequence[float]) -> Image.Image:
 
             image = Image.open(BytesIO(response.content)).convert("L")
 
-            if STRIPE_FILTER_ENABLED and _has_vertical_white_stripes(image):
+            # The seam detector is tuned for USGS tiles and can falsely reject
+            # valid IM-LDI/LROC imagery (for example NAC mosaics).
+            if (
+                STRIPE_FILTER_ENABLED
+                and wms_source == "usgs"
+                and _has_vertical_white_stripes(image)
+            ):
                 raise RuntimeError("Detected vertical white seam artifact")
 
             return image
@@ -289,7 +346,10 @@ def download_tile(mode: str, bbox: Sequence[float]) -> Image.Image:
                 break
             time.sleep(RETRY_SLEEP_SECONDS)
 
-    raise RuntimeError("Failed to download tile after retries") from last_error
+    if last_error is None:
+        raise RuntimeError("Failed to download tile after retries")
+
+    raise RuntimeError(f"Failed to download tile after retries: {last_error}") from last_error
 
 
 __all__ = ["MODE_CONFIG", "download_tile"]
