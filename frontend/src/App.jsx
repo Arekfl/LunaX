@@ -759,6 +759,84 @@ export default function App() {
     }
   };
 
+  const handleLocalAnalysis = async () => {
+    setIsLoadingDetections(true);
+    setAnalysisStatus("loading");
+    setAnalysisOverlayBounds(null);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/analysis/local-run`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          confidenceThreshold,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const runPayload = await response.json();
+      const analysisId =
+        runPayload && typeof runPayload === "object" && typeof runPayload.analysis_id === "string"
+          ? runPayload.analysis_id
+          : null;
+      const runDetections =
+        runPayload && typeof runPayload === "object" && Array.isArray(runPayload.detections)
+          ? runPayload.detections
+          : [];
+
+      if (!analysisId) {
+        throw new Error("Missing analysis_id in /analysis/local-run response");
+      }
+
+      const statusMap = await fetchDetectionStatuses();
+      const detectionsWithStatus = applyStatusesToDetections(runDetections, statusMap);
+      const visibleWithCurrentFilter = getDisplayDetectionsForStatus(
+        detectionsWithStatus,
+        statusFilter
+      );
+
+      if (detectionsWithStatus.length > 0 && visibleWithCurrentFilter.length === 0) {
+        const fallbackStatus = ["to_verify", "confirmed", "rejected"].find(
+          (candidateStatus) =>
+            getDisplayDetectionsForStatus(detectionsWithStatus, candidateStatus).length > 0
+        );
+
+        if (fallbackStatus) {
+          setStatusFilter(fallbackStatus);
+        }
+      }
+
+      setCurrentAnalysisId(analysisId);
+      setDetections(detectionsWithStatus);
+      setSelectedDetection(null);
+      setAnalysisStatus("success");
+
+      if (detectionsWithStatus.length === 0) {
+        setChosenMessage(
+          `Analiza lokalna ${analysisId} zakonczona. Brak detekcji w folderze validation.`
+        );
+        return;
+      }
+
+      setChosenMessage(
+        `Analiza lokalna ${analysisId} zakonczona. Pobrano ${detectionsWithStatus.length} detekcji.`
+      );
+    } catch (error) {
+      console.error("Blad podczas analizy lokalnej:", error);
+      setChosenMessage("Nie udalo sie uruchomic analizy lokalnej z folderu validation.");
+      setAnalysisStatus("error");
+      setDetections([]);
+      setSelectedDetection(null);
+    } finally {
+      setIsLoadingDetections(false);
+    }
+  };
+
   const handleGoToManual = () => {
     const xMin = Number(manualCoords.xMin);
     const yMin = Number(manualCoords.yMin);
@@ -1154,6 +1232,17 @@ export default function App() {
                 <span>{isLoadingDetections ? "Analizowanie..." : "Uruchom analize"}</span>
               </button>
 
+              <button
+                className="btn btn-outline-primary w-100 mb-2 d-flex align-items-center justify-content-center gap-2"
+                onClick={handleLocalAnalysis}
+                disabled={isLoadingDetections}
+              >
+                {isLoadingDetections && (
+                  <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                )}
+                <span>{isLoadingDetections ? "Analizowanie..." : "Analiza lokalna"}</span>
+              </button>
+
               <button className="btn btn-outline-secondary w-100 mb-2" onClick={handleResetHomeView}>
                 Reset widoku
               </button>
@@ -1250,13 +1339,13 @@ export default function App() {
               </div>
               <div className="small text-muted mb-3">Wiecej probek = dluzsza analiza</div>
 
-              <div className="small text-muted mb-2">Confidence threshold ({confidenceThreshold.toFixed(1)})</div>
+              <div className="small text-muted mb-2">Confidence threshold ({confidenceThreshold.toFixed(2)})</div>
               <input
                 className="form-range mb-3"
                 type="range"
-                min="0.1"
+                min="0.01"
                 max="1.0"
-                step="0.1"
+                step="0.01"
                 value={confidenceThreshold}
                 onChange={(event) => setConfidenceThreshold(Number(event.target.value))}
               />

@@ -149,6 +149,80 @@ def test_analysis_run_passes_confidence_threshold_to_inference(monkeypatch) -> N
     assert kwargs["confidence_threshold"] == 0.1
 
 
+def test_local_analysis_runs_on_validation_images(tmp_path, monkeypatch) -> None:
+    validation_dir = tmp_path / "images" / "validation"
+    validation_dir.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (320, 160), color=(128, 128, 128)).save(validation_dir / "sample_01.png")
+    Image.new("RGB", (640, 320), color=(64, 64, 64)).save(validation_dir / "sample_02.jpg")
+
+    detections_parquet_file = tmp_path / "detections.parquet"
+    monkeypatch.setenv("VALIDATION_IMAGE_DIR", str(validation_dir))
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+
+    mocked_inference = Mock(
+        return_value=[
+            {
+                "detection_id": "det-local-1",
+                "bbox": {"x": 80.0, "y": 40.0, "width": 80.0, "height": 40.0},
+                "confidence": 0.82,
+                "class": "cave_candidate",
+            }
+        ]
+    )
+    monkeypatch.setattr("app.main.run_inference", mocked_inference)
+
+    response = client.post(
+        "/analysis/local-run",
+        json={
+            "confidenceThreshold": 0.1,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["analysis_id"]
+    assert payload["source"] == "mock"
+    assert len(payload["detections"]) == 2
+
+    assert mocked_inference.call_count == 2
+    image_sizes: list[int] = []
+    for call in mocked_inference.call_args_list:
+        _, kwargs = call
+        assert kwargs["confidence_threshold"] == 0.1
+        image_sizes.append(int(kwargs["image_size"]))
+
+    assert sorted(image_sizes) == [320, 640]
+
+    for detection in payload["detections"]:
+        bbox = detection["bbox"]
+        assert 0 <= bbox["x"] <= 180
+        assert 0 <= bbox["y"] <= 90
+        assert bbox["width"] > 0
+        assert bbox["height"] > 0
+        assert bbox["x"] + bbox["width"] <= 180
+        assert bbox["y"] + bbox["height"] <= 90
+
+    stored = pd.read_parquet(detections_parquet_file)
+    assert len(stored) == 2
+    assert set(stored["analysis_id"]) == {payload["analysis_id"]}
+
+
+def test_local_analysis_returns_404_when_validation_folder_has_no_images(tmp_path, monkeypatch) -> None:
+    validation_dir = tmp_path / "images" / "validation"
+    validation_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("VALIDATION_IMAGE_DIR", str(validation_dir))
+
+    response = client.post(
+        "/analysis/local-run",
+        json={
+            "confidenceThreshold": 0.1,
+        },
+    )
+
+    assert response.status_code == 404
+    assert "No validation images found" in response.json()["detail"]
+
+
 def test_analysis_run_generates_new_analysis_id_for_each_run(monkeypatch) -> None:
     monkeypatch.setattr("app.main.download_tile", _mock_tile)
     monkeypatch.setattr("app.main.run_inference", _mock_inference)

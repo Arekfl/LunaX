@@ -59,6 +59,12 @@ class AnalysisRunResponse(BaseModel):
     detections: list[Detection]
 
 
+class LocalValidationRunRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    confidence_threshold: float = Field(0.5, ge=0, le=1, alias="confidenceThreshold")
+
+
 DetectionStatus = Literal["confirmed", "to_verify", "rejected"]
 
 

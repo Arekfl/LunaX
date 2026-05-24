@@ -1,12 +1,15 @@
 import logging
 import math
+import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from PIL import Image
 
 from ai.adapter import run_inference
 from data.downloader import download_tile
@@ -21,6 +24,7 @@ from app.schemas import (
     DetectionStatusUpdateRequest,
     DetectionStatusUpdateResponse,
     HealthResponse,
+    LocalValidationRunRequest,
 )
 from app.analytics import (
     get_no_detection_image_path,
@@ -40,6 +44,7 @@ logger = logging.getLogger(__name__)
 
 IMAGE_WIDTH = 2048.0
 IMAGE_HEIGHT = 1024.0
+VALIDATION_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"}
 
 app.add_middleware(
     CORSMiddleware,
@@ -117,6 +122,54 @@ def _build_sample_bbox(
     return [sample_x_min, sample_y_min, sample_x_max, sample_y_max]
 
 
+def _get_validation_image_dir() -> Path:
+    configured_path = os.getenv("VALIDATION_IMAGE_DIR")
+    if configured_path:
+        return Path(configured_path)
+
+    return Path(__file__).resolve().parents[1] / "data" / "images" / "validation"
+
+
+def _get_validation_image_paths(validation_dir: Path) -> list[Path]:
+    if not validation_dir.exists() or not validation_dir.is_dir():
+        return []
+
+    return sorted(
+        [
+            path
+            for path in validation_dir.iterdir()
+            if path.is_file() and path.suffix.lower() in VALIDATION_IMAGE_EXTENSIONS
+        ]
+    )
+
+
+def _pixel_bbox_to_display_bbox(
+    *,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    image_width: int,
+    image_height: int,
+) -> dict[str, float]:
+    x1 = _clamp(x, 0.0, float(image_width))
+    y1 = _clamp(y, 0.0, float(image_height))
+    x2 = _clamp(x + width, 0.0, float(image_width))
+    y2 = _clamp(y + height, 0.0, float(image_height))
+
+    x_min = (min(x1, x2) / float(image_width)) * 180.0
+    y_min = (min(y1, y2) / float(image_height)) * 90.0
+    x_max = (max(x1, x2) / float(image_width)) * 180.0
+    y_max = (max(y1, y2) / float(image_height)) * 90.0
+
+    return {
+        "x": x_min,
+        "y": y_min,
+        "width": max(0.0, x_max - x_min),
+        "height": max(0.0, y_max - y_min),
+    }
+
+
 @app.post("/analysis/run", response_model=AnalysisRunResponse)
 def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
     analysis_id = str(uuid4())
@@ -176,6 +229,83 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
         )
     except Exception as exc:  # pragma: no cover - defensive logging for IO layer
         logger.warning("Could not persist detections to parquet: %s", exc)
+
+    return AnalysisRunResponse(
+        analysis_id=analysis_id,
+        source="mock",
+        detections=filtered_detections,
+    )
+
+
+@app.post("/analysis/local-run", response_model=AnalysisRunResponse)
+def run_local_validation_analysis(payload: LocalValidationRunRequest) -> AnalysisRunResponse:
+    analysis_id = str(uuid4())
+    analysis_timestamp = datetime.now(timezone.utc).isoformat()
+
+    validation_dir = _get_validation_image_dir()
+    validation_images = _get_validation_image_paths(validation_dir)
+    if not validation_images:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No validation images found in {validation_dir}",
+        )
+
+    filtered_detections: list[Detection] = []
+    for image_path in validation_images:
+        try:
+            with Image.open(image_path) as opened_image:
+                local_image = opened_image.convert("RGB")
+        except OSError as exc:
+            logger.warning("Could not open validation image %s: %s", image_path, exc)
+            continue
+
+        image_width, image_height = local_image.size
+        if image_width <= 0 or image_height <= 0:
+            logger.warning("Skipping validation image with invalid dimensions: %s", image_path)
+            continue
+
+        sample_detections = run_inference(
+            image=local_image,
+            confidence_threshold=payload.confidence_threshold,
+            image_size=max(local_image.size),
+        )
+
+        sample_model_detections: list[Detection] = []
+        for detection in sample_detections:
+            display_bbox = _pixel_bbox_to_display_bbox(
+                x=float(detection["bbox"]["x"]),
+                y=float(detection["bbox"]["y"]),
+                width=float(detection["bbox"]["width"]),
+                height=float(detection["bbox"]["height"]),
+                image_width=image_width,
+                image_height=image_height,
+            )
+
+            sample_model_detections.append(
+                Detection(
+                    detection_id=detection["detection_id"],
+                    analysis_id=analysis_id,
+                    confidence=detection["confidence"],
+                    **{"class": detection["class"]},
+                    bbox=BBox(**display_bbox),
+                )
+            )
+
+        sample_filtered_detections = [
+            detection
+            for detection in sample_model_detections
+            if detection.confidence >= payload.confidence_threshold
+        ]
+        filtered_detections.extend(sample_filtered_detections)
+
+    try:
+        save_detections_to_parquet(
+            filtered_detections,
+            resolution_mode="detail",
+            timestamp=analysis_timestamp,
+        )
+    except Exception as exc:  # pragma: no cover - defensive logging for IO layer
+        logger.warning("Could not persist local validation detections to parquet: %s", exc)
 
     return AnalysisRunResponse(
         analysis_id=analysis_id,

@@ -39,10 +39,23 @@ def _resolve_class_name(names: object, class_index: int) -> str:
     return str(class_index)
 
 
-def run_inference(image: Image.Image, confidence_threshold: float = 0.25) -> list[AdapterDetection]:
+def run_inference(
+    image: Image.Image,
+    confidence_threshold: float = 0.25,
+    image_size: int | None = None,
+) -> list[AdapterDetection]:
     """Run YOLO inference on a single PIL image and return adapter detections."""
 
-    results = model(image, verbose=False, conf=confidence_threshold)
+    model_input = image if image.mode == "RGB" else image.convert("RGB")
+    predict_kwargs: dict[str, object] = {
+        "source": model_input,
+        "verbose": False,
+        "conf": confidence_threshold,
+    }
+    if image_size is not None:
+        predict_kwargs["imgsz"] = int(image_size)
+
+    results = model.predict(**predict_kwargs)
     detections: list[AdapterDetection] = []
 
     for result in results:
