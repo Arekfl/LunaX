@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import { ImageOverlay, MapContainer, Rectangle, useMap } from "react-leaflet";
 
@@ -21,6 +21,7 @@ const STATUS_BADGE_CLASS_MAP = {
   to_verify: "text-bg-warning",
   rejected: "text-bg-danger",
 };
+const DETECTION_BBOX_PROXIMITY_THRESHOLD = 12;
 const RESOLUTION_DESCRIPTION_MAP = {
   preview: "Szybki podglad, nizsza dokladnosc.",
   detail: "Zbalansowany tryb do codziennej analizy.",
@@ -61,12 +62,123 @@ function boundsToCoords(bounds) {
   return { xMin, yMin, xMax, yMax };
 }
 
+function parseBBoxToMinMax(bbox) {
+  if (Array.isArray(bbox) && bbox.length === 4) {
+    const [xMin, yMin, xMax, yMax] = bbox;
+    return { xMin, yMin, xMax, yMax };
+  }
+
+  if (!bbox || typeof bbox !== "object") {
+    return null;
+  }
+
+  if (
+    typeof bbox.xMin === "number" &&
+    typeof bbox.yMin === "number" &&
+    typeof bbox.xMax === "number" &&
+    typeof bbox.yMax === "number"
+  ) {
+    return {
+      xMin: bbox.xMin,
+      yMin: bbox.yMin,
+      xMax: bbox.xMax,
+      yMax: bbox.yMax,
+    };
+  }
+
+  if (
+    typeof bbox.x === "number" &&
+    typeof bbox.y === "number" &&
+    typeof bbox.width === "number" &&
+    typeof bbox.height === "number"
+  ) {
+    return {
+      xMin: bbox.x,
+      yMin: bbox.y,
+      xMax: bbox.x + bbox.width,
+      yMax: bbox.y + bbox.height,
+    };
+  }
+
+  return null;
+}
+
+function isBoundsInsideImage(bounds) {
+  if (!bounds) {
+    return false;
+  }
+
+  const [[yMin, xMin], [yMax, xMax]] = bounds;
+
+  return (
+    Number.isFinite(yMin) &&
+    Number.isFinite(xMin) &&
+    Number.isFinite(yMax) &&
+    Number.isFinite(xMax) &&
+    yMin >= IMAGE_BOUNDS[0][0] &&
+    xMin >= IMAGE_BOUNDS[0][1] &&
+    yMax <= IMAGE_BOUNDS[1][0] &&
+    xMax <= IMAGE_BOUNDS[1][1] &&
+    yMax > yMin &&
+    xMax > xMin
+  );
+}
+
 function detectionToBounds(detection) {
-  const { x, y, width, height } = detection.bbox;
-  return [
-    [y, x],
-    [y + height, x + width],
+  const bboxMinMax = parseBBoxToMinMax(detection?.bbox);
+  if (!bboxMinMax) {
+    return null;
+  }
+
+  const { xMin, yMin, xMax, yMax } = bboxMinMax;
+  const bounds = [
+    [yMin, xMin],
+    [yMax, xMax],
   ];
+
+  return isBoundsInsideImage(bounds) ? bounds : null;
+}
+
+function areBBoxesClose(leftBBox, rightBBox, threshold) {
+  const left = parseBBoxToMinMax(leftBBox);
+  const right = parseBBoxToMinMax(rightBBox);
+
+  if (!left || !right) {
+    return false;
+  }
+
+  return (
+    Math.abs(left.xMin - right.xMin) < threshold &&
+    Math.abs(left.yMin - right.yMin) < threshold &&
+    Math.abs(left.xMax - right.xMax) < threshold &&
+    Math.abs(left.yMax - right.yMax) < threshold
+  );
+}
+
+function deduplicateDetectionsByProximity(detectionList, threshold) {
+  const deduplicated = [];
+
+  for (const detection of detectionList) {
+    const matchIndex = deduplicated.findIndex((existing) => {
+      if (existing.class !== detection.class) {
+        return false;
+      }
+
+      return areBBoxesClose(existing.bbox, detection.bbox, threshold);
+    });
+
+    if (matchIndex === -1) {
+      deduplicated.push(detection);
+      continue;
+    }
+
+    const existing = deduplicated[matchIndex];
+    if (Number(detection.confidence) > Number(existing.confidence)) {
+      deduplicated[matchIndex] = detection;
+    }
+  }
+
+  return deduplicated;
 }
 
 function getDetectionUniqueId(detection) {
@@ -148,6 +260,7 @@ function HomeControl({ onHomeClick }) {
 
 export default function App() {
   const segments = useMemo(() => buildSegments(), []);
+  const mapRef = useRef(null);
   const [detections, setDetections] = useState([]);
   const [currentAnalysisId, setCurrentAnalysisId] = useState(null);
   const [isLoadingDetections, setIsLoadingDetections] = useState(false);
@@ -176,12 +289,18 @@ export default function App() {
   const selectedCoords = selectedSegment ? boundsToCoords(selectedSegment.bounds) : null;
 
   const filteredDetections = useMemo(() => {
-    return detections
+    const statusFilteredDetections = detections
       .map((detection) => ({
         ...detection,
         status: resolveDetectionStatus(detection, storedStatuses),
       }))
+      .filter((detection) => detectionToBounds(detection))
       .filter((detection) => detection.status === statusFilter);
+
+    return deduplicateDetectionsByProximity(
+      statusFilteredDetections,
+      DETECTION_BBOX_PROXIMITY_THRESHOLD
+    );
   }, [detections, statusFilter, storedStatuses]);
 
   const fetchDetectionStatuses = useCallback(async () => {
@@ -304,6 +423,22 @@ export default function App() {
       yMax: String(coords.yMax),
     });
   };
+
+  const handleSelectDetection = useCallback((detection) => {
+    const bboxBounds = detectionToBounds(detection);
+    if (!bboxBounds) {
+      return;
+    }
+
+    setSelectedDetection(detection);
+
+    const mapInstance = mapRef.current;
+    if (!mapInstance) {
+      return;
+    }
+
+    mapInstance.fitBounds(bboxBounds, { padding: [20, 20], animate: true });
+  }, []);
 
   const handleChooseArea = async () => {
     if (!selectedSegment) {
@@ -498,7 +633,15 @@ export default function App() {
       <div className="row g-3">
         <div className="col-lg-9">
           <div className="map-shell border rounded shadow-sm">
-            <MapContainer crs={L.CRS.Simple} bounds={IMAGE_BOUNDS} minZoom={-2} maxZoom={4}>
+            <MapContainer
+              crs={L.CRS.Simple}
+              bounds={IMAGE_BOUNDS}
+              minZoom={-2}
+              maxZoom={4}
+              whenCreated={(mapInstance) => {
+                mapRef.current = mapInstance;
+              }}
+            >
               <ImageOverlay url="/luna_0.jpg" bounds={IMAGE_BOUNDS} />
               <FitBoundsOnChange bounds={focusBounds} />
               <HomeControl onHomeClick={handleResetHomeView} />
@@ -548,15 +691,16 @@ export default function App() {
                 />
               )}
 
-              {showBboxes && filteredDetections.map((detection) => {
+              {showBboxes && filteredDetections.map((detection, detectionIndex) => {
                 const detectionUniqueId = getDetectionUniqueId(detection);
+                const detectionRenderKey = `${detectionUniqueId}|${detectionIndex}`;
                 const isSelected = isSameDetection(selectedDetection, detection);
                 const isHovered = hoveredDetectionId === detectionUniqueId;
                 const statusColor = getStatusColor(detection.status);
 
                 return (
                   <Rectangle
-                    key={detectionUniqueId}
+                    key={detectionRenderKey}
                     bounds={detectionToBounds(detection)}
                     pathOptions={{
                       color: statusColor,
@@ -569,7 +713,7 @@ export default function App() {
                     eventHandlers={{
                       mouseover: () => setHoveredDetectionId(detectionUniqueId),
                       mouseout: () => setHoveredDetectionId(null),
-                      click: () => setSelectedDetection(detection),
+                      click: () => handleSelectDetection(detection),
                     }}
                   />
                 );
@@ -800,8 +944,9 @@ export default function App() {
                   <div className="small text-muted">Brak detekcji dla statusu: {statusFilter}.</div>
                 ) : (
                   <div className="list-group">
-                    {filteredDetections.map((detection) => {
+                    {filteredDetections.map((detection, detectionIndex) => {
                       const detectionUniqueId = getDetectionUniqueId(detection);
+                      const detectionRenderKey = `${detectionUniqueId}|${detectionIndex}`;
                       const isSelected = isSameDetection(selectedDetection, detection);
                       const isHovered = hoveredDetectionId === detectionUniqueId;
                       const statusBadgeClass = getStatusBadgeClass(detection.status);
@@ -812,7 +957,7 @@ export default function App() {
 
                       return (
                         <div
-                          key={detectionUniqueId}
+                          key={detectionRenderKey}
                           onMouseEnter={() => setHoveredDetectionId(detectionUniqueId)}
                           onMouseLeave={() => setHoveredDetectionId(null)}
                           className={`list-group-item list-group-item-action text-start ${
@@ -829,7 +974,7 @@ export default function App() {
                         >
                           <button
                             type="button"
-                            onClick={() => setSelectedDetection(detection)}
+                            onClick={() => handleSelectDetection(detection)}
                             className="btn btn-link text-decoration-none text-reset p-0 w-100 text-start"
                           >
                             <div><strong>{detection.detection_id}</strong></div>
