@@ -21,6 +21,11 @@ const STATUS_BADGE_CLASS_MAP = {
   to_verify: "text-bg-warning",
   rejected: "text-bg-danger",
 };
+const RESOLUTION_DESCRIPTION_MAP = {
+  preview: "Szybki podglad, nizsza dokladnosc.",
+  detail: "Zbalansowany tryb do codziennej analizy.",
+  ultra: "Najwyzsza dokladnosc, najdluzszy czas analizy.",
+};
 
 const GRID_SIZE = 4;
 const CELL_HEIGHT = IMAGE_HEIGHT / GRID_SIZE;
@@ -145,7 +150,11 @@ export default function App() {
   const segments = useMemo(() => buildSegments(), []);
   const [detections, setDetections] = useState([]);
   const [isLoadingDetections, setIsLoadingDetections] = useState(false);
+  const [analysisStatus, setAnalysisStatus] = useState(null);
   const [showBboxes, setShowBboxes] = useState(true);
+  const [resolutionMode, setResolutionMode] = useState("detail");
+  const [numSamples, setNumSamples] = useState(5);
+  const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
   const [storedStatuses, setStoredStatuses] = useState({});
   const [statusFilter, setStatusFilter] = useState("to_verify");
   const [hoveredSegmentId, setHoveredSegmentId] = useState(null);
@@ -291,10 +300,12 @@ export default function App() {
   const handleChooseArea = async () => {
     if (!selectedSegment) {
       setChosenMessage("Najpierw wybierz segment na mapie lub wpisz wspolrzedne.");
+      setAnalysisStatus("error");
       return;
     }
 
     setIsLoadingDetections(true);
+    setAnalysisStatus("loading");
 
     try {
       const response = await fetch(`${API_BASE_URL}/analysis/run`, {
@@ -304,7 +315,9 @@ export default function App() {
         },
         body: JSON.stringify({
           region_id: selectedSegment.id,
-          confidence_threshold: 0.5,
+          confidence_threshold: confidenceThreshold,
+          resolution_mode: resolutionMode,
+          num_samples: numSamples,
         }),
       });
 
@@ -314,6 +327,7 @@ export default function App() {
 
       const detectionsWithStatus = await fetchDetectionsAndStatuses();
       setSelectedDetection(null);
+      setAnalysisStatus("success");
 
       if (detectionsWithStatus.length === 0) {
         setChosenMessage("Analiza zakonczona. Brak detekcji dla wybranego obszaru.");
@@ -324,6 +338,7 @@ export default function App() {
     } catch (error) {
       console.error("Blad podczas pobierania detekcji:", error);
       setChosenMessage("Nie udalo sie pobrac detekcji z backendu FastAPI.");
+      setAnalysisStatus("error");
       setDetections([]);
       setSelectedDetection(null);
     } finally {
@@ -556,9 +571,96 @@ export default function App() {
                 <div className="mb-3 text-muted">Brak wybranego segmentu.</div>
               )}
 
-              <button className="btn btn-primary w-100 mb-3" onClick={handleChooseArea}>
-                {isLoadingDetections ? "Analizowanie..." : "Wybierz obszar"}
+              <button
+                className="btn btn-primary w-100 mb-2 d-flex align-items-center justify-content-center gap-2"
+                onClick={handleChooseArea}
+                disabled={isLoadingDetections}
+              >
+                {isLoadingDetections && (
+                  <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                )}
+                <span>{isLoadingDetections ? "Analizowanie..." : "Wybierz obszar"}</span>
               </button>
+
+              {analysisStatus && (
+                <div className="small mb-3">
+                  Status analizy:{" "}
+                  <span
+                    className={`badge ${
+                      analysisStatus === "loading"
+                        ? "text-bg-info"
+                        : analysisStatus === "success"
+                          ? "text-bg-success"
+                          : "text-bg-danger"
+                    }`}
+                  >
+                    {analysisStatus}
+                  </span>
+                </div>
+              )}
+
+              <div className="small text-muted mb-2">Rozdzielczosc analizy</div>
+              <div className="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Tryb rozdzielczosci analizy">
+                <button
+                  type="button"
+                  className={`btn ${resolutionMode === "preview" ? "btn-primary" : "btn-outline-primary"}`}
+                  onClick={() => setResolutionMode("preview")}
+                >
+                  preview
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${resolutionMode === "detail" ? "btn-primary" : "btn-outline-primary"}`}
+                  onClick={() => setResolutionMode("detail")}
+                >
+                  detail
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${resolutionMode === "ultra" ? "btn-primary" : "btn-outline-primary"}`}
+                  onClick={() => setResolutionMode("ultra")}
+                >
+                  ultra
+                </button>
+              </div>
+              <div className="small text-muted mb-3">{RESOLUTION_DESCRIPTION_MAP[resolutionMode]}</div>
+
+              <div className="small text-muted mb-2">Liczba probek</div>
+              <div className="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Liczba probek analizy">
+                <button
+                  type="button"
+                  className={`btn ${numSamples === 1 ? "btn-primary" : "btn-outline-primary"}`}
+                  onClick={() => setNumSamples(1)}
+                >
+                  1
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${numSamples === 5 ? "btn-primary" : "btn-outline-primary"}`}
+                  onClick={() => setNumSamples(5)}
+                >
+                  5
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${numSamples === 10 ? "btn-primary" : "btn-outline-primary"}`}
+                  onClick={() => setNumSamples(10)}
+                >
+                  10
+                </button>
+              </div>
+              <div className="small text-muted mb-3">Wiecej probek = dluzsza analiza</div>
+
+              <div className="small text-muted mb-2">Confidence threshold ({confidenceThreshold.toFixed(1)})</div>
+              <input
+                className="form-range mb-3"
+                type="range"
+                min="0.1"
+                max="1.0"
+                step="0.1"
+                value={confidenceThreshold}
+                onChange={(event) => setConfidenceThreshold(Number(event.target.value))}
+              />
 
               <div className="small text-muted mb-2">Przejdz do wspolrzednych</div>
               <div className="row g-2">
