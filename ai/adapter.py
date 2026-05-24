@@ -1,5 +1,8 @@
+from pathlib import Path
 from typing import Any, TypedDict
 from uuid import uuid4
+
+from ultralytics import YOLO
 
 
 class AdapterBBox(TypedDict):
@@ -18,6 +21,10 @@ AdapterDetection = TypedDict(
         "class": str,
     },
 )
+
+MODEL_PATH = Path(__file__).resolve().parents[1] / "best.pt"
+# Loaded once at import time; endpoints still use mock inference for now.
+model = YOLO(str(MODEL_PATH))
 
 def _next_detection_id() -> str:
     return f"det-{uuid4().hex}"
