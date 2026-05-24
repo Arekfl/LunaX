@@ -72,6 +72,8 @@ def query_detections(
     status: str | None = None,
     class_name: str | None = None,
     min_confidence: float | None = None,
+    resolution_mode: str | None = None,
+    analysis_id: str | None = None,
 ) -> list[dict]:
     parquet_file = _get_detections_parquet_path()
     if not parquet_file.exists():
@@ -118,6 +120,8 @@ def query_detections(
             WHERE (? IS NULL OR COALESCE(s.status, d.status, 'to_verify') = ?)
               AND (? IS NULL OR d.class_name = ?)
               AND (? IS NULL OR d.confidence >= ?)
+                            AND (? IS NULL OR d.resolutionMode = ?)
+                            AND (? IS NULL OR d.analysis_id = ?)
             ORDER BY d.confidence DESC
         """
 
@@ -131,6 +135,10 @@ def query_detections(
                 class_name,
                 min_confidence,
                 min_confidence,
+                resolution_mode,
+                resolution_mode,
+                analysis_id,
+                analysis_id,
             ],
         ).fetchall()
 

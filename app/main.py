@@ -117,4 +117,6 @@ def get_detections_query(
         status=params.status,
         class_name=params.class_name,
         min_confidence=params.confidence,
+        resolution_mode=params.resolution_mode,
+        analysis_id=params.analysis_id,
     )

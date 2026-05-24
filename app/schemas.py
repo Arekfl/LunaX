@@ -86,3 +86,7 @@ class DetectionsQueryParams(BaseModel):
     status: DetectionStatus | None = None
     class_name: str | None = Field(default=None, alias="class")
     confidence: float | None = Field(default=None, ge=0, le=1)
+    resolution_mode: AnalysisResolutionMode | None = Field(
+        default=None, alias="resolutionMode"
+    )
+    analysis_id: str | None = None

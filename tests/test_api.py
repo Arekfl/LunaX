@@ -213,10 +213,19 @@ def test_get_detections_query_filters_with_query_params(tmp_path, monkeypatch) -
     monkeypatch.setattr("app.main.download_tile", _mock_tile)
     monkeypatch.setattr("app.main.run_inference", _mock_inference)
 
-    run_response = client.post("/analysis/run", json={"confidenceThreshold": 0.0})
-    assert run_response.status_code == 200
+    first_run_response = client.post(
+        "/analysis/run",
+        json={"confidenceThreshold": 0.0, "resolutionMode": "detail"},
+    )
+    second_run_response = client.post(
+        "/analysis/run",
+        json={"confidenceThreshold": 0.0, "resolutionMode": "preview"},
+    )
+    assert first_run_response.status_code == 200
+    assert second_run_response.status_code == 200
 
-    run_payload = run_response.json()
+    run_payload = first_run_response.json()
+    first_analysis_id = run_payload["analysis_id"]
     target_detection = next(
         detection
         for detection in run_payload["detections"]
@@ -241,6 +250,8 @@ def test_get_detections_query_filters_with_query_params(tmp_path, monkeypatch) -
             "status": "rejected",
             "class": "cave_candidate",
             "confidence": 0.7,
+            "resolutionMode": "detail",
+            "analysis_id": first_analysis_id,
         },
     )
 
@@ -248,6 +259,7 @@ def test_get_detections_query_filters_with_query_params(tmp_path, monkeypatch) -
     payload = response.json()
     assert len(payload) == 1
     assert payload[0]["detection_id"] == target_detection_id
+    assert payload[0]["analysis_id"] == first_analysis_id
     assert payload[0]["status"] == "rejected"
     assert payload[0]["comment"] == "Potential false positive"
 
