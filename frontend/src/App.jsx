@@ -307,6 +307,9 @@ export default function App() {
     setIsLoadingDetections(true);
     setAnalysisStatus("loading");
 
+    const [[yMin, xMin], [yMax, xMax]] = selectedSegment.bounds;
+    const analysisBbox = [xMin, yMin, xMax, yMax];
+
     try {
       const response = await fetch(`${API_BASE_URL}/analysis/run`, {
         method: "POST",
@@ -314,10 +317,10 @@ export default function App() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          region_id: selectedSegment.id,
-          confidence_threshold: confidenceThreshold,
-          resolution_mode: resolutionMode,
-          num_samples: numSamples,
+          resolutionMode,
+          numSamples,
+          confidenceThreshold,
+          bbox: analysisBbox,
         }),
       });
 

@@ -1,10 +1,16 @@
 import json
+from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app.main import app
 
 client = TestClient(app)
+
+
+def _mock_tile(*_args, **_kwargs):
+    return Image.new("L", (64, 64), color=128)
 
 
 def test_health_returns_ok_status_and_json_structure() -> None:
@@ -14,7 +20,9 @@ def test_health_returns_ok_status_and_json_structure() -> None:
     assert response.json() == {"status": "ok"}
 
 
-def test_analysis_run_returns_mock_detections_with_expected_json_structure() -> None:
+def test_analysis_run_returns_mock_detections_with_expected_json_structure(monkeypatch) -> None:
+    monkeypatch.setattr("app.main.download_tile", _mock_tile)
+
     response = client.post("/analysis/run", json={})
 
     assert response.status_code == 200
@@ -51,6 +59,24 @@ def test_analysis_run_returns_mock_detections_with_expected_json_structure() -> 
         assert bbox["y"] >= 0
         assert bbox["width"] > 0
         assert bbox["height"] > 0
+
+
+def test_analysis_run_aggregates_results_from_num_samples(monkeypatch) -> None:
+    monkeypatch.setattr("app.main.download_tile", _mock_tile)
+
+    response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "detail",
+            "numSamples": 2,
+            "confidenceThreshold": 0.0,
+            "bbox": [-22.2, 4.1, -21.7, 4.6],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["detections"]) >= 6
 
 
 def test_patch_detection_status_persists_status_by_detection_id(tmp_path, monkeypatch) -> None:
@@ -114,8 +140,9 @@ def test_get_detections_query_filters_with_query_params(tmp_path, monkeypatch) -
     monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(parquet_file))
     monkeypatch.setenv("DETECTION_STATUS_FILE", str(status_file))
     monkeypatch.setenv("DETECTION_COMMENT_FILE", str(comment_file))
+    monkeypatch.setattr("app.main.download_tile", _mock_tile)
 
-    run_response = client.post("/analysis/run", json={"confidence_threshold": 0.0})
+    run_response = client.post("/analysis/run", json={"confidenceThreshold": 0.0})
     assert run_response.status_code == 200
 
     run_payload = run_response.json()
@@ -161,8 +188,9 @@ def test_get_detections_query_returns_rows_without_filters(tmp_path, monkeypatch
     monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(parquet_file))
     monkeypatch.setenv("DETECTION_STATUS_FILE", str(status_file))
     monkeypatch.setenv("DETECTION_COMMENT_FILE", str(comment_file))
+    monkeypatch.setattr("app.main.download_tile", _mock_tile)
 
-    run_response = client.post("/analysis/run", json={"confidence_threshold": 0.0})
+    run_response = client.post("/analysis/run", json={"confidenceThreshold": 0.0})
     assert run_response.status_code == 200
 
     response = client.get("/detections/query")
@@ -192,3 +220,60 @@ def test_get_detections_query_rejects_invalid_confidence_param() -> None:
     response = client.get("/detections/query", params={"confidence": 1.5})
 
     assert response.status_code == 422
+
+
+def test_analysis_run_rejects_bbox_with_invalid_length(monkeypatch) -> None:
+    mocked_download = Mock(return_value=Image.new("L", (64, 64), color=128))
+    monkeypatch.setattr("app.main.download_tile", mocked_download)
+
+    response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "detail",
+            "numSamples": 1,
+            "confidenceThreshold": 0.5,
+            "bbox": [-22.2, 4.1, -21.7],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "bbox" in str(response.json()["detail"]).lower()
+    mocked_download.assert_not_called()
+
+
+def test_analysis_run_rejects_bbox_when_xmax_not_greater_than_xmin(monkeypatch) -> None:
+    mocked_download = Mock(return_value=Image.new("L", (64, 64), color=128))
+    monkeypatch.setattr("app.main.download_tile", mocked_download)
+
+    response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "detail",
+            "numSamples": 1,
+            "confidenceThreshold": 0.5,
+            "bbox": [-22.2, 4.1, -22.2, 4.6],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "xmax > xmin" in str(response.json()["detail"])
+    mocked_download.assert_not_called()
+
+
+def test_analysis_run_rejects_bbox_when_ymax_not_greater_than_ymin(monkeypatch) -> None:
+    mocked_download = Mock(return_value=Image.new("L", (64, 64), color=128))
+    monkeypatch.setattr("app.main.download_tile", mocked_download)
+
+    response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "detail",
+            "numSamples": 1,
+            "confidenceThreshold": 0.5,
+            "bbox": [-22.2, 4.6, -21.7, 4.6],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "ymax > ymin" in str(response.json()["detail"])
+    mocked_download.assert_not_called()

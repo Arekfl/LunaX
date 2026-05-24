@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class HealthResponse(BaseModel):
@@ -24,9 +24,33 @@ class Detection(BaseModel):
     class_name: str = Field(alias="class")
 
 
+AnalysisResolutionMode = Literal["preview", "detail", "ultra"]
+
+
 class AnalysisRunRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     region_id: str | None = None
-    confidence_threshold: float = Field(0.5, ge=0, le=1)
+    resolution_mode: AnalysisResolutionMode = Field(default="detail", alias="resolutionMode")
+    num_samples: int = Field(default=1, ge=1, le=20, alias="numSamples")
+    confidence_threshold: float = Field(0.5, ge=0, le=1, alias="confidenceThreshold")
+    bbox: list[float] = Field(
+        default_factory=lambda: [-22.2, 4.1, -21.7, 4.6],
+        min_length=4,
+        max_length=4,
+    )
+
+    @field_validator("bbox")
+    @classmethod
+    def validate_bbox_order(cls, value: list[float]) -> list[float]:
+        xmin, ymin, xmax, ymax = value
+
+        if xmax <= xmin:
+            raise ValueError("bbox must satisfy xmax > xmin")
+        if ymax <= ymin:
+            raise ValueError("bbox must satisfy ymax > ymin")
+
+        return value
 
 
 class AnalysisRunResponse(BaseModel):

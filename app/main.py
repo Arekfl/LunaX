@@ -6,6 +6,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ai.adapter import run_inference
+from data.downloader import download_tile
 from app.schemas import (
     AnalysisRunRequest,
     AnalysisRunResponse,
@@ -46,7 +47,11 @@ def get_health() -> HealthResponse:
 def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
     analysis_id = str(uuid4())
 
-    adapter_detections = run_inference(image=payload.region_id)
+    adapter_detections = []
+    for _ in range(payload.num_samples):
+        tile_image = download_tile(payload.resolution_mode, payload.bbox)
+        sample_detections = run_inference(image=tile_image)
+        adapter_detections.extend(sample_detections)
 
     mock_detections = [
         Detection(
