@@ -1,4 +1,6 @@
 import os
+import hashlib
+from io import BytesIO
 from pathlib import Path
 from typing import Sequence
 from datetime import datetime, timezone
@@ -54,6 +56,44 @@ def _append_rows_to_parquet(parquet_file: Path, rows: list[dict]) -> Path:
     return parquet_file
 
 
+def _compute_png_hash_and_bytes(image: Image.Image) -> tuple[str, bytes]:
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    png_bytes = buffer.getvalue()
+    content_hash = hashlib.sha256(png_bytes).hexdigest()
+    return content_hash, png_bytes
+
+
+def _find_no_detections_row_by_hash(
+    parquet_file: Path, content_hash: str
+) -> dict[str, str | float] | None:
+    if not parquet_file.exists():
+        return None
+
+    frame = pd.read_parquet(parquet_file)
+    if frame.empty or "content_hash" not in frame.columns:
+        return None
+
+    matching = frame[frame["content_hash"].astype(str) == content_hash]
+    if matching.empty:
+        return None
+
+    if "timestamp" in matching.columns:
+        matching = matching.sort_values(by="timestamp", ascending=False, na_position="last")
+
+    row = matching.iloc[0]
+    return {
+        "image_id": str(row.get("image_id") or ""),
+        "path": str(row.get("path") or ""),
+        "status": str(row.get("status") or "no_detections"),
+        "lat": float(row["lat"]) if "lat" in matching.columns and pd.notna(row["lat"]) else 0.0,
+        "lon": float(row["lon"]) if "lon" in matching.columns and pd.notna(row["lon"]) else 0.0,
+        "resolution": str(row.get("resolution") or ""),
+        "timestamp": str(row.get("timestamp") or ""),
+        "content_hash": str(row.get("content_hash") or ""),
+    }
+
+
 def save_no_detections_image_and_metadata(
     image: Image.Image,
     *,
@@ -63,6 +103,13 @@ def save_no_detections_image_and_metadata(
     timestamp: str | None = None,
 ) -> dict[str, str | float]:
     analysis_timestamp = timestamp or datetime.now(timezone.utc).isoformat()
+    parquet_file = _get_no_detections_parquet_path()
+    content_hash, png_bytes = _compute_png_hash_and_bytes(image)
+
+    existing_row = _find_no_detections_row_by_hash(parquet_file, content_hash)
+    if existing_row is not None:
+        return existing_row
+
     image_id = f"img-{uuid4().hex}"
     timestamp_token = analysis_timestamp.replace(":", "-")
     filename = (
@@ -72,7 +119,7 @@ def save_no_detections_image_and_metadata(
     image_dir = _get_no_detections_image_dir()
     image_dir.mkdir(parents=True, exist_ok=True)
     image_path = image_dir / filename
-    image.save(image_path, format="PNG")
+    image_path.write_bytes(png_bytes)
 
     metadata_row: dict[str, str | float] = {
         "image_id": image_id,
@@ -82,9 +129,9 @@ def save_no_detections_image_and_metadata(
         "lon": float(lon),
         "resolution": resolution,
         "timestamp": analysis_timestamp,
+        "content_hash": content_hash,
     }
 
-    parquet_file = _get_no_detections_parquet_path()
     _append_rows_to_parquet(parquet_file, [metadata_row])
 
     return metadata_row

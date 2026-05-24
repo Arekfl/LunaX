@@ -227,13 +227,13 @@ def test_analysis_run_saves_no_detection_images_and_metadata_per_sample(
     assert payload["detections"] == []
 
     saved_images = sorted(no_detections_image_dir.glob("*.png"))
-    assert len(saved_images) == 3
+    assert len(saved_images) == 1
     assert all("detail" in saved_image.name for saved_image in saved_images)
     assert all("lat-" in saved_image.name for saved_image in saved_images)
     assert all("lon-" in saved_image.name for saved_image in saved_images)
 
     metadata = pd.read_parquet(no_detections_parquet_file)
-    assert len(metadata) == 3
+    assert len(metadata) == 1
     assert {
         "image_id",
         "path",
@@ -242,6 +242,7 @@ def test_analysis_run_saves_no_detection_images_and_metadata_per_sample(
         "lon",
         "resolution",
         "timestamp",
+        "content_hash",
     }.issubset(metadata.columns)
     assert set(metadata["status"]) == {"no_detections"}
     assert set(metadata["resolution"]) == {"detail"}
@@ -278,7 +279,7 @@ def test_get_no_detections_query_returns_saved_images(tmp_path, monkeypatch) -> 
     assert response.status_code == 200
     payload = response.json()
     assert isinstance(payload, list)
-    assert len(payload) == 2
+    assert len(payload) == 1
     assert {
         "image_id",
         "path",
