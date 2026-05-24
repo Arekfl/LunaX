@@ -261,9 +261,12 @@ function HomeControl({ onHomeClick }) {
 export default function App() {
   const segments = useMemo(() => buildSegments(), []);
   const mapRef = useRef(null);
+  const detectionListRef = useRef(null);
+  const detectionItemRefs = useRef(new Map());
   const [detections, setDetections] = useState([]);
   const [currentAnalysisId, setCurrentAnalysisId] = useState(null);
   const [isLoadingDetections, setIsLoadingDetections] = useState(false);
+  const [analysisOverlayBounds, setAnalysisOverlayBounds] = useState(null);
   const [analysisStatus, setAnalysisStatus] = useState(null);
   const [showBboxes, setShowBboxes] = useState(true);
   const [resolutionMode, setResolutionMode] = useState("detail");
@@ -287,6 +290,7 @@ export default function App() {
   });
 
   const selectedCoords = selectedSegment ? boundsToCoords(selectedSegment.bounds) : null;
+  const isAnalysisLoading = isLoadingDetections || analysisStatus === "loading";
 
   const filteredDetections = useMemo(() => {
     const statusFilteredDetections = detections
@@ -363,6 +367,39 @@ export default function App() {
 
     if (!isSelectedVisible) {
       setSelectedDetection(null);
+    }
+  }, [filteredDetections, selectedDetection]);
+
+  useEffect(() => {
+    if (!selectedDetection) {
+      return;
+    }
+
+    const selectedIndex = filteredDetections.findIndex((detection) =>
+      isSameDetection(detection, selectedDetection)
+    );
+    if (selectedIndex < 0) {
+      return;
+    }
+
+    const selectedRenderKey = `${getDetectionUniqueId(filteredDetections[selectedIndex])}|${selectedIndex}`;
+    const selectedItem = detectionItemRefs.current.get(selectedRenderKey);
+    const container = detectionListRef.current;
+    if (!selectedItem || !container) {
+      return;
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    const itemRect = selectedItem.getBoundingClientRect();
+    const padding = 8;
+
+    if (itemRect.top < containerRect.top) {
+      container.scrollTop -= containerRect.top - itemRect.top + padding;
+      return;
+    }
+
+    if (itemRect.bottom > containerRect.bottom) {
+      container.scrollTop += itemRect.bottom - containerRect.bottom + padding;
     }
   }, [filteredDetections, selectedDetection]);
 
@@ -449,6 +486,7 @@ export default function App() {
 
     setIsLoadingDetections(true);
     setAnalysisStatus("loading");
+    setAnalysisOverlayBounds(selectedSegment.bounds);
 
     const [[yMin, xMin], [yMax, xMax]] = selectedSegment.bounds;
     const analysisBbox = [xMin, yMin, xMax, yMax];
@@ -507,6 +545,7 @@ export default function App() {
       setSelectedDetection(null);
     } finally {
       setIsLoadingDetections(false);
+      setAnalysisOverlayBounds(null);
     }
   };
 
@@ -676,6 +715,21 @@ export default function App() {
                   />
                 );
               })}
+
+              {isAnalysisLoading && analysisOverlayBounds && (
+                <Rectangle
+                  bounds={analysisOverlayBounds}
+                  pathOptions={{
+                    color: "#0d6efd",
+                    weight: 1,
+                    opacity: 0.75,
+                    fillColor: "#0d6efd",
+                    fillOpacity: 0.24,
+                    dashArray: "6 4",
+                    interactive: false,
+                  }}
+                />
+              )}
 
               {selectedDetection && (
                 <Rectangle
@@ -937,7 +991,7 @@ export default function App() {
                 </button>
               </div>
 
-              <div className="detection-list-scroll">
+              <div className="detection-list-scroll" ref={detectionListRef}>
                 {detections.length === 0 ? (
                   <div className="small text-muted">Brak detekcji. Kliknij "Uruchom analize".</div>
                 ) : filteredDetections.length === 0 ? (
@@ -958,6 +1012,13 @@ export default function App() {
                       return (
                         <div
                           key={detectionRenderKey}
+                          ref={(node) => {
+                            if (node) {
+                              detectionItemRefs.current.set(detectionRenderKey, node);
+                            } else {
+                              detectionItemRefs.current.delete(detectionRenderKey);
+                            }
+                          }}
                           onMouseEnter={() => setHoveredDetectionId(detectionUniqueId)}
                           onMouseLeave={() => setHoveredDetectionId(null)}
                           className={`list-group-item list-group-item-action text-start ${
