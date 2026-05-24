@@ -33,21 +33,31 @@ const RESOLUTION_DESCRIPTION_MAP = {
 };
 
 const GRID_SIZE = 4;
-const CELL_HEIGHT = GEO_HEIGHT / GRID_SIZE;
-const CELL_WIDTH = GEO_WIDTH / GRID_SIZE;
+const MAX_GRID_LEVEL = 2;
+const GRID_LEVEL_CONFIG = [
+  { rows: GRID_SIZE, cols: GRID_SIZE },
+  { rows: GRID_SIZE, cols: GRID_SIZE },
+  { rows: GRID_SIZE, cols: GRID_SIZE },
+];
 
-function buildSegments() {
+function buildGridCells(bounds, level) {
+  const levelConfig = GRID_LEVEL_CONFIG[Math.min(level, GRID_LEVEL_CONFIG.length - 1)];
+  const { rows, cols } = levelConfig;
+  const [[latMin, lonMin], [latMax, lonMax]] = bounds;
+  const cellHeight = (latMax - latMin) / rows;
+  const cellWidth = (lonMax - lonMin) / cols;
   const segments = [];
 
-  for (let row = 0; row < GRID_SIZE; row += 1) {
-    for (let col = 0; col < GRID_SIZE; col += 1) {
-      const yMin = LAT_MIN + row * CELL_HEIGHT;
-      const xMin = LON_MIN + col * CELL_WIDTH;
-      const yMax = yMin + CELL_HEIGHT;
-      const xMax = xMin + CELL_WIDTH;
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < cols; col += 1) {
+      const yMin = latMin + row * cellHeight;
+      const xMin = lonMin + col * cellWidth;
+      const yMax = row === rows - 1 ? latMax : latMin + (row + 1) * cellHeight;
+      const xMax = col === cols - 1 ? lonMax : lonMin + (col + 1) * cellWidth;
 
       segments.push({
-        id: `segment-${row + 1}-${col + 1}`,
+        id: `level-${level}-segment-${row + 1}-${col + 1}`,
+        level,
         row,
         col,
         bounds: [
@@ -272,10 +282,12 @@ function HomeControl({ onHomeClick }) {
 }
 
 export default function App() {
-  const segments = useMemo(() => buildSegments(), []);
   const mapRef = useRef(null);
   const detectionListRef = useRef(null);
   const detectionItemRefs = useRef(new Map());
+  const [currentLevel, setCurrentLevel] = useState(0);
+  const [selectedBBox, setSelectedBBox] = useState(GEO_BOUNDS);
+  const [gridCells, setGridCells] = useState(() => buildGridCells(GEO_BOUNDS, 0));
   const [detections, setDetections] = useState([]);
   const [currentAnalysisId, setCurrentAnalysisId] = useState(null);
   const [isLoadingDetections, setIsLoadingDetections] = useState(false);
@@ -304,6 +316,11 @@ export default function App() {
 
   const selectedCoords = selectedSegment ? boundsToCoords(selectedSegment.bounds) : null;
   const isAnalysisLoading = isLoadingDetections || analysisStatus === "loading";
+
+  useEffect(() => {
+    setGridCells(buildGridCells(selectedBBox, currentLevel));
+    setHoveredSegmentId(null);
+  }, [selectedBBox, currentLevel]);
 
   const filteredDetections = useMemo(() => {
     const statusFilteredDetections = detections
@@ -441,6 +458,9 @@ export default function App() {
   }, [filteredDetections, editingDetectionId]);
 
   const handleResetHomeView = useCallback(() => {
+    setCurrentLevel(0);
+    setSelectedBBox(GEO_BOUNDS);
+    setGridCells(buildGridCells(GEO_BOUNDS, 0));
     setSelectedSegment(null);
     setFocusBounds(GEO_BOUNDS);
     setManualCoords({
@@ -454,8 +474,15 @@ export default function App() {
 
   const handleSelectSegment = (segment) => {
     setSelectedSegment(segment);
-    setFocusBounds(segment.bounds);
     setChosenMessage("");
+
+    if (currentLevel < MAX_GRID_LEVEL) {
+      setCurrentLevel(currentLevel + 1);
+      setSelectedBBox(segment.bounds);
+      setFocusBounds(segment.bounds);
+    } else {
+      setFocusBounds(selectedBBox);
+    }
 
     const coords = boundsToCoords(segment.bounds);
     setManualCoords({
@@ -719,7 +746,7 @@ export default function App() {
               <FitBoundsOnChange bounds={focusBounds} />
               <HomeControl onHomeClick={handleResetHomeView} />
 
-              {segments.map((segment) => {
+              {gridCells.map((segment) => {
                 const isHovered = hoveredSegmentId === segment.id;
                 const isSelected = selectedSegment?.id === segment.id;
 
@@ -842,6 +869,12 @@ export default function App() {
                 )}
                 <span>{isLoadingDetections ? "Analizowanie..." : "Uruchom analize"}</span>
               </button>
+
+              <button className="btn btn-outline-secondary w-100 mb-2" onClick={handleResetHomeView}>
+                Reset widoku
+              </button>
+
+              <div className="small text-muted mb-3">Poziom siatki: {currentLevel}</div>
 
               {analysisStatus && (
                 <div className="small mb-3">
