@@ -130,7 +130,10 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
         center_lat = (sample_bbox[1] + sample_bbox[3]) / 2.0
 
         tile_image = download_tile(payload.resolution_mode, sample_bbox)
-        sample_detections = run_inference(image=tile_image)
+        sample_detections = run_inference(
+            image=tile_image,
+            confidence_threshold=payload.confidence_threshold,
+        )
 
         sample_model_detections = [
             Detection(

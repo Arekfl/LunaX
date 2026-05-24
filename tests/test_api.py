@@ -128,6 +128,27 @@ def test_analysis_run_uses_distinct_sample_bboxes_for_multiple_samples(monkeypat
     assert len({tuple(round(value, 8) for value in bbox) for bbox in bboxes}) == 4
 
 
+def test_analysis_run_passes_confidence_threshold_to_inference(monkeypatch) -> None:
+    monkeypatch.setattr("app.main.download_tile", _mock_tile)
+    mocked_inference = Mock(return_value=[])
+    monkeypatch.setattr("app.main.run_inference", mocked_inference)
+
+    response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "detail",
+            "numSamples": 1,
+            "confidenceThreshold": 0.1,
+            "bbox": [-10.0, -5.0, 10.0, 5.0],
+        },
+    )
+
+    assert response.status_code == 200
+    mocked_inference.assert_called_once()
+    _, kwargs = mocked_inference.call_args
+    assert kwargs["confidence_threshold"] == 0.1
+
+
 def test_analysis_run_generates_new_analysis_id_for_each_run(monkeypatch) -> None:
     monkeypatch.setattr("app.main.download_tile", _mock_tile)
     monkeypatch.setattr("app.main.run_inference", _mock_inference)

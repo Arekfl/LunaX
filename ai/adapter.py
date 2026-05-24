@@ -24,7 +24,7 @@ AdapterDetection = TypedDict(
 )
 
 MODEL_PATH = Path(__file__).resolve().parents[1] / "best.pt"
-# Loaded once at import time; endpoints still use mock inference for now.
+# Loaded once at import time.
 model = YOLO(str(MODEL_PATH))
 
 def _next_detection_id() -> str:
@@ -39,10 +39,10 @@ def _resolve_class_name(names: object, class_index: int) -> str:
     return str(class_index)
 
 
-def run_inference(image: Image.Image) -> list[AdapterDetection]:
+def run_inference(image: Image.Image, confidence_threshold: float = 0.25) -> list[AdapterDetection]:
     """Run YOLO inference on a single PIL image and return adapter detections."""
 
-    results = model(image, verbose=False)
+    results = model(image, verbose=False, conf=confidence_threshold)
     detections: list[AdapterDetection] = []
 
     for result in results:
