@@ -243,6 +243,14 @@ function getFileNameFromPath(filePath) {
   return parts[parts.length - 1] ?? "";
 }
 
+function getNoDetectionsImageUrl(imageId) {
+  if (!imageId) {
+    return null;
+  }
+
+  return `${API_BASE_URL}/no-detections/image/${encodeURIComponent(imageId)}`;
+}
+
 function getDetectionPreviewUrl(detection) {
   const bboxMinMax = parseBBoxToMinMax(detection?.bbox);
   if (!bboxMinMax) {
@@ -352,6 +360,7 @@ export default function App() {
   const [gridCells, setGridCells] = useState(() => buildGridCells(GEO_BOUNDS, 0));
   const [detections, setDetections] = useState([]);
   const [noDetections, setNoDetections] = useState([]);
+  const [selectedNoDetectionImage, setSelectedNoDetectionImage] = useState(null);
   const [currentAnalysisId, setCurrentAnalysisId] = useState(null);
   const [isLoadingDetections, setIsLoadingDetections] = useState(false);
   const [analysisOverlayBounds, setAnalysisOverlayBounds] = useState(null);
@@ -538,6 +547,20 @@ export default function App() {
       setInputComment("");
     }
   }, [filteredDetections, editingDetectionId]);
+
+  useEffect(() => {
+    if (!selectedNoDetectionImage) {
+      return;
+    }
+
+    const stillExists = noDetections.some(
+      (image) => image.image_id === selectedNoDetectionImage.image_id
+    );
+
+    if (!stillExists) {
+      setSelectedNoDetectionImage(null);
+    }
+  }, [noDetections, selectedNoDetectionImage]);
 
   const handleResetHomeView = useCallback(() => {
     setCurrentLevel(0);
@@ -832,6 +855,11 @@ export default function App() {
     }
   };
 
+  const handleOpenNoDetectionImage = useCallback((image) => {
+    setSelectedNoDetectionImage(image);
+    setViewMode("gallery");
+  }, []);
+
   return (
     <div className="container-fluid py-3">
       <div className="row g-3">
@@ -964,11 +992,52 @@ export default function App() {
           {viewMode === "gallery" && (
             <div className="gallery-shell border rounded shadow-sm p-3">
               <h5 className="mb-1">Przegladarka zdjec</h5>
-              <div className="small text-muted mb-3">
-                Widok kart oparty o aktualnie widoczne detekcje (filtr statusu jest zachowany).
-              </div>
+              {selectedNoDetectionImage ? (
+                <div className="mb-3">
+                  <div className="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
+                    <div className="small text-muted">
+                      Podglad wybranego zdjecia z listy no_detections.
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-secondary"
+                      onClick={() => setSelectedNoDetectionImage(null)}
+                    >
+                      Zamknij podglad
+                    </button>
+                  </div>
+                  <div className="gallery-focus-card border rounded p-2 bg-white">
+                    <img
+                      src={getNoDetectionsImageUrl(selectedNoDetectionImage.image_id)}
+                      alt={`No-detections ${selectedNoDetectionImage.image_id}`}
+                      className="gallery-focus-image"
+                    />
+                    <div className="small text-muted mt-2">
+                      <div><strong>ID:</strong> {selectedNoDetectionImage.image_id}</div>
+                      <div>
+                        <strong>Lat/Lon:</strong>{" "}
+                        {typeof selectedNoDetectionImage.lat === "number"
+                          ? selectedNoDetectionImage.lat.toFixed(6)
+                          : "-"}
+                        {" / "}
+                        {typeof selectedNoDetectionImage.lon === "number"
+                          ? selectedNoDetectionImage.lon.toFixed(6)
+                          : "-"}
+                      </div>
+                      <div><strong>Rozdzielczosc:</strong> {selectedNoDetectionImage.resolution || "-"}</div>
+                      {selectedNoDetectionImage.timestamp && (
+                        <div><strong>Czas:</strong> {selectedNoDetectionImage.timestamp}</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="small text-muted mb-3">
+                  Widok kart oparty o aktualnie widoczne detekcje (filtr statusu jest zachowany).
+                </div>
+              )}
 
-              {detections.length === 0 ? (
+              {selectedNoDetectionImage ? null : detections.length === 0 ? (
                 <div className="small text-muted">Brak detekcji. Kliknij "Uruchom analize".</div>
               ) : filteredDetections.length === 0 ? (
                 <div className="small text-muted">Brak detekcji dla statusu: {statusFilter}.</div>
@@ -1286,18 +1355,28 @@ export default function App() {
                       {noDetections.map((image, imageIndex) => {
                         const itemKey = `${image.image_id || "no-id"}|${image.timestamp || "no-ts"}|${imageIndex}`;
                         const imageName = getFileNameFromPath(image.path);
+                        const isActive = selectedNoDetectionImage?.image_id === image.image_id;
 
                         return (
-                          <div key={itemKey} className="list-group-item text-start">
+                          <button
+                            type="button"
+                            key={itemKey}
+                            className={`list-group-item list-group-item-action text-start ${
+                              isActive ? "active" : ""
+                            }`}
+                            onClick={() => handleOpenNoDetectionImage(image)}
+                          >
                             <div><strong>{image.image_id || "no_detections"}</strong></div>
-                            {imageName && <div className="small text-muted">plik: {imageName}</div>}
-                            <div className="small text-muted">rozdzielczosc: {image.resolution || "-"}</div>
-                            <div className="small text-muted">
+                            {imageName && <div className={isActive ? "small text-white-50" : "small text-muted"}>plik: {imageName}</div>}
+                            <div className={isActive ? "small text-white-50" : "small text-muted"}>rozdzielczosc: {image.resolution || "-"}</div>
+                            <div className={isActive ? "small text-white-50" : "small text-muted"}>
                               lat: {typeof image.lat === "number" ? image.lat.toFixed(6) : "-"}, lon:{" "}
                               {typeof image.lon === "number" ? image.lon.toFixed(6) : "-"}
                             </div>
-                            {image.timestamp && <div className="small text-muted">czas: {image.timestamp}</div>}
-                          </div>
+                            {image.timestamp && (
+                              <div className={isActive ? "small text-white-50" : "small text-muted"}>czas: {image.timestamp}</div>
+                            )}
+                          </button>
                         );
                       })}
                     </div>

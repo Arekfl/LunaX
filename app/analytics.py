@@ -133,6 +133,44 @@ def query_no_detections() -> list[dict]:
     return records
 
 
+def get_no_detection_image_path(image_id: str) -> Path | None:
+    parquet_file = _get_no_detections_parquet_path()
+    if not parquet_file.exists():
+        return None
+
+    no_detections_frame = pd.read_parquet(parquet_file)
+    if no_detections_frame.empty or "image_id" not in no_detections_frame.columns:
+        return None
+
+    filtered_frame = no_detections_frame[
+        no_detections_frame["image_id"].astype(str) == str(image_id)
+    ]
+    if filtered_frame.empty or "path" not in filtered_frame.columns:
+        return None
+
+    if "timestamp" in filtered_frame.columns:
+        filtered_frame = filtered_frame.sort_values(
+            by="timestamp", ascending=False, na_position="last"
+        )
+
+    path_value = filtered_frame.iloc[0]["path"]
+    if path_value is None:
+        return None
+
+    image_path = Path(str(path_value)).expanduser().resolve()
+    allowed_root = _get_no_detections_image_dir().expanduser().resolve()
+
+    try:
+        image_path.relative_to(allowed_root)
+    except ValueError:
+        return None
+
+    if not image_path.exists() or not image_path.is_file():
+        return None
+
+    return image_path
+
+
 def save_detections_to_parquet(
     detections: Sequence[Detection],
     default_status: str = "to_verify",

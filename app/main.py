@@ -3,7 +3,8 @@ from datetime import datetime, timezone
 from typing import Annotated
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from ai.adapter import run_inference
@@ -20,7 +21,12 @@ from app.schemas import (
     DetectionStatusUpdateResponse,
     HealthResponse,
 )
-from app.analytics import query_detections, query_no_detections, save_detections_to_parquet
+from app.analytics import (
+    get_no_detection_image_path,
+    query_detections,
+    query_no_detections,
+    save_detections_to_parquet,
+)
 from app.analytics import save_no_detections_image_and_metadata
 from app.storage import (
     read_detection_statuses,
@@ -184,3 +190,12 @@ def get_detections_query(
 @app.get("/no-detections/query", response_model=list[dict])
 def get_no_detections_query() -> list[dict]:
     return query_no_detections()
+
+
+@app.get("/no-detections/image/{image_id}")
+def get_no_detection_image(image_id: str) -> FileResponse:
+    image_path = get_no_detection_image_path(image_id)
+    if image_path is None:
+        raise HTTPException(status_code=404, detail="No-detection image not found")
+
+    return FileResponse(path=image_path, media_type="image/png", filename=image_path.name)

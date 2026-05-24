@@ -293,6 +293,42 @@ def test_get_no_detections_query_returns_saved_images(tmp_path, monkeypatch) -> 
     assert all(Path(item["path"]).exists() for item in payload)
 
 
+def test_get_no_detections_image_returns_png(tmp_path, monkeypatch) -> None:
+    no_detections_image_dir = tmp_path / "images" / "no_detections"
+    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    detections_parquet_file = tmp_path / "detections.parquet"
+
+    monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
+    monkeypatch.setenv("NO_DETECTIONS_PARQUET_FILE", str(no_detections_parquet_file))
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+
+    monkeypatch.setattr("app.main.download_tile", Mock(return_value=Image.new("L", (64, 64), color=128)))
+    monkeypatch.setattr("app.main.run_inference", Mock(return_value=[]))
+
+    run_response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "detail",
+            "numSamples": 1,
+            "confidenceThreshold": 0.5,
+            "bbox": [-20.0, -10.0, 20.0, 10.0],
+        },
+    )
+    assert run_response.status_code == 200
+
+    list_response = client.get("/no-detections/query")
+    assert list_response.status_code == 200
+    payload = list_response.json()
+    assert len(payload) == 1
+
+    image_id = payload[0]["image_id"]
+    image_response = client.get(f"/no-detections/image/{image_id}")
+
+    assert image_response.status_code == 200
+    assert image_response.headers["content-type"].startswith("image/png")
+    assert len(image_response.content) > 0
+
+
 def test_patch_detection_status_persists_status_by_detection_id(tmp_path, monkeypatch) -> None:
     status_file = tmp_path / "detection_statuses.json"
     monkeypatch.setenv("DETECTION_STATUS_FILE", str(status_file))

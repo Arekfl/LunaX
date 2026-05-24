@@ -49,6 +49,18 @@ body {
   font-weight: 600;
 }
 
+.gallery-focus-card {
+  max-width: min(100%, 920px);
+}
+
+.gallery-focus-image {
+  width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  background: #101319;
+  border-radius: 0.35rem;
+}
+
 .leaflet-container {
   width: 100%;
   height: 100%;
