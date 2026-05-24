@@ -218,6 +218,19 @@ function getDisplayDetectionsForStatus(detectionList, status) {
   );
 }
 
+function isNoCoverageErrorMessage(message) {
+  if (typeof message !== "string") {
+    return false;
+  }
+
+  const normalizedMessage = message.toLowerCase();
+  return (
+    normalizedMessage.includes("no valid imagery") ||
+    normalizedMessage.includes("fully transparent") ||
+    normalizedMessage.includes("flat (single-value image)")
+  );
+}
+
 function getDetectionUniqueId(detection) {
   const { analysis_id: analysisId, detection_id: detectionId, bbox } = detection;
   return [analysisId ?? "no-analysis", detectionId, bbox.x, bbox.y, bbox.width, bbox.height].join("|");
@@ -409,6 +422,9 @@ export default function App() {
   const selectedCoords = selectedSegment ? boundsToCoords(selectedSegment.bounds) : null;
   const isAnalysisLoading = isLoadingDetections || analysisStatus === "loading";
   const isNoDetectionsFilterSelected = statusFilter === NO_DETECTIONS_FILTER;
+  const isNoCoverageChosenMessage =
+    typeof chosenMessage === "string" &&
+    chosenMessage.startsWith("Brak pokrycia danych dla tej warstwy i obszaru.");
   const selectedWmsLayerOptions = WMS_LAYER_OPTIONS_BY_SOURCE[wmsSource] ?? [];
   const isGlobalMosaicLayerSelected =
     (wmsSource === "usgs" && wmsLayer === "LROC_WAC") ||
@@ -794,7 +810,13 @@ export default function App() {
         error instanceof Error
           ? error.message
           : "Nie udalo sie pobrac detekcji z backendu FastAPI.";
-      setChosenMessage(`Nie udalo sie pobrac detekcji. Szczegoly: ${errorMessage}`);
+      if (isNoCoverageErrorMessage(errorMessage)) {
+        setChosenMessage(
+          "Brak pokrycia danych dla tej warstwy i obszaru. Zmien warstwe, zrodlo WMS lub zaznacz inny obszar."
+        );
+      } else {
+        setChosenMessage(`Nie udalo sie pobrac detekcji. Szczegoly: ${errorMessage}`);
+      }
       setAnalysisStatus("error");
       setDetections([]);
       setSelectedDetection(null);
@@ -1510,7 +1532,13 @@ export default function App() {
                 </label>
               </div>
 
-              {chosenMessage && <div className="alert alert-info py-2 mt-3 mb-0">{chosenMessage}</div>}
+              {chosenMessage && (
+                <div
+                  className={`alert ${isNoCoverageChosenMessage ? "alert-warning" : "alert-info"} py-2 mt-3 mb-0`}
+                >
+                  {chosenMessage}
+                </div>
+              )}
 
               <hr className="my-4" />
               <h6 className="mb-3">Detekcje ({detectionSectionCount})</h6>

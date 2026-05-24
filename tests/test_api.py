@@ -209,7 +209,7 @@ def test_analysis_run_returns_502_when_wms_download_fails(monkeypatch) -> None:
     )
 
     assert response.status_code == 502
-    assert "WMS download failed" in response.json()["detail"]
+    assert "No valid imagery" in response.json()["detail"]
 
 
 def test_local_analysis_runs_on_validation_images(tmp_path, monkeypatch) -> None:

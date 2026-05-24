@@ -179,6 +179,7 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
     selected_wms_layer = None if payload.wms_layer == "auto" else payload.wms_layer
 
     filtered_detections: list[Detection] = []
+    sample_download_errors: list[str] = []
     for sample_index in range(payload.num_samples):
         sample_bbox = _build_sample_bbox(geo_bbox, sample_index, payload.num_samples)
         center_lon = (sample_bbox[0] + sample_bbox[2]) / 2.0
@@ -194,7 +195,14 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
-            raise HTTPException(status_code=502, detail=f"WMS download failed: {exc}") from exc
+            sample_download_errors.append(str(exc))
+            logger.warning(
+                "Skipping sample %s/%s due to WMS error: %s",
+                sample_index + 1,
+                payload.num_samples,
+                exc,
+            )
+            continue
         sample_detections = run_inference(
             image=tile_image,
             confidence_threshold=payload.confidence_threshold,
@@ -232,6 +240,15 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
             )
         except Exception as exc:  # pragma: no cover - defensive logging for IO layer
             logger.warning("Could not persist no-detection image metadata: %s", exc)
+
+    if sample_download_errors and len(sample_download_errors) == payload.num_samples:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "No valid imagery for selected WMS source/layer and area: "
+                f"{sample_download_errors[0]}"
+            ),
+        )
 
     try:
         save_detections_to_parquet(

@@ -257,6 +257,21 @@ def _has_vertical_white_stripes(gray_image: Image.Image) -> bool:
     return len(wide_runs) > 0
 
 
+def _is_empty_wms_tile(image: Image.Image) -> tuple[bool, str]:
+    if "A" in image.getbands():
+        alpha = image.getchannel("A")
+        alpha_min, alpha_max = alpha.getextrema()
+        if alpha_max == 0:
+            return True, "WMS tile is fully transparent (no coverage)"
+
+    gray_image = image.convert("L")
+    gray_min, gray_max = gray_image.getextrema()
+    if gray_min == gray_max and gray_min in (0, 255):
+        return True, "WMS tile is flat (single-value image)"
+
+    return False, ""
+
+
 def download_tile(
     mode: str,
     bbox: Sequence[float],
@@ -328,7 +343,12 @@ def download_tile(
             if "image" not in content_type:
                 raise RuntimeError("WMS response is not an image")
 
-            image = Image.open(BytesIO(response.content)).convert("L")
+            raw_image = Image.open(BytesIO(response.content))
+            is_empty_tile, empty_reason = _is_empty_wms_tile(raw_image)
+            if is_empty_tile:
+                raise RuntimeError(empty_reason)
+
+            image = raw_image.convert("L")
 
             # The seam detector is tuned for USGS tiles and can falsely reject
             # valid IM-LDI/LROC imagery (for example NAC mosaics).
