@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
-import { ImageOverlay, MapContainer, Rectangle, useMap } from "react-leaflet";
+import { MapContainer, Rectangle, useMap, WMSTileLayer } from "react-leaflet";
 
-const IMAGE_BOUNDS = [
-  [0, 0],
-  [1024, 2048],
+const GEO_BOUNDS = [
+  [-90, -180],
+  [90, 180],
 ];
 
-const IMAGE_HEIGHT = IMAGE_BOUNDS[1][0];
-const IMAGE_WIDTH = IMAGE_BOUNDS[1][1];
+const LON_MIN = GEO_BOUNDS[0][1];
+const LON_MAX = GEO_BOUNDS[1][1];
+const LAT_MIN = GEO_BOUNDS[0][0];
+const LAT_MAX = GEO_BOUNDS[1][0];
+const GEO_WIDTH = LON_MAX - LON_MIN;
+const GEO_HEIGHT = LAT_MAX - LAT_MIN;
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 const DEFAULT_DETECTION_STATUS = "to_verify";
 const STATUS_COLOR_MAP = {
@@ -29,16 +33,16 @@ const RESOLUTION_DESCRIPTION_MAP = {
 };
 
 const GRID_SIZE = 4;
-const CELL_HEIGHT = IMAGE_HEIGHT / GRID_SIZE;
-const CELL_WIDTH = IMAGE_WIDTH / GRID_SIZE;
+const CELL_HEIGHT = GEO_HEIGHT / GRID_SIZE;
+const CELL_WIDTH = GEO_WIDTH / GRID_SIZE;
 
 function buildSegments() {
   const segments = [];
 
   for (let row = 0; row < GRID_SIZE; row += 1) {
     for (let col = 0; col < GRID_SIZE; col += 1) {
-      const yMin = row * CELL_HEIGHT;
-      const xMin = col * CELL_WIDTH;
+      const yMin = LAT_MIN + row * CELL_HEIGHT;
+      const xMin = LON_MIN + col * CELL_WIDTH;
       const yMax = yMin + CELL_HEIGHT;
       const xMax = xMin + CELL_WIDTH;
 
@@ -115,10 +119,10 @@ function isBoundsInsideImage(bounds) {
     Number.isFinite(xMin) &&
     Number.isFinite(yMax) &&
     Number.isFinite(xMax) &&
-    yMin >= IMAGE_BOUNDS[0][0] &&
-    xMin >= IMAGE_BOUNDS[0][1] &&
-    yMax <= IMAGE_BOUNDS[1][0] &&
-    xMax <= IMAGE_BOUNDS[1][1] &&
+    yMin >= GEO_BOUNDS[0][0] &&
+    xMin >= GEO_BOUNDS[0][1] &&
+    yMax <= GEO_BOUNDS[1][0] &&
+    xMax <= GEO_BOUNDS[1][1] &&
     yMax > yMin &&
     xMax > xMin
   );
@@ -227,7 +231,7 @@ function FitBoundsOnChange({ bounds }) {
 
   useEffect(() => {
     if (bounds) {
-      map.fitBounds(bounds, { padding: [20, 20], animate: true });
+      map.fitBounds(bounds, { padding: [0, 0], animate: false });
     }
   }, [map, bounds]);
 
@@ -289,13 +293,13 @@ export default function App() {
   const [hoveredDetectionId, setHoveredDetectionId] = useState(null);
   const [inputComment, setInputComment] = useState("");
   const [editingDetectionId, setEditingDetectionId] = useState(null);
-  const [focusBounds, setFocusBounds] = useState(IMAGE_BOUNDS);
+  const [focusBounds, setFocusBounds] = useState(GEO_BOUNDS);
   const [chosenMessage, setChosenMessage] = useState("");
   const [manualCoords, setManualCoords] = useState({
-    xMin: "0",
-    yMin: "0",
-    xMax: String(IMAGE_WIDTH),
-    yMax: String(IMAGE_HEIGHT),
+    xMin: String(LON_MIN),
+    yMin: String(LAT_MIN),
+    xMax: String(LON_MAX),
+    yMax: String(LAT_MAX),
   });
 
   const selectedCoords = selectedSegment ? boundsToCoords(selectedSegment.bounds) : null;
@@ -438,15 +442,12 @@ export default function App() {
 
   const handleResetHomeView = useCallback(() => {
     setSelectedSegment(null);
-    setFocusBounds([
-      [0, 0],
-      [IMAGE_HEIGHT, IMAGE_WIDTH],
-    ]);
+    setFocusBounds(GEO_BOUNDS);
     setManualCoords({
-      xMin: "0",
-      yMin: "0",
-      xMax: String(IMAGE_WIDTH),
-      yMax: String(IMAGE_HEIGHT),
+      xMin: String(LON_MIN),
+      yMin: String(LAT_MIN),
+      xMax: String(LON_MAX),
+      yMax: String(LAT_MAX),
     });
     setChosenMessage("Widok zresetowany do calej mapy.");
   }, []);
@@ -576,16 +577,16 @@ export default function App() {
 
     const hasInvalidValues =
       [xMin, yMin, xMax, yMax].some((value) => Number.isNaN(value)) ||
-      xMin < 0 ||
-      yMin < 0 ||
-      xMax > IMAGE_WIDTH ||
-      yMax > IMAGE_HEIGHT ||
+      xMin < LON_MIN ||
+      yMin < LAT_MIN ||
+      xMax > LON_MAX ||
+      yMax > LAT_MAX ||
       xMax <= xMin ||
       yMax <= yMin;
 
     if (hasInvalidValues) {
       setChosenMessage(
-        `Niepoprawne wspolrzedne. Zakres: x 0-${IMAGE_WIDTH}, y 0-${IMAGE_HEIGHT} i xMax>xMin, yMax>yMin.`
+        `Niepoprawne wspolrzedne. Zakres: lon ${LON_MIN} do ${LON_MAX}, lat ${LAT_MIN} do ${LAT_MAX}, oraz xMax>xMin i yMax>yMin.`
       );
       return;
     }
@@ -692,15 +693,29 @@ export default function App() {
         <div className="col-lg-9">
           <div className="map-shell border rounded shadow-sm">
             <MapContainer
-              crs={L.CRS.Simple}
-              bounds={IMAGE_BOUNDS}
-              minZoom={-2}
-              maxZoom={4}
+              crs={L.CRS.EPSG4326}
+              bounds={GEO_BOUNDS}
+              maxBounds={GEO_BOUNDS}
+              maxBoundsViscosity={1.0}
+              minZoom={0}
+              maxZoom={8}
+              zoomSnap={0.1}
+              zoomDelta={0.5}
               whenCreated={(mapInstance) => {
                 mapRef.current = mapInstance;
               }}
             >
-              <ImageOverlay url="/luna_0.jpg" bounds={IMAGE_BOUNDS} />
+              <WMSTileLayer
+                url="https://planetarymaps.usgs.gov/cgi-bin/mapserv"
+                map="/maps/earth/moon_simp_cyl.map"
+                service="WMS"
+                version="1.1.1"
+                crs={L.CRS.EPSG4326}
+                layers="KaguyaTC_Ortho"
+                format="image/png"
+                transparent={false}
+                noWrap
+              />
               <FitBoundsOnChange bounds={focusBounds} />
               <HomeControl onHomeClick={handleResetHomeView} />
 

@@ -10,8 +10,9 @@ body {
 }
 
 .map-shell {
-  height: 80vh;
-  min-height: 520px;
+  aspect-ratio: 2 / 1;
+  min-height: 320px;
+  max-height: 80vh;
   overflow: hidden;
   background: #101319;
 }

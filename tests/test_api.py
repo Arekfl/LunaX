@@ -172,6 +172,29 @@ def test_analysis_run_converts_pixel_bbox_to_geo_before_download(monkeypatch) ->
     assert geo_bbox == [-90.0, -45.0, 90.0, 45.0]
 
 
+def test_analysis_run_keeps_geo_bbox_before_download(monkeypatch) -> None:
+    mocked_download = Mock(return_value=Image.new("L", (64, 64), color=128))
+    monkeypatch.setattr("app.main.download_tile", mocked_download)
+    monkeypatch.setattr("app.main.run_inference", _mock_inference)
+
+    response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "detail",
+            "numSamples": 1,
+            "confidenceThreshold": 0.0,
+            "bbox": [-10.0, -5.0, 10.0, 5.0],
+        },
+    )
+
+    assert response.status_code == 200
+    mocked_download.assert_called_once()
+
+    mode, geo_bbox = mocked_download.call_args.args
+    assert mode == "detail"
+    assert geo_bbox == [-10.0, -5.0, 10.0, 5.0]
+
+
 def test_patch_detection_status_persists_status_by_detection_id(tmp_path, monkeypatch) -> None:
     status_file = tmp_path / "detection_statuses.json"
     monkeypatch.setenv("DETECTION_STATUS_FILE", str(status_file))

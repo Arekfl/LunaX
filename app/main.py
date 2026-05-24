@@ -68,11 +68,28 @@ def _pixel_bbox_to_geo_bbox(pixel_bbox: list[float]) -> list[float]:
     ]
 
 
+def _is_geo_bbox(bbox: list[float]) -> bool:
+    x_min, y_min, x_max, y_max = bbox
+    return (
+        -180.0 <= x_min <= 180.0
+        and -180.0 <= x_max <= 180.0
+        and -90.0 <= y_min <= 90.0
+        and -90.0 <= y_max <= 90.0
+    )
+
+
+def _normalize_analysis_bbox_to_geo(bbox: list[float]) -> list[float]:
+    # Backward compatible: accepts either pixel bbox or lon/lat bbox.
+    if _is_geo_bbox(bbox):
+        return bbox
+    return _pixel_bbox_to_geo_bbox(bbox)
+
+
 @app.post("/analysis/run", response_model=AnalysisRunResponse)
 def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
     analysis_id = str(uuid4())
     analysis_timestamp = datetime.now(timezone.utc).isoformat()
-    geo_bbox = _pixel_bbox_to_geo_bbox(payload.bbox)
+    geo_bbox = _normalize_analysis_bbox_to_geo(payload.bbox)
 
     adapter_detections = []
     for _ in range(payload.num_samples):
