@@ -582,7 +582,7 @@ export default function App() {
                 {isLoadingDetections && (
                   <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
                 )}
-                <span>{isLoadingDetections ? "Analizowanie..." : "Wybierz obszar"}</span>
+                <span>{isLoadingDetections ? "Analizowanie..." : "Uruchom analize"}</span>
               </button>
 
               {analysisStatus && (
@@ -765,7 +765,7 @@ export default function App() {
 
               <div className="detection-list-scroll">
                 {detections.length === 0 ? (
-                  <div className="small text-muted">Brak detekcji. Kliknij "Wybierz obszar".</div>
+                  <div className="small text-muted">Brak detekcji. Kliknij "Uruchom analize".</div>
                 ) : filteredDetections.length === 0 ? (
                   <div className="small text-muted">Brak detekcji dla statusu: {statusFilter}.</div>
                 ) : (
