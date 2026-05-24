@@ -104,6 +104,27 @@ def test_analysis_run_aggregates_results_from_num_samples(monkeypatch) -> None:
     assert len(payload["detections"]) >= 6
 
 
+def test_analysis_run_filters_out_detections_below_confidence_threshold(monkeypatch) -> None:
+    monkeypatch.setattr("app.main.download_tile", _mock_tile)
+    monkeypatch.setattr("app.main.run_inference", _mock_inference)
+
+    response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "detail",
+            "numSamples": 1,
+            "confidenceThreshold": 0.9,
+            "bbox": [-22.2, 4.1, -21.7, 4.6],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    detections = payload["detections"]
+    assert len(detections) == 1
+    assert detections[0]["confidence"] >= 0.9
+
+
 def test_patch_detection_status_persists_status_by_detection_id(tmp_path, monkeypatch) -> None:
     status_file = tmp_path / "detection_statuses.json"
     monkeypatch.setenv("DETECTION_STATUS_FILE", str(status_file))
