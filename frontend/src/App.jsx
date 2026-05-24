@@ -149,6 +149,7 @@ function HomeControl({ onHomeClick }) {
 export default function App() {
   const segments = useMemo(() => buildSegments(), []);
   const [detections, setDetections] = useState([]);
+  const [currentAnalysisId, setCurrentAnalysisId] = useState(null);
   const [isLoadingDetections, setIsLoadingDetections] = useState(false);
   const [analysisStatus, setAnalysisStatus] = useState(null);
   const [showBboxes, setShowBboxes] = useState(true);
@@ -183,35 +184,42 @@ export default function App() {
       .filter((detection) => detection.status === statusFilter);
   }, [detections, statusFilter, storedStatuses]);
 
-  const fetchDetectionsAndStatuses = useCallback(async () => {
-    const [detectionsResponse, statusesResponse] = await Promise.all([
-      fetch(`${API_BASE_URL}/detections/query`),
-      fetch(`${API_BASE_URL}/detections/statuses`),
-    ]);
+  const fetchDetectionStatuses = useCallback(async () => {
+    const statusesResponse = await fetch(`${API_BASE_URL}/detections/statuses`);
 
-    if (!detectionsResponse.ok) {
-      throw new Error(`Detections query HTTP ${detectionsResponse.status}`);
-    }
     if (!statusesResponse.ok) {
       throw new Error(`Detection statuses HTTP ${statusesResponse.status}`);
     }
 
-    const detectionsPayload = await detectionsResponse.json();
     const statusesPayload = await statusesResponse.json();
-
-    const queriedDetections = Array.isArray(detectionsPayload) ? detectionsPayload : [];
     const statusMap =
       statusesPayload && typeof statusesPayload === "object" && !Array.isArray(statusesPayload)
         ? statusesPayload
         : {};
 
     setStoredStatuses(statusMap);
+    return statusMap;
+  }, []);
+
+  const fetchDetectionsAndStatuses = useCallback(async () => {
+    const [detectionsResponse, statusMap] = await Promise.all([
+      fetch(`${API_BASE_URL}/detections/query`),
+      fetchDetectionStatuses(),
+    ]);
+
+    if (!detectionsResponse.ok) {
+      throw new Error(`Detections query HTTP ${detectionsResponse.status}`);
+    }
+
+    const detectionsPayload = await detectionsResponse.json();
+
+    const queriedDetections = Array.isArray(detectionsPayload) ? detectionsPayload : [];
 
     const mergedDetections = applyStatusesToDetections(queriedDetections, statusMap);
     setDetections(mergedDetections);
 
     return mergedDetections;
-  }, []);
+  }, [fetchDetectionStatuses]);
 
   useEffect(() => {
     const loadInitialDetections = async () => {
@@ -328,16 +336,34 @@ export default function App() {
         throw new Error(`HTTP ${response.status}`);
       }
 
-      const detectionsWithStatus = await fetchDetectionsAndStatuses();
+      const runPayload = await response.json();
+      const analysisId =
+        runPayload && typeof runPayload === "object" && typeof runPayload.analysis_id === "string"
+          ? runPayload.analysis_id
+          : null;
+      const runDetections =
+        runPayload && typeof runPayload === "object" && Array.isArray(runPayload.detections)
+          ? runPayload.detections
+          : [];
+
+      if (!analysisId) {
+        throw new Error("Missing analysis_id in /analysis/run response");
+      }
+
+      const statusMap = await fetchDetectionStatuses();
+      const detectionsWithStatus = applyStatusesToDetections(runDetections, statusMap);
+
+      setCurrentAnalysisId(analysisId);
+      setDetections(detectionsWithStatus);
       setSelectedDetection(null);
       setAnalysisStatus("success");
 
       if (detectionsWithStatus.length === 0) {
-        setChosenMessage("Analiza zakonczona. Brak detekcji dla wybranego obszaru.");
+        setChosenMessage(`Analiza ${analysisId} zakonczona. Brak detekcji dla wybranego obszaru.`);
         return;
       }
 
-      setChosenMessage(`Analiza zakonczona. Pobrano ${detectionsWithStatus.length} detekcji.`);
+      setChosenMessage(`Analiza ${analysisId} zakonczona. Pobrano ${detectionsWithStatus.length} detekcji.`);
     } catch (error) {
       console.error("Blad podczas pobierania detekcji:", error);
       setChosenMessage("Nie udalo sie pobrac detekcji z backendu FastAPI.");
@@ -600,6 +626,10 @@ export default function App() {
                     {analysisStatus}
                   </span>
                 </div>
+              )}
+
+              {currentAnalysisId && (
+                <div className="small text-muted mb-3">analysis_id: {currentAnalysisId}</div>
               )}
 
               <div className="small text-muted mb-2">Rozdzielczosc analizy</div>

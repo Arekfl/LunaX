@@ -104,6 +104,30 @@ def test_analysis_run_aggregates_results_from_num_samples(monkeypatch) -> None:
     assert len(payload["detections"]) >= 6
 
 
+def test_analysis_run_generates_new_analysis_id_for_each_run(monkeypatch) -> None:
+    monkeypatch.setattr("app.main.download_tile", _mock_tile)
+    monkeypatch.setattr("app.main.run_inference", _mock_inference)
+
+    first_response = client.post("/analysis/run", json={"confidenceThreshold": 0.0})
+    second_response = client.post("/analysis/run", json={"confidenceThreshold": 0.0})
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+
+    first_payload = first_response.json()
+    second_payload = second_response.json()
+
+    assert first_payload["analysis_id"]
+    assert second_payload["analysis_id"]
+    assert first_payload["analysis_id"] != second_payload["analysis_id"]
+
+    for detection in first_payload["detections"]:
+        assert detection["analysis_id"] == first_payload["analysis_id"]
+
+    for detection in second_payload["detections"]:
+        assert detection["analysis_id"] == second_payload["analysis_id"]
+
+
 def test_analysis_run_filters_out_detections_below_confidence_threshold(monkeypatch) -> None:
     monkeypatch.setattr("app.main.download_tile", _mock_tile)
     monkeypatch.setattr("app.main.run_inference", _mock_inference)
