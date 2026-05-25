@@ -332,6 +332,83 @@ function getDetectionPreviewUrl(detection) {
   return `https://planetarymaps.usgs.gov/cgi-bin/mapserv?${params.toString()}`;
 }
 
+function isGeoLikeBBox(bboxMinMax) {
+  if (!bboxMinMax) {
+    return false;
+  }
+
+  const { xMin, yMin, xMax, yMax } = bboxMinMax;
+  return (
+    Number.isFinite(xMin) &&
+    Number.isFinite(yMin) &&
+    Number.isFinite(xMax) &&
+    Number.isFinite(yMax) &&
+    xMin >= -180 &&
+    xMax <= 180 &&
+    yMin >= -90 &&
+    yMax <= 90 &&
+    xMax > xMin &&
+    yMax > yMin
+  );
+}
+
+function detectionIdHash(detectionId) {
+  const idText = String(detectionId || "");
+  let hash = 0;
+  for (let index = 0; index < idText.length; index += 1) {
+    hash = (hash + idText.charCodeAt(index) * (index + 1)) % 2147483647;
+  }
+  return hash;
+}
+
+function findAnalysisImageForDetection(detection, analysisImageList) {
+  if (!detection || !Array.isArray(analysisImageList) || analysisImageList.length === 0) {
+    return null;
+  }
+
+  const analysisId =
+    typeof detection.analysis_id === "string" && detection.analysis_id.trim().length > 0
+      ? detection.analysis_id
+      : null;
+
+  let candidates = analysisId
+    ? analysisImageList.filter((image) => image.analysis_id === analysisId)
+    : [];
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const preferredCandidates = candidates.filter((image) => image.status !== NO_DETECTIONS_FILTER);
+  if (preferredCandidates.length > 0) {
+    candidates = preferredCandidates;
+  }
+
+  const bboxMinMax = parseBBoxToMinMax(detection.bbox);
+  if (isGeoLikeBBox(bboxMinMax)) {
+    const centerLon = (bboxMinMax.xMin + bboxMinMax.xMax) / 2;
+    const centerLat = (bboxMinMax.yMin + bboxMinMax.yMax) / 2;
+    const candidatesWithCoords = candidates.filter(
+      (image) => typeof image.lat === "number" && typeof image.lon === "number"
+    );
+
+    if (candidatesWithCoords.length > 0) {
+      return candidatesWithCoords.reduce((bestImage, image) => {
+        if (!bestImage) {
+          return image;
+        }
+
+        const bestDistance = Math.hypot(bestImage.lon - centerLon, bestImage.lat - centerLat);
+        const currentDistance = Math.hypot(image.lon - centerLon, image.lat - centerLat);
+        return currentDistance < bestDistance ? image : bestImage;
+      }, null);
+    }
+  }
+
+  const hashedIndex = detectionIdHash(detection.detection_id) % candidates.length;
+  return candidates[hashedIndex] ?? candidates[0] ?? null;
+}
+
 function FitBoundsOnChange({ bounds }) {
   const map = useMap();
 
@@ -663,12 +740,6 @@ export default function App() {
       setSelectedNoDetectionImage(null);
     }
   }, [visibleAnalysisImages, selectedNoDetectionImage]);
-
-  useEffect(() => {
-    if (!isNoDetectionsFilterSelected && selectedNoDetectionImage) {
-      setSelectedNoDetectionImage(null);
-    }
-  }, [isNoDetectionsFilterSelected, selectedNoDetectionImage]);
 
   const handleResetHomeView = useCallback(() => {
     setCurrentLevel(0);
@@ -1089,6 +1160,28 @@ export default function App() {
     setSelectedNoDetectionImage(image);
     setViewMode("gallery");
   }, []);
+
+  const handleOpenDetectionInGallery = useCallback(
+    (detection) => {
+      handleSelectDetection(detection);
+
+      const matchedImage = findAnalysisImageForDetection(detection, analysisImages);
+      if (!matchedImage) {
+        setChosenMessage(
+          "Brak zapisanego obrazu pasujacego do tej detekcji. Uruchom ponownie analize, aby odswiezyc obrazy."
+        );
+        return;
+      }
+
+      if (matchedImage.status !== NO_DETECTIONS_FILTER) {
+        setAnalysisImagesFilter(ALL_ANALYSIS_IMAGES_FILTER);
+      }
+
+      setSelectedNoDetectionImage(matchedImage);
+      setViewMode("gallery");
+    },
+    [analysisImages, handleSelectDetection]
+  );
 
   return (
     <div className="container-fluid py-3 app-shell">
@@ -1758,7 +1851,7 @@ export default function App() {
                         >
                           <button
                             type="button"
-                            onClick={() => handleSelectDetection(detection)}
+                            onClick={() => handleOpenDetectionInGallery(detection)}
                             className="btn btn-link text-decoration-none text-reset p-0 w-100 text-start"
                           >
                             <div><strong>{detection.detection_id}</strong></div>
