@@ -64,7 +64,7 @@ def _compute_png_hash_and_bytes(image: Image.Image) -> tuple[str, bytes]:
     return content_hash, png_bytes
 
 
-def _find_no_detections_row_by_hash(
+def _find_analysis_image_row_by_hash(
     parquet_file: Path, content_hash: str
 ) -> dict[str, str | float] | None:
     if not parquet_file.exists():
@@ -95,13 +95,14 @@ def _find_no_detections_row_by_hash(
     }
 
 
-def save_no_detections_image_and_metadata(
+def save_analysis_image_and_metadata(
     image: Image.Image,
     *,
     analysis_id: str | None = None,
     lon: float,
     lat: float,
     resolution: str,
+    status: str = "no_detections",
     timestamp: str | None = None,
 ) -> dict[str, str | float]:
     analysis_timestamp = timestamp or datetime.now(timezone.utc).isoformat()
@@ -109,7 +110,7 @@ def save_no_detections_image_and_metadata(
     content_hash, png_bytes = _compute_png_hash_and_bytes(image)
     image_id = f"img-{uuid4().hex}"
 
-    existing_row = _find_no_detections_row_by_hash(parquet_file, content_hash)
+    existing_row = _find_analysis_image_row_by_hash(parquet_file, content_hash)
     image_path: Path | None = None
     if existing_row is not None:
         existing_path_raw = existing_row.get("path")
@@ -133,7 +134,7 @@ def save_no_detections_image_and_metadata(
         "image_id": image_id,
         "analysis_id": str(analysis_id) if analysis_id else "",
         "path": str(image_path),
-        "status": "no_detections",
+        "status": status,
         "lat": float(lat),
         "lon": float(lon),
         "resolution": resolution,
@@ -146,13 +147,33 @@ def save_no_detections_image_and_metadata(
     return metadata_row
 
 
-def query_no_detections() -> list[dict]:
+def save_no_detections_image_and_metadata(
+    image: Image.Image,
+    *,
+    analysis_id: str | None = None,
+    lon: float,
+    lat: float,
+    resolution: str,
+    timestamp: str | None = None,
+) -> dict[str, str | float]:
+    return save_analysis_image_and_metadata(
+        image,
+        analysis_id=analysis_id,
+        lon=lon,
+        lat=lat,
+        resolution=resolution,
+        status="no_detections",
+        timestamp=timestamp,
+    )
+
+
+def query_analysis_images(status: str | None = None) -> list[dict]:
     parquet_file = _get_no_detections_parquet_path()
     if not parquet_file.exists():
         return []
 
-    no_detections_frame = pd.read_parquet(parquet_file)
-    if no_detections_frame.empty:
+    analysis_images_frame = pd.read_parquet(parquet_file)
+    if analysis_images_frame.empty:
         return []
 
     expected_columns = [
@@ -166,10 +187,20 @@ def query_no_detections() -> list[dict]:
         "timestamp",
     ]
     for column_name in expected_columns:
-        if column_name not in no_detections_frame.columns:
-            no_detections_frame[column_name] = None
+        if column_name not in analysis_images_frame.columns:
+            analysis_images_frame[column_name] = "no_detections" if column_name == "status" else None
 
-    sorted_frame = no_detections_frame[expected_columns].sort_values(
+    analysis_images_frame["status"] = (
+        analysis_images_frame["status"].fillna("no_detections").astype(str)
+    )
+
+    if status is not None:
+        analysis_images_frame = analysis_images_frame[analysis_images_frame["status"] == str(status)]
+
+    if analysis_images_frame.empty:
+        return []
+
+    sorted_frame = analysis_images_frame[expected_columns].sort_values(
         by="timestamp", ascending=False, na_position="last"
     )
 
@@ -191,20 +222,33 @@ def query_no_detections() -> list[dict]:
     return records
 
 
-def get_no_detection_image_path(image_id: str) -> Path | None:
+def query_no_detections() -> list[dict]:
+    return query_analysis_images(status="no_detections")
+
+
+def get_analysis_image_path(image_id: str, *, status: str | None = None) -> Path | None:
     parquet_file = _get_no_detections_parquet_path()
     if not parquet_file.exists():
         return None
 
-    no_detections_frame = pd.read_parquet(parquet_file)
-    if no_detections_frame.empty or "image_id" not in no_detections_frame.columns:
+    analysis_images_frame = pd.read_parquet(parquet_file)
+    if analysis_images_frame.empty or "image_id" not in analysis_images_frame.columns:
         return None
 
-    filtered_frame = no_detections_frame[
-        no_detections_frame["image_id"].astype(str) == str(image_id)
+    filtered_frame = analysis_images_frame[
+        analysis_images_frame["image_id"].astype(str) == str(image_id)
     ]
     if filtered_frame.empty or "path" not in filtered_frame.columns:
         return None
+
+    if status is not None:
+        if "status" not in filtered_frame.columns:
+            return None
+        filtered_frame = filtered_frame[
+            filtered_frame["status"].fillna("no_detections").astype(str) == str(status)
+        ]
+        if filtered_frame.empty:
+            return None
 
     if "timestamp" in filtered_frame.columns:
         filtered_frame = filtered_frame.sort_values(
@@ -227,6 +271,10 @@ def get_no_detection_image_path(image_id: str) -> Path | None:
         return None
 
     return image_path
+
+
+def get_no_detection_image_path(image_id: str) -> Path | None:
+    return get_analysis_image_path(image_id, status="no_detections")
 
 
 def save_detections_to_parquet(

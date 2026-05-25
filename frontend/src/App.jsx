@@ -27,10 +27,16 @@ const STATUS_BADGE_CLASS_MAP = {
 };
 const DETECTION_BBOX_PROXIMITY_THRESHOLD = 12;
 const NO_DETECTIONS_FILTER = "no_detections";
+const ALL_ANALYSIS_IMAGES_FILTER = "all";
 const RESOLUTION_DESCRIPTION_MAP = {
   preview: "Szybki podglad, nizsza dokladnosc.",
   detail: "Zbalansowany tryb do codziennej analizy.",
   ultra: "Najwyzsza dokladnosc, najdluzszy czas analizy.",
+};
+const RESOLUTION_MPP_MAP = {
+  preview: 59.22,
+  detail: 15.79,
+  ultra: 0.87,
 };
 const WMS_SOURCE_OPTIONS = [
   { value: "usgs", label: "USGS" },
@@ -273,12 +279,12 @@ function getFileNameFromPath(filePath) {
   return parts[parts.length - 1] ?? "";
 }
 
-function getNoDetectionsImageUrl(imageId) {
+function getAnalysisImageUrl(imageId) {
   if (!imageId) {
     return null;
   }
 
-  return `${API_BASE_URL}/no-detections/image/${encodeURIComponent(imageId)}`;
+  return `${API_BASE_URL}/analysis-images/image/${encodeURIComponent(imageId)}`;
 }
 
 function getDetectionPreviewUrl(detection) {
@@ -389,7 +395,8 @@ export default function App() {
   const [bboxHistory, setBBoxHistory] = useState([GEO_BOUNDS]);
   const [gridCells, setGridCells] = useState(() => buildGridCells(GEO_BOUNDS, 0));
   const [detections, setDetections] = useState([]);
-  const [noDetections, setNoDetections] = useState([]);
+  const [analysisImages, setAnalysisImages] = useState([]);
+  const [analysisImagesFilter, setAnalysisImagesFilter] = useState(NO_DETECTIONS_FILTER);
   const [selectedNoDetectionImage, setSelectedNoDetectionImage] = useState(null);
   const [currentAnalysisId, setCurrentAnalysisId] = useState(null);
   const [isLoadingDetections, setIsLoadingDetections] = useState(false);
@@ -452,10 +459,20 @@ export default function App() {
     return getDisplayDetectionsForStatus(statusFilteredDetections, statusFilter);
   }, [detections, statusFilter, storedStatuses]);
 
-  const groupedNoDetections = useMemo(() => {
+  const visibleAnalysisImages = useMemo(() => {
+    if (analysisImagesFilter === ALL_ANALYSIS_IMAGES_FILTER) {
+      return analysisImages;
+    }
+
+    return analysisImages.filter(
+      (image) => (typeof image.status === "string" ? image.status : NO_DETECTIONS_FILTER) === NO_DETECTIONS_FILTER
+    );
+  }, [analysisImages, analysisImagesFilter]);
+
+  const groupedAnalysisImages = useMemo(() => {
     const groups = new Map();
 
-    for (const image of noDetections) {
+    for (const image of visibleAnalysisImages) {
       const analysisId =
         typeof image.analysis_id === "string" && image.analysis_id.trim().length > 0
           ? image.analysis_id
@@ -472,10 +489,10 @@ export default function App() {
       analysisId,
       images,
     }));
-  }, [noDetections]);
+  }, [visibleAnalysisImages]);
 
   const detectionSectionCount = isNoDetectionsFilterSelected
-    ? noDetections.length
+    ? visibleAnalysisImages.length
     : filteredDetections.length;
 
   const fetchDetectionStatuses = useCallback(async () => {
@@ -515,30 +532,30 @@ export default function App() {
     return mergedDetections;
   }, [fetchDetectionStatuses]);
 
-  const fetchNoDetections = useCallback(async () => {
-    const response = await fetch(`${API_BASE_URL}/no-detections/query`);
+  const fetchAnalysisImages = useCallback(async () => {
+    const response = await fetch(`${API_BASE_URL}/analysis-images/query`);
 
     if (!response.ok) {
-      throw new Error(`No-detections query HTTP ${response.status}`);
+      throw new Error(`Analysis-images query HTTP ${response.status}`);
     }
 
     const payload = await response.json();
     const images = Array.isArray(payload) ? payload : [];
-    setNoDetections(images);
+    setAnalysisImages(images);
     return images;
   }, []);
 
   useEffect(() => {
     const loadInitialData = async () => {
       try {
-        await Promise.all([fetchDetectionsAndStatuses(), fetchNoDetections()]);
+        await Promise.all([fetchDetectionsAndStatuses(), fetchAnalysisImages()]);
       } catch (error) {
         console.warn("Nie udalo sie pobrac danych poczatkowych:", error);
       }
     };
 
     loadInitialData();
-  }, [fetchDetectionsAndStatuses, fetchNoDetections]);
+  }, [fetchDetectionsAndStatuses, fetchAnalysisImages]);
 
   useEffect(() => {
     if (!selectedDetection) {
@@ -621,14 +638,20 @@ export default function App() {
       return;
     }
 
-    const stillExists = noDetections.some(
+    const stillExists = visibleAnalysisImages.some(
       (image) => image.image_id === selectedNoDetectionImage.image_id
     );
 
     if (!stillExists) {
       setSelectedNoDetectionImage(null);
     }
-  }, [noDetections, selectedNoDetectionImage]);
+  }, [visibleAnalysisImages, selectedNoDetectionImage]);
+
+  useEffect(() => {
+    if (!isNoDetectionsFilterSelected && selectedNoDetectionImage) {
+      setSelectedNoDetectionImage(null);
+    }
+  }, [isNoDetectionsFilterSelected, selectedNoDetectionImage]);
 
   const handleResetHomeView = useCallback(() => {
     setCurrentLevel(0);
@@ -791,9 +814,9 @@ export default function App() {
       setCurrentAnalysisId(analysisId);
       setDetections(detectionsWithStatus);
       try {
-        await fetchNoDetections();
+        await fetchAnalysisImages();
       } catch (refreshError) {
-        console.warn("Nie udalo sie odswiezyc listy no_detections:", refreshError);
+        console.warn("Nie udalo sie odswiezyc listy zapisanych obrazow analizy:", refreshError);
       }
       setSelectedDetection(null);
       setAnalysisStatus("success");
@@ -1035,7 +1058,7 @@ export default function App() {
     }
   };
 
-  const handleOpenNoDetectionImage = useCallback((image) => {
+  const handleOpenAnalysisImage = useCallback((image) => {
     setSelectedNoDetectionImage(image);
     setViewMode("gallery");
   }, []);
@@ -1176,7 +1199,7 @@ export default function App() {
                 <div className="mb-3">
                   <div className="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
                     <div className="small text-muted">
-                      Podglad wybranego zdjecia z listy no_detections.
+                      Podglad wybranego zapisanego zdjecia analizy.
                     </div>
                     <button
                       type="button"
@@ -1188,12 +1211,13 @@ export default function App() {
                   </div>
                   <div className="gallery-focus-card border rounded p-2 bg-white">
                     <img
-                      src={getNoDetectionsImageUrl(selectedNoDetectionImage.image_id)}
-                      alt={`No-detections ${selectedNoDetectionImage.image_id}`}
+                      src={getAnalysisImageUrl(selectedNoDetectionImage.image_id)}
+                      alt={`Zapis analizy ${selectedNoDetectionImage.image_id}`}
                       className="gallery-focus-image"
                     />
                     <div className="small text-muted mt-2">
                       <div><strong>ID:</strong> {selectedNoDetectionImage.image_id}</div>
+                      <div><strong>Status:</strong> {selectedNoDetectionImage.status || NO_DETECTIONS_FILTER}</div>
                       <div>
                         <strong>Lat/Lon:</strong>{" "}
                         {typeof selectedNoDetectionImage.lat === "number"
@@ -1213,11 +1237,60 @@ export default function App() {
                 </div>
               ) : (
                 <div className="small text-muted mb-3">
-                  Widok kart oparty o aktualnie widoczne detekcje (filtr statusu jest zachowany).
+                  {isNoDetectionsFilterSelected
+                    ? "Widok kart oparty o zapisane obrazy analizy."
+                    : "Widok kart oparty o aktualnie widoczne detekcje (filtr statusu jest zachowany)."}
                 </div>
               )}
 
-              {selectedNoDetectionImage ? null : detections.length === 0 ? (
+              {selectedNoDetectionImage ? null : isNoDetectionsFilterSelected ? (
+                visibleAnalysisImages.length === 0 ? (
+                  <div className="small text-muted">
+                    {analysisImagesFilter === ALL_ANALYSIS_IMAGES_FILTER
+                      ? "Brak zapisanych obrazow analizy."
+                      : "Brak zapisanych obrazow z wynikiem no_detections."}
+                  </div>
+                ) : (
+                  <div className="row g-3">
+                    {visibleAnalysisImages.map((image, imageIndex) => {
+                      const itemKey = `${image.image_id || "no-id"}|${image.timestamp || "no-ts"}|${imageIndex}`;
+                      const isNoDetectionsStatus =
+                        (typeof image.status === "string" ? image.status : NO_DETECTIONS_FILTER) ===
+                        NO_DETECTIONS_FILTER;
+
+                      return (
+                        <div className="col-sm-6 col-xl-4" key={`gallery-image-${itemKey}`}>
+                          <button
+                            type="button"
+                            className="card h-100 shadow-sm border-0 text-start w-100 p-0"
+                            onClick={() => handleOpenAnalysisImage(image)}
+                          >
+                            <img
+                              src={getAnalysisImageUrl(image.image_id)}
+                              alt={`Zapis analizy ${image.image_id}`}
+                              loading="lazy"
+                              className="gallery-preview card-img-top"
+                            />
+                            <div className="card-body py-2">
+                              <div className="fw-semibold small">{image.image_id || "analysis_image"}</div>
+                              <div className="small mt-1">
+                                <span
+                                  className={`badge ${isNoDetectionsStatus ? "text-bg-secondary" : "text-bg-primary"}`}
+                                >
+                                  {image.status || NO_DETECTIONS_FILTER}
+                                </span>
+                              </div>
+                              <div className="small text-muted">
+                                rozdzielczosc: {image.resolution || "-"}
+                              </div>
+                            </div>
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              ) : detections.length === 0 ? (
                 <div className="small text-muted">Brak detekcji. Kliknij "Uruchom analize".</div>
               ) : filteredDetections.length === 0 ? (
                 <div className="small text-muted">Brak detekcji dla statusu: {statusFilter}.</div>
@@ -1391,7 +1464,9 @@ export default function App() {
                   ultra
                 </button>
               </div>
-              <div className="small text-muted mb-3">{RESOLUTION_DESCRIPTION_MAP[resolutionMode]}</div>
+              <div className="small text-muted mb-3">
+                {RESOLUTION_DESCRIPTION_MAP[resolutionMode]} (ok. {RESOLUTION_MPP_MAP[resolutionMode].toFixed(2)} mpp)
+              </div>
 
               <div className="small text-muted mb-2">Zrodlo WMS</div>
               <div className="btn-group btn-group-sm w-100 mb-3" role="group" aria-label="Zrodlo WMS">
@@ -1576,51 +1651,74 @@ export default function App() {
 
               <div className="detection-list-scroll" ref={detectionListRef}>
                 {isNoDetectionsFilterSelected ? (
-                  noDetections.length === 0 ? (
-                    <div className="small text-muted">
-                      Brak przeanalizowanych zdjec z wynikiem no_detections.
+                  <>
+                    <div className="small text-muted mb-2">Zakres zapisanych obrazow</div>
+                    <div className="btn-group btn-group-sm w-100 mb-3" role="group" aria-label="Zakres zapisanych obrazow">
+                      <button
+                        type="button"
+                        className={`btn ${analysisImagesFilter === NO_DETECTIONS_FILTER ? "btn-secondary" : "btn-outline-secondary"}`}
+                        onClick={() => setAnalysisImagesFilter(NO_DETECTIONS_FILTER)}
+                      >
+                        no_detections
+                      </button>
+                      <button
+                        type="button"
+                        className={`btn ${analysisImagesFilter === ALL_ANALYSIS_IMAGES_FILTER ? "btn-secondary" : "btn-outline-secondary"}`}
+                        onClick={() => setAnalysisImagesFilter(ALL_ANALYSIS_IMAGES_FILTER)}
+                      >
+                        wszystkie
+                      </button>
                     </div>
-                  ) : (
-                    <div className="list-group">
-                      {groupedNoDetections.map((group) => (
-                        <div key={`group-${group.analysisId}`} className="border-bottom pb-2 mb-2">
-                          <div className="small fw-semibold text-muted px-1 mb-1">
-                            sesja: {group.analysisId} ({group.images.length})
-                          </div>
 
-                          <div className="list-group">
-                            {group.images.map((image, imageIndex) => {
-                              const itemKey = `${image.image_id || "no-id"}|${image.timestamp || "no-ts"}|${imageIndex}`;
-                              const imageName = getFileNameFromPath(image.path);
-                              const isActive = selectedNoDetectionImage?.image_id === image.image_id;
+                    {visibleAnalysisImages.length === 0 ? (
+                      <div className="small text-muted">
+                        {analysisImagesFilter === ALL_ANALYSIS_IMAGES_FILTER
+                          ? "Brak zapisanych obrazow analizy."
+                          : "Brak przeanalizowanych zdjec z wynikiem no_detections."}
+                      </div>
+                    ) : (
+                      <div className="list-group">
+                        {groupedAnalysisImages.map((group) => (
+                          <div key={`group-${group.analysisId}`} className="border-bottom pb-2 mb-2">
+                            <div className="small fw-semibold text-muted px-1 mb-1">
+                              sesja: {group.analysisId} ({group.images.length})
+                            </div>
 
-                              return (
-                                <button
-                                  type="button"
-                                  key={itemKey}
-                                  className={`list-group-item list-group-item-action text-start ${
-                                    isActive ? "active" : ""
-                                  }`}
-                                  onClick={() => handleOpenNoDetectionImage(image)}
-                                >
-                                  <div><strong>{image.image_id || "no_detections"}</strong></div>
-                                  {imageName && <div className={isActive ? "small text-white-50" : "small text-muted"}>plik: {imageName}</div>}
-                                  <div className={isActive ? "small text-white-50" : "small text-muted"}>rozdzielczosc: {image.resolution || "-"}</div>
-                                  <div className={isActive ? "small text-white-50" : "small text-muted"}>
-                                    lat: {typeof image.lat === "number" ? image.lat.toFixed(6) : "-"}, lon:{" "}
-                                    {typeof image.lon === "number" ? image.lon.toFixed(6) : "-"}
-                                  </div>
-                                  {image.timestamp && (
-                                    <div className={isActive ? "small text-white-50" : "small text-muted"}>czas: {image.timestamp}</div>
-                                  )}
-                                </button>
-                              );
-                            })}
+                            <div className="list-group">
+                              {group.images.map((image, imageIndex) => {
+                                const itemKey = `${image.image_id || "no-id"}|${image.timestamp || "no-ts"}|${imageIndex}`;
+                                const imageName = getFileNameFromPath(image.path);
+                                const isActive = selectedNoDetectionImage?.image_id === image.image_id;
+
+                                return (
+                                  <button
+                                    type="button"
+                                    key={itemKey}
+                                    className={`list-group-item list-group-item-action text-start ${
+                                      isActive ? "active" : ""
+                                    }`}
+                                    onClick={() => handleOpenAnalysisImage(image)}
+                                  >
+                                    <div><strong>{image.image_id || "analysis_image"}</strong></div>
+                                    {imageName && <div className={isActive ? "small text-white-50" : "small text-muted"}>plik: {imageName}</div>}
+                                    <div className={isActive ? "small text-white-50" : "small text-muted"}>status: {image.status || NO_DETECTIONS_FILTER}</div>
+                                    <div className={isActive ? "small text-white-50" : "small text-muted"}>rozdzielczosc: {image.resolution || "-"}</div>
+                                    <div className={isActive ? "small text-white-50" : "small text-muted"}>
+                                      lat: {typeof image.lat === "number" ? image.lat.toFixed(6) : "-"}, lon:{" "}
+                                      {typeof image.lon === "number" ? image.lon.toFixed(6) : "-"}
+                                    </div>
+                                    {image.timestamp && (
+                                      <div className={isActive ? "small text-white-50" : "small text-muted"}>czas: {image.timestamp}</div>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  )
+                        ))}
+                      </div>
+                    )}
+                  </>
                 ) : detections.length === 0 ? (
                   <div className="small text-muted">Brak detekcji. Kliknij "Uruchom analize".</div>
                 ) : filteredDetections.length === 0 ? (

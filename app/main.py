@@ -27,12 +27,14 @@ from app.schemas import (
     LocalValidationRunRequest,
 )
 from app.analytics import (
+    get_analysis_image_path,
     get_no_detection_image_path,
+    query_analysis_images,
     query_detections,
     query_no_detections,
+    save_analysis_image_and_metadata,
     save_detections_to_parquet,
 )
-from app.analytics import save_no_detections_image_and_metadata
 from app.storage import (
     read_detection_statuses,
     upsert_detection_comment,
@@ -225,21 +227,23 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
             if detection.confidence >= payload.confidence_threshold
         ]
 
+        sample_status = "detections" if sample_filtered_detections else "no_detections"
+
         if sample_filtered_detections:
             filtered_detections.extend(sample_filtered_detections)
-            continue
 
         try:
-            save_no_detections_image_and_metadata(
+            save_analysis_image_and_metadata(
                 tile_image,
                 analysis_id=analysis_id,
                 lon=center_lon,
                 lat=center_lat,
                 resolution=payload.resolution_mode,
+                status=sample_status,
                 timestamp=analysis_timestamp,
             )
         except Exception as exc:  # pragma: no cover - defensive logging for IO layer
-            logger.warning("Could not persist no-detection image metadata: %s", exc)
+            logger.warning("Could not persist analysis image metadata: %s", exc)
 
     if sample_download_errors and len(sample_download_errors) == payload.num_samples:
         raise HTTPException(
@@ -382,10 +386,24 @@ def get_no_detections_query() -> list[dict]:
     return query_no_detections()
 
 
+@app.get("/analysis-images/query", response_model=list[dict])
+def get_analysis_images_query() -> list[dict]:
+    return query_analysis_images()
+
+
 @app.get("/no-detections/image/{image_id}")
 def get_no_detection_image(image_id: str) -> FileResponse:
     image_path = get_no_detection_image_path(image_id)
     if image_path is None:
         raise HTTPException(status_code=404, detail="No-detection image not found")
+
+    return FileResponse(path=image_path, media_type="image/png", filename=image_path.name)
+
+
+@app.get("/analysis-images/image/{image_id}")
+def get_analysis_image(image_id: str) -> FileResponse:
+    image_path = get_analysis_image_path(image_id)
+    if image_path is None:
+        raise HTTPException(status_code=404, detail="Analysis image not found")
 
     return FileResponse(path=image_path, media_type="image/png", filename=image_path.name)
