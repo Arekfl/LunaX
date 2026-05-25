@@ -215,13 +215,14 @@ function deduplicateDetectionsByProximity(detectionList, threshold) {
   return deduplicated;
 }
 
-function getDisplayDetectionsForStatus(detectionList, status) {
-  return deduplicateDetectionsByProximity(
-    detectionList
-      .filter((detection) => detectionToBounds(detection))
-      .filter((detection) => detection.status === status),
-    DETECTION_BBOX_PROXIMITY_THRESHOLD
-  );
+function getDisplayDetectionsForStatus(detectionList, status, options = {}) {
+  const { requireValidBounds = true } = options;
+  const statusMatched = detectionList.filter((detection) => detection.status === status);
+  const scopeMatched = requireValidBounds
+    ? statusMatched.filter((detection) => detectionToBounds(detection))
+    : statusMatched;
+
+  return deduplicateDetectionsByProximity(scopeMatched, DETECTION_BBOX_PROXIMITY_THRESHOLD);
 }
 
 function isNoCoverageErrorMessage(message) {
@@ -259,6 +260,43 @@ function applyStatusesToDetections(detectionList, statusMap) {
     ...detection,
     status: statusMap[detection.detection_id] ?? detection.status ?? DEFAULT_DETECTION_STATUS,
   }));
+}
+
+function getDetectionStatusCounts(detectionList) {
+  const counts = {
+    confirmed: 0,
+    to_verify: 0,
+    approved: 0,
+  };
+
+  for (const detection of detectionList) {
+    const normalizedStatus =
+      typeof detection?.status === "string" ? detection.status.trim().toLowerCase() : "";
+
+    if (normalizedStatus === "confirmed") {
+      counts.confirmed += 1;
+      continue;
+    }
+
+    if (normalizedStatus === "to_verify") {
+      counts.to_verify += 1;
+      continue;
+    }
+
+    if (normalizedStatus === "approved") {
+      counts.approved += 1;
+    }
+  }
+
+  return counts;
+}
+
+function formatDetectionStatusSummary(detectionList) {
+  const counts = getDetectionStatusCounts(detectionList);
+  return (
+    `Statusy: confirmed ${counts.confirmed}, ` +
+    `to_verify ${counts.to_verify}, approved ${counts.approved}.`
+  );
 }
 
 function getStatusColor(status) {
@@ -449,15 +487,24 @@ export default function App() {
     }
   }, [selectedWmsLayerOptions, wmsLayer]);
 
-  const filteredDetections = useMemo(() => {
-    const statusFilteredDetections = detections
-      .map((detection) => ({
+  const statusResolvedDetections = useMemo(
+    () =>
+      detections.map((detection) => ({
         ...detection,
         status: resolveDetectionStatus(detection, storedStatuses),
-      }));
+      })),
+    [detections, storedStatuses]
+  );
 
-    return getDisplayDetectionsForStatus(statusFilteredDetections, statusFilter);
-  }, [detections, statusFilter, storedStatuses]);
+  const filteredDetections = useMemo(
+    () => getDisplayDetectionsForStatus(statusResolvedDetections, statusFilter, { requireValidBounds: false }),
+    [statusResolvedDetections, statusFilter]
+  );
+
+  const mapDetections = useMemo(
+    () => getDisplayDetectionsForStatus(statusResolvedDetections, statusFilter),
+    [statusResolvedDetections, statusFilter]
+  );
 
   const visibleAnalysisImages = useMemo(() => {
     if (analysisImagesFilter === ALL_ANALYSIS_IMAGES_FILTER) {
@@ -797,13 +844,16 @@ export default function App() {
       const detectionsWithStatus = applyStatusesToDetections(runDetections, statusMap);
       const visibleWithCurrentFilter = getDisplayDetectionsForStatus(
         detectionsWithStatus,
-        statusFilter
+        statusFilter,
+        { requireValidBounds: false }
       );
 
       if (detectionsWithStatus.length > 0 && visibleWithCurrentFilter.length === 0) {
         const fallbackStatus = ["to_verify", "confirmed", "rejected"].find(
           (candidateStatus) =>
-            getDisplayDetectionsForStatus(detectionsWithStatus, candidateStatus).length > 0
+            getDisplayDetectionsForStatus(detectionsWithStatus, candidateStatus, {
+              requireValidBounds: false,
+            }).length > 0
         );
 
         if (fallbackStatus) {
@@ -820,13 +870,18 @@ export default function App() {
       }
       setSelectedDetection(null);
       setAnalysisStatus("success");
+      const statusSummary = formatDetectionStatusSummary(detectionsWithStatus);
 
       if (detectionsWithStatus.length === 0) {
-        setChosenMessage(`Analiza ${analysisId} zakonczona. Brak detekcji dla wybranego obszaru.`);
+        setChosenMessage(
+          `Analiza ${analysisId} zakonczona. Brak detekcji dla wybranego obszaru. ${statusSummary}`
+        );
         return;
       }
 
-      setChosenMessage(`Analiza ${analysisId} zakonczona. Pobrano ${detectionsWithStatus.length} detekcji.`);
+      setChosenMessage(
+        `Analiza ${analysisId} zakonczona. Pobrano ${detectionsWithStatus.length} detekcji. ${statusSummary}`
+      );
     } catch (error) {
       console.error("Blad podczas pobierania detekcji:", error);
       const errorMessage =
@@ -896,13 +951,16 @@ export default function App() {
       const detectionsWithStatus = applyStatusesToDetections(runDetections, statusMap);
       const visibleWithCurrentFilter = getDisplayDetectionsForStatus(
         detectionsWithStatus,
-        statusFilter
+        statusFilter,
+        { requireValidBounds: false }
       );
 
       if (detectionsWithStatus.length > 0 && visibleWithCurrentFilter.length === 0) {
         const fallbackStatus = ["to_verify", "confirmed", "rejected"].find(
           (candidateStatus) =>
-            getDisplayDetectionsForStatus(detectionsWithStatus, candidateStatus).length > 0
+            getDisplayDetectionsForStatus(detectionsWithStatus, candidateStatus, {
+              requireValidBounds: false,
+            }).length > 0
         );
 
         if (fallbackStatus) {
@@ -914,16 +972,17 @@ export default function App() {
       setDetections(detectionsWithStatus);
       setSelectedDetection(null);
       setAnalysisStatus("success");
+      const statusSummary = formatDetectionStatusSummary(detectionsWithStatus);
 
       if (detectionsWithStatus.length === 0) {
         setChosenMessage(
-          `Analiza lokalna ${analysisId} zakonczona. Brak detekcji w folderze validation.`
+          `Analiza lokalna ${analysisId} zakonczona. Brak detekcji w folderze validation. ${statusSummary}`
         );
         return;
       }
 
       setChosenMessage(
-        `Analiza lokalna ${analysisId} zakonczona. Pobrano ${detectionsWithStatus.length} detekcji.`
+        `Analiza lokalna ${analysisId} zakonczona. Pobrano ${detectionsWithStatus.length} detekcji. ${statusSummary}`
       );
     } catch (error) {
       console.error("Blad podczas analizy lokalnej:", error);
@@ -1161,7 +1220,7 @@ export default function App() {
                   />
                 )}
 
-                {showBboxes && filteredDetections.map((detection, detectionIndex) => {
+                {showBboxes && mapDetections.map((detection, detectionIndex) => {
                   const detectionUniqueId = getDetectionUniqueId(detection);
                   const detectionRenderKey = `${detectionUniqueId}|${detectionIndex}`;
                   const isSelected = isSameDetection(selectedDetection, detection);

@@ -440,6 +440,7 @@ def test_analysis_run_saves_images_and_metadata_per_sample_when_detections_exist
     tmp_path, monkeypatch
 ) -> None:
     no_detections_image_dir = tmp_path / "images" / "no_detections"
+    to_verify_image_dir = tmp_path / "images" / "to_verify"
     no_detections_parquet_file = tmp_path / "no_detections.parquet"
     detections_parquet_file = tmp_path / "detections.parquet"
 
@@ -477,12 +478,13 @@ def test_analysis_run_saves_images_and_metadata_per_sample_when_detections_exist
     payload = response.json()
     assert len(payload["detections"]) == 3
 
-    saved_images = sorted(no_detections_image_dir.glob("*.png"))
+    saved_images = sorted(to_verify_image_dir.glob("*.png"))
     assert len(saved_images) == 1
+    assert len(sorted(no_detections_image_dir.glob("*.png"))) == 0
 
     metadata = pd.read_parquet(no_detections_parquet_file)
     assert len(metadata) == 3
-    assert set(metadata["status"]) == {"detections"}
+    assert set(metadata["status"]) == {"to_verify"}
     assert set(metadata["analysis_id"]) == {payload["analysis_id"]}
     assert set(metadata["resolution"]) == {"detail"}
     assert metadata[["lat", "lon"]].drop_duplicates().shape[0] == 3
@@ -717,7 +719,7 @@ def test_get_analysis_images_query_returns_all_saved_images(tmp_path, monkeypatc
         "resolution",
         "timestamp",
     }.issubset(payload[0].keys())
-    assert {item["status"] for item in payload} == {"detections", "no_detections"}
+    assert {item["status"] for item in payload} == {"to_verify", "no_detections"}
     assert {item["analysis_id"] for item in payload} == {
         no_detections_analysis_id,
         detections_analysis_id,
@@ -764,7 +766,7 @@ def test_get_analysis_image_returns_png_for_detection_sample(tmp_path, monkeypat
     assert list_response.status_code == 200
     payload = list_response.json()
     assert len(payload) == 1
-    assert payload[0]["status"] == "detections"
+    assert payload[0]["status"] == "to_verify"
 
     image_id = payload[0]["image_id"]
     image_response = client.get(f"/analysis-images/image/{image_id}")

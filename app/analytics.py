@@ -38,6 +38,26 @@ def _get_no_detections_image_dir() -> Path:
     return Path(__file__).resolve().parents[1] / "data" / "images" / "no_detections"
 
 
+def _normalize_analysis_image_status(status: str | None) -> str:
+    normalized_status = str(status or "").strip().lower()
+    if not normalized_status:
+        return "no_detections"
+
+    # Backward compatibility for rows created before status-specific folders.
+    if normalized_status == "detections":
+        return "to_verify"
+
+    return normalized_status
+
+
+def _get_analysis_image_dir(status: str) -> Path:
+    normalized_status = _normalize_analysis_image_status(status)
+    if normalized_status == "no_detections":
+        return _get_no_detections_image_dir()
+
+    return _get_no_detections_image_dir().parent / normalized_status
+
+
 def _append_rows_to_parquet(parquet_file: Path, rows: list[dict]) -> Path:
     parquet_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -65,7 +85,7 @@ def _compute_png_hash_and_bytes(image: Image.Image) -> tuple[str, bytes]:
 
 
 def _find_analysis_image_row_by_hash(
-    parquet_file: Path, content_hash: str
+    parquet_file: Path, content_hash: str, *, status: str | None = None
 ) -> dict[str, str | float] | None:
     if not parquet_file.exists():
         return None
@@ -78,6 +98,22 @@ def _find_analysis_image_row_by_hash(
     if matching.empty:
         return None
 
+    if status is not None:
+        requested_status = _normalize_analysis_image_status(status)
+        if "status" not in matching.columns:
+            if requested_status != "no_detections":
+                return None
+        else:
+            matching_statuses = (
+                matching["status"]
+                .fillna("no_detections")
+                .astype(str)
+                .map(_normalize_analysis_image_status)
+            )
+            matching = matching[matching_statuses == requested_status]
+            if matching.empty:
+                return None
+
     if "timestamp" in matching.columns:
         matching = matching.sort_values(by="timestamp", ascending=False, na_position="last")
 
@@ -86,7 +122,7 @@ def _find_analysis_image_row_by_hash(
         "image_id": str(row.get("image_id") or ""),
         "analysis_id": str(row.get("analysis_id") or ""),
         "path": str(row.get("path") or ""),
-        "status": str(row.get("status") or "no_detections"),
+        "status": _normalize_analysis_image_status(str(row.get("status") or "no_detections")),
         "lat": float(row["lat"]) if "lat" in matching.columns and pd.notna(row["lat"]) else 0.0,
         "lon": float(row["lon"]) if "lon" in matching.columns and pd.notna(row["lon"]) else 0.0,
         "resolution": str(row.get("resolution") or ""),
@@ -106,11 +142,16 @@ def save_analysis_image_and_metadata(
     timestamp: str | None = None,
 ) -> dict[str, str | float]:
     analysis_timestamp = timestamp or datetime.now(timezone.utc).isoformat()
+    normalized_status = _normalize_analysis_image_status(status)
     parquet_file = _get_no_detections_parquet_path()
     content_hash, png_bytes = _compute_png_hash_and_bytes(image)
     image_id = f"img-{uuid4().hex}"
 
-    existing_row = _find_analysis_image_row_by_hash(parquet_file, content_hash)
+    existing_row = _find_analysis_image_row_by_hash(
+        parquet_file,
+        content_hash,
+        status=normalized_status,
+    )
     image_path: Path | None = None
     if existing_row is not None:
         existing_path_raw = existing_row.get("path")
@@ -125,7 +166,7 @@ def save_analysis_image_and_metadata(
             f"{timestamp_token}_lat-{lat:.6f}_lon-{lon:.6f}_{resolution}_{image_id}.png"
         )
 
-        image_dir = _get_no_detections_image_dir()
+        image_dir = _get_analysis_image_dir(normalized_status)
         image_dir.mkdir(parents=True, exist_ok=True)
         image_path = image_dir / filename
         image_path.write_bytes(png_bytes)
@@ -134,7 +175,7 @@ def save_analysis_image_and_metadata(
         "image_id": image_id,
         "analysis_id": str(analysis_id) if analysis_id else "",
         "path": str(image_path),
-        "status": status,
+        "status": normalized_status,
         "lat": float(lat),
         "lon": float(lon),
         "resolution": resolution,
@@ -191,11 +232,15 @@ def query_analysis_images(status: str | None = None) -> list[dict]:
             analysis_images_frame[column_name] = "no_detections" if column_name == "status" else None
 
     analysis_images_frame["status"] = (
-        analysis_images_frame["status"].fillna("no_detections").astype(str)
+        analysis_images_frame["status"]
+        .fillna("no_detections")
+        .astype(str)
+        .map(_normalize_analysis_image_status)
     )
 
     if status is not None:
-        analysis_images_frame = analysis_images_frame[analysis_images_frame["status"] == str(status)]
+        requested_status = _normalize_analysis_image_status(status)
+        analysis_images_frame = analysis_images_frame[analysis_images_frame["status"] == requested_status]
 
     if analysis_images_frame.empty:
         return []
@@ -242,11 +287,18 @@ def get_analysis_image_path(image_id: str, *, status: str | None = None) -> Path
         return None
 
     if status is not None:
+        requested_status = _normalize_analysis_image_status(status)
         if "status" not in filtered_frame.columns:
-            return None
-        filtered_frame = filtered_frame[
-            filtered_frame["status"].fillna("no_detections").astype(str) == str(status)
-        ]
+            if requested_status != "no_detections":
+                return None
+        else:
+            filtered_frame = filtered_frame[
+                filtered_frame["status"]
+                .fillna("no_detections")
+                .astype(str)
+                .map(_normalize_analysis_image_status)
+                == requested_status
+            ]
         if filtered_frame.empty:
             return None
 
@@ -260,7 +312,10 @@ def get_analysis_image_path(image_id: str, *, status: str | None = None) -> Path
         return None
 
     image_path = Path(str(path_value)).expanduser().resolve()
-    allowed_root = _get_no_detections_image_dir().expanduser().resolve()
+    if status is None:
+        allowed_root = _get_no_detections_image_dir().expanduser().resolve().parent
+    else:
+        allowed_root = _get_analysis_image_dir(status).expanduser().resolve()
 
     try:
         image_path.relative_to(allowed_root)
