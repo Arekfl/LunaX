@@ -38,7 +38,6 @@ def test_download_tile_returns_pil_image_with_mocked_wms(monkeypatch: pytest.Mon
 
     mocked_get = Mock(return_value=mocked_response)
 
-    monkeypatch.setattr(downloader, "_get_selected_layer", lambda: "KaguyaTC_Ortho")
     monkeypatch.setattr(downloader.requests, "get", mocked_get)
 
     image = downloader.download_tile("detail", [10.0, 5.0, 11.0, 6.0])
@@ -67,7 +66,6 @@ def test_download_tile_retries_after_first_request_error(monkeypatch: pytest.Mon
         ]
     )
 
-    monkeypatch.setattr(downloader, "_get_selected_layer", lambda: "KaguyaTC_Ortho")
     monkeypatch.setattr(downloader.requests, "get", mocked_get)
     monkeypatch.setattr(downloader.time, "sleep", lambda _seconds: None)
 

@@ -149,7 +149,7 @@ def test_analysis_run_passes_confidence_threshold_to_inference(monkeypatch) -> N
     assert kwargs["confidence_threshold"] == 0.1
 
 
-def test_analysis_run_passes_wms_layer_to_downloader(monkeypatch) -> None:
+def test_analysis_run_uses_fixed_wms_configuration(monkeypatch) -> None:
     mocked_download = Mock(return_value=Image.new("L", (64, 64), color=128))
     monkeypatch.setattr("app.main.download_tile", mocked_download)
     monkeypatch.setattr("app.main.run_inference", Mock(return_value=[]))
@@ -158,8 +158,6 @@ def test_analysis_run_passes_wms_layer_to_downloader(monkeypatch) -> None:
         "/analysis/run",
         json={
             "resolutionMode": "preview",
-            "wmsSource": "lroc_ildi",
-            "wmsLayer": "luna_wac_global",
             "numSamples": 1,
             "confidenceThreshold": 0.1,
             "bbox": [-10.0, -5.0, 10.0, 5.0],
@@ -168,12 +166,13 @@ def test_analysis_run_passes_wms_layer_to_downloader(monkeypatch) -> None:
 
     assert response.status_code == 200
     mocked_download.assert_called_once()
-    _, kwargs = mocked_download.call_args
-    assert kwargs["wms_layer_name"] == "luna_wac_global"
-    assert kwargs["wms_source"] == "lroc_ildi"
+    args, kwargs = mocked_download.call_args
+    assert args[0] == "preview"
+    assert args[1] == [-10.0, -5.0, 10.0, 5.0]
+    assert kwargs == {}
 
 
-def test_analysis_run_rejects_invalid_wms_source(monkeypatch) -> None:
+def test_analysis_run_accepts_legacy_wms_fields_without_effect(monkeypatch) -> None:
     monkeypatch.setattr("app.main.download_tile", _mock_tile)
     monkeypatch.setattr("app.main.run_inference", _mock_inference)
 
@@ -182,14 +181,14 @@ def test_analysis_run_rejects_invalid_wms_source(monkeypatch) -> None:
         json={
             "resolutionMode": "preview",
             "wmsSource": "invalid_source",
-            "wmsLayer": "auto",
+            "wmsLayer": "invalid_layer",
             "numSamples": 1,
             "confidenceThreshold": 0.1,
             "bbox": [-10.0, -5.0, 10.0, 5.0],
         },
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 200
 
 
 def test_analysis_run_returns_502_when_wms_download_fails(monkeypatch) -> None:
@@ -200,8 +199,6 @@ def test_analysis_run_returns_502_when_wms_download_fails(monkeypatch) -> None:
         "/analysis/run",
         json={
             "resolutionMode": "preview",
-            "wmsSource": "lroc_ildi",
-            "wmsLayer": "luna_nac_gigapan",
             "numSamples": 1,
             "confidenceThreshold": 0.01,
             "bbox": [-53.027344, 15.688477, -52.792969, 15.864257],

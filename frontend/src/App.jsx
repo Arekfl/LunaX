@@ -38,23 +38,6 @@ const RESOLUTION_MPP_MAP = {
   detail: 15.79,
   ultra: 0.87,
 };
-const WMS_SOURCE_OPTIONS = [
-  { value: "usgs", label: "USGS" },
-  { value: "lroc_ildi", label: "LROC IM-LDI" },
-];
-const WMS_LAYER_OPTIONS_BY_SOURCE = {
-  usgs: [
-    { value: "auto", label: "auto" },
-    { value: "LROC_WAC", label: "LROC_WAC" },
-    { value: "KaguyaTC_Ortho", label: "KaguyaTC_Ortho" },
-  ],
-  lroc_ildi: [
-    { value: "auto", label: "auto" },
-    { value: "luna_wac_global", label: "luna_wac_global" },
-    { value: "luna_nac_gigapan", label: "luna_nac_gigapan" },
-    { value: "luna_pds_nac_stamp", label: "luna_pds_nac_stamp" },
-  ],
-};
 
 const GRID_SIZE = 4;
 const GRID_ROWS = GRID_SIZE;
@@ -443,8 +426,6 @@ export default function App() {
   const [showBboxes, setShowBboxes] = useState(true);
   const [viewMode, setViewMode] = useState("map");
   const [resolutionMode, setResolutionMode] = useState("detail");
-  const [wmsSource, setWmsSource] = useState("usgs");
-  const [wmsLayer, setWmsLayer] = useState("auto");
   const [numSamples, setNumSamples] = useState(5);
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
   const [storedStatuses, setStoredStatuses] = useState({});
@@ -470,22 +451,11 @@ export default function App() {
   const isNoCoverageChosenMessage =
     typeof chosenMessage === "string" &&
     chosenMessage.startsWith("Brak pokrycia danych dla tej warstwy i obszaru.");
-  const selectedWmsLayerOptions = WMS_LAYER_OPTIONS_BY_SOURCE[wmsSource] ?? [];
-  const isGlobalMosaicLayerSelected =
-    (wmsSource === "usgs" && wmsLayer === "LROC_WAC") ||
-    (wmsSource === "lroc_ildi" && wmsLayer === "luna_wac_global");
 
   useEffect(() => {
     setGridCells(buildGridCells(selectedBBox, currentLevel));
     setHoveredSegmentId(null);
   }, [selectedBBox, currentLevel]);
-
-  useEffect(() => {
-    const isLayerValidForSource = selectedWmsLayerOptions.some((option) => option.value === wmsLayer);
-    if (!isLayerValidForSource) {
-      setWmsLayer("auto");
-    }
-  }, [selectedWmsLayerOptions, wmsLayer]);
 
   const statusResolvedDetections = useMemo(
     () =>
@@ -805,8 +775,6 @@ export default function App() {
         },
         body: JSON.stringify({
           resolutionMode,
-          wmsSource,
-          wmsLayer,
           numSamples,
           confidenceThreshold,
           bbox: analysisBbox,
@@ -1527,38 +1495,7 @@ export default function App() {
                 {RESOLUTION_DESCRIPTION_MAP[resolutionMode]} (ok. {RESOLUTION_MPP_MAP[resolutionMode].toFixed(2)} mpp)
               </div>
 
-              <div className="small text-muted mb-2">Zrodlo WMS</div>
-              <div className="btn-group btn-group-sm w-100 mb-3" role="group" aria-label="Zrodlo WMS">
-                {WMS_SOURCE_OPTIONS.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className={`btn ${wmsSource === option.value ? "btn-primary" : "btn-outline-primary"}`}
-                    onClick={() => setWmsSource(option.value)}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="small text-muted mb-2">Warstwa WMS</div>
-              <div className="btn-group btn-group-sm w-100 mb-3" role="group" aria-label="Warstwa WMS">
-                {selectedWmsLayerOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className={`btn ${wmsLayer === option.value ? "btn-primary" : "btn-outline-primary"}`}
-                    onClick={() => setWmsLayer(option.value)}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-              {isGlobalMosaicLayerSelected && (
-                <div className="alert alert-warning py-2 small mb-3">
-                  Uwaga: ta warstwa to globalna mozaika o nizszym detalu. Dla trudnych obiektow moze nie byc detekcji.
-                </div>
-              )}
+              <div className="small text-muted mb-3">Zrodlo i warstwa WMS: USGS / KaguyaTC_Ortho</div>
 
               <div className="small text-muted mb-2">Liczba probek</div>
               <div className="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Liczba probek analizy">
