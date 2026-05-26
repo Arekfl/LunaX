@@ -722,9 +722,6 @@ export default function App() {
       ),
     [detectionPreviewModal.detection, detectionPreviewModal.image, detectionPreviewImageMetrics]
   );
-  const detectionPreviewStatusColor = detectionPreviewModal.detection
-    ? getStatusColor(detectionPreviewModal.detection.status)
-    : STATUS_COLOR_MAP[DEFAULT_DETECTION_STATUS];
 
   useEffect(() => {
     setGridCells(buildGridCells(selectedBBox, currentLevel));
@@ -996,6 +993,23 @@ export default function App() {
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [detectionPreviewModal.isOpen]);
+
+  useEffect(() => {
+    if (!detectionPreviewModal.isOpen) {
+      return;
+    }
+
+    updateDetectionPreviewImageMetrics();
+
+    const handleResize = () => {
+      updateDetectionPreviewImageMetrics();
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [detectionPreviewModal.isOpen, updateDetectionPreviewImageMetrics]);
 
   useEffect(() => {
     const availableTagsSet = new Set(availableDetectionTags);
@@ -1571,6 +1585,12 @@ export default function App() {
     }
 
     const previewImage = resolveAnalysisImageForDetection(detection, analysisImages);
+    setDetectionPreviewImageMetrics({
+      naturalWidth: 0,
+      naturalHeight: 0,
+      displayWidth: 0,
+      displayHeight: 0,
+    });
     setDetectionPreviewModal({
       isOpen: true,
       detection,
@@ -1580,6 +1600,12 @@ export default function App() {
   };
 
   const handleCloseDetectionPreviewModal = () => {
+    setDetectionPreviewImageMetrics({
+      naturalWidth: 0,
+      naturalHeight: 0,
+      displayWidth: 0,
+      displayHeight: 0,
+    });
     setDetectionPreviewModal((prevModal) => ({ ...prevModal, isOpen: false }));
   };
 
@@ -3126,19 +3152,17 @@ export default function App() {
               <div className="detection-preview-image-wrap mb-2">
                 <div className="detection-preview-image-stage">
                   <img
+                    ref={detectionPreviewImageRef}
                     src={getAnalysisImageUrl(detectionPreviewModal.image.image_id)}
                     alt={`Obraz analizy dla ${detectionPreviewModal.detection.detection_id}`}
                     className="detection-preview-image"
+                    onLoad={updateDetectionPreviewImageMetrics}
                   />
 
                   {detectionPreviewModal.showBBoxPreview && detectionPreviewOverlayRect && (
                     <div
                       className="detection-preview-overlay"
-                      style={{
-                        ...detectionPreviewOverlayRect,
-                        borderColor: detectionPreviewStatusColor,
-                        boxShadow: `0 0 0 1px ${detectionPreviewStatusColor} inset`,
-                      }}
+                      style={detectionPreviewOverlayRect}
                       aria-label="BBox overlay"
                     />
                   )}
