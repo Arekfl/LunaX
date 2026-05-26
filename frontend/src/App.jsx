@@ -37,6 +37,11 @@ const RESOLUTION_MPP_MAP = {
   detail: 15.79,
   ultra: 0.87,
 };
+const RESOLUTION_IMAGE_SIZE_MAP = {
+  preview: 1024,
+  detail: 1536,
+  ultra: 2048,
+};
 
 const GRID_SIZE = 4;
 const GRID_ROWS = GRID_SIZE;
@@ -117,6 +122,10 @@ function parseBBoxToMinMax(bbox) {
   }
 
   return null;
+}
+
+function clampValue(value, minValue, maxValue) {
+  return Math.min(Math.max(value, minValue), maxValue);
 }
 
 function isBoundsInsideImage(bounds) {
@@ -218,6 +227,108 @@ function resolveAnalysisImageForDetection(detection, analysisImageList) {
     const rightTimestamp = String(rightImage?.timestamp || "");
     return rightTimestamp.localeCompare(leftTimestamp);
   })[0] ?? null;
+}
+
+function normalizeBBoxToPixelMinMax(bbox, originalWidth, originalHeight) {
+  const parsedBBox = parseBBoxToMinMax(bbox);
+  if (!parsedBBox) {
+    return null;
+  }
+
+  const sourceValues = [parsedBBox.xMin, parsedBBox.yMin, parsedBBox.xMax, parsedBBox.yMax];
+  if (!sourceValues.every((value) => Number.isFinite(value))) {
+    return null;
+  }
+
+  const isYOLO01 =
+    parsedBBox.xMin >= 0 &&
+    parsedBBox.yMin >= 0 &&
+    parsedBBox.xMax >= 0 &&
+    parsedBBox.yMax >= 0 &&
+    parsedBBox.xMin <= 1 &&
+    parsedBBox.yMin <= 1 &&
+    parsedBBox.xMax <= 1 &&
+    parsedBBox.yMax <= 1;
+
+  const xMinRaw = isYOLO01 ? parsedBBox.xMin * originalWidth : parsedBBox.xMin;
+  const yMinRaw = isYOLO01 ? parsedBBox.yMin * originalHeight : parsedBBox.yMin;
+  const xMaxRaw = isYOLO01 ? parsedBBox.xMax * originalWidth : parsedBBox.xMax;
+  const yMaxRaw = isYOLO01 ? parsedBBox.yMax * originalHeight : parsedBBox.yMax;
+
+  const xMin = clampValue(Math.min(xMinRaw, xMaxRaw), 0, originalWidth);
+  const yMin = clampValue(Math.min(yMinRaw, yMaxRaw), 0, originalHeight);
+  const xMax = clampValue(Math.max(xMinRaw, xMaxRaw), 0, originalWidth);
+  const yMax = clampValue(Math.max(yMinRaw, yMaxRaw), 0, originalHeight);
+
+  if (xMax <= xMin || yMax <= yMin) {
+    return null;
+  }
+
+  return [xMin, yMin, xMax, yMax];
+}
+
+function getDetectionOverlayRect(detection, image, imageMetrics) {
+  const displayWidth = Number(imageMetrics?.displayWidth);
+  const displayHeight = Number(imageMetrics?.displayHeight);
+  const naturalWidth = Number(imageMetrics?.naturalWidth);
+  const naturalHeight = Number(imageMetrics?.naturalHeight);
+
+  const resolution = String(image?.resolution || "").trim();
+  const fallbackSize = Number(RESOLUTION_IMAGE_SIZE_MAP[resolution] || 0);
+
+  const originalWidth = naturalWidth > 0 ? naturalWidth : fallbackSize;
+  const originalHeight = naturalHeight > 0 ? naturalHeight : fallbackSize;
+
+  if (displayWidth <= 0 || displayHeight <= 0 || originalWidth <= 0 || originalHeight <= 0) {
+    return null;
+  }
+
+  const pixelBBox = normalizeBBoxToPixelMinMax(detection?.bbox, originalWidth, originalHeight);
+  if (!pixelBBox) {
+    return null;
+  }
+
+  const [xMin, yMin, xMax, yMax] = pixelBBox;
+  const scaleX = displayWidth / originalWidth;
+  const scaleY = displayHeight / originalHeight;
+
+  const left = xMin * scaleX;
+  const top = yMin * scaleY;
+  const width = (xMax - xMin) * scaleX;
+  const height = (yMax - yMin) * scaleY;
+
+  const isOutsideView =
+    width <= 0 ||
+    height <= 0 ||
+    left >= displayWidth ||
+    top >= displayHeight ||
+    left + width <= 0 ||
+    top + height <= 0;
+
+  if (isOutsideView) {
+    console.log("BBox poza widokiem podgladu", {
+      detectionId: detection?.detection_id,
+      pixelBBox: [xMin, yMin, xMax, yMax],
+      displayWidth,
+      displayHeight,
+      originalWidth,
+      originalHeight,
+      scaleX,
+      scaleY,
+      left,
+      top,
+      width,
+      height,
+    });
+    return null;
+  }
+
+  return {
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${width}px`,
+    height: `${height}px`,
+  };
 }
 
 function areBBoxesClose(leftBBox, rightBBox, threshold) {
@@ -521,6 +632,7 @@ export default function App() {
   const detectionListRef = useRef(null);
   const detectionItemRefs = useRef(new Map());
   const tagFilterDropdownRef = useRef(null);
+  const detectionPreviewImageRef = useRef(null);
   const suppressZoomOutRef = useRef(0);
   const [currentLevel, setCurrentLevel] = useState(0);
   const [isLevelLocked, setIsLevelLocked] = useState(false);
@@ -567,6 +679,12 @@ export default function App() {
     image: null,
     showBBoxPreview: true,
   });
+  const [detectionPreviewImageMetrics, setDetectionPreviewImageMetrics] = useState({
+    naturalWidth: 0,
+    naturalHeight: 0,
+    displayWidth: 0,
+    displayHeight: 0,
+  });
   const [focusBounds, setFocusBounds] = useState(GEO_BOUNDS);
   const [chosenMessage, setChosenMessage] = useState("");
   const [manualCoords, setManualCoords] = useState({
@@ -582,6 +700,31 @@ export default function App() {
   const isNoCoverageChosenMessage =
     typeof chosenMessage === "string" &&
     chosenMessage.startsWith("Brak pokrycia danych dla tej warstwy i obszaru.");
+  const updateDetectionPreviewImageMetrics = useCallback(() => {
+    const imageNode = detectionPreviewImageRef.current;
+    if (!imageNode) {
+      return;
+    }
+
+    setDetectionPreviewImageMetrics({
+      naturalWidth: Number(imageNode.naturalWidth) || 0,
+      naturalHeight: Number(imageNode.naturalHeight) || 0,
+      displayWidth: Number(imageNode.clientWidth) || 0,
+      displayHeight: Number(imageNode.clientHeight) || 0,
+    });
+  }, []);
+  const detectionPreviewOverlayRect = useMemo(
+    () =>
+      getDetectionOverlayRect(
+        detectionPreviewModal.detection,
+        detectionPreviewModal.image,
+        detectionPreviewImageMetrics
+      ),
+    [detectionPreviewModal.detection, detectionPreviewModal.image, detectionPreviewImageMetrics]
+  );
+  const detectionPreviewStatusColor = detectionPreviewModal.detection
+    ? getStatusColor(detectionPreviewModal.detection.status)
+    : STATUS_COLOR_MAP[DEFAULT_DETECTION_STATUS];
 
   useEffect(() => {
     setGridCells(buildGridCells(selectedBBox, currentLevel));
@@ -2981,11 +3124,25 @@ export default function App() {
 
             {detectionPreviewModal.image?.image_id ? (
               <div className="detection-preview-image-wrap mb-2">
-                <img
-                  src={getAnalysisImageUrl(detectionPreviewModal.image.image_id)}
-                  alt={`Obraz analizy dla ${detectionPreviewModal.detection.detection_id}`}
-                  className="detection-preview-image"
-                />
+                <div className="detection-preview-image-stage">
+                  <img
+                    src={getAnalysisImageUrl(detectionPreviewModal.image.image_id)}
+                    alt={`Obraz analizy dla ${detectionPreviewModal.detection.detection_id}`}
+                    className="detection-preview-image"
+                  />
+
+                  {detectionPreviewModal.showBBoxPreview && detectionPreviewOverlayRect && (
+                    <div
+                      className="detection-preview-overlay"
+                      style={{
+                        ...detectionPreviewOverlayRect,
+                        borderColor: detectionPreviewStatusColor,
+                        boxShadow: `0 0 0 1px ${detectionPreviewStatusColor} inset`,
+                      }}
+                      aria-label="BBox overlay"
+                    />
+                  )}
+                </div>
               </div>
             ) : (
               <div className="alert alert-warning py-2 mb-2">
@@ -3002,22 +3159,12 @@ export default function App() {
                 onChange={handleToggleDetectionPreviewBBox}
               />
               <label className="form-check-label small" htmlFor="toggle-detection-preview-bbox">
-                Pokaz podglad bbox
+                Pokaz overlay bbox
               </label>
             </div>
 
-            {detectionPreviewModal.showBBoxPreview && (
-              <div className="detection-preview-bbox-wrap mb-2">
-                {getDetectionPreviewUrl(detectionPreviewModal.detection) ? (
-                  <img
-                    src={getDetectionPreviewUrl(detectionPreviewModal.detection)}
-                    alt={`BBox detekcji ${detectionPreviewModal.detection.detection_id}`}
-                    className="detection-preview-bbox-image"
-                  />
-                ) : (
-                  <div className="small text-muted">Brak danych bbox do podgladu.</div>
-                )}
-              </div>
+            {detectionPreviewModal.showBBoxPreview && !detectionPreviewOverlayRect && (
+              <div className="small text-muted mb-2">Brak detekcji</div>
             )}
 
             <div className="small text-muted detection-preview-meta-grid">
