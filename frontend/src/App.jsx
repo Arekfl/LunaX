@@ -513,8 +513,11 @@ export default function App() {
   const [hoveredDetectionId, setHoveredDetectionId] = useState(null);
   const [inputComment, setInputComment] = useState("");
   const [editingDetectionId, setEditingDetectionId] = useState(null);
-  const [deleteCandidate, setDeleteCandidate] = useState(null);
-  const [isDeletingDetection, setIsDeletingDetection] = useState(false);
+  const [deleteModal, setDeleteModal] = useState({
+    detection: null,
+    isDeleting: false,
+    missingImageWarning: false,
+  });
   const [focusBounds, setFocusBounds] = useState(GEO_BOUNDS);
   const [chosenMessage, setChosenMessage] = useState("");
   const [manualCoords, setManualCoords] = useState({
@@ -1159,24 +1162,37 @@ export default function App() {
   };
 
   const handleRequestDeleteDetection = (detection) => {
-    setDeleteCandidate(detection);
+    setDeleteModal({
+      detection,
+      isDeleting: false,
+      missingImageWarning: false,
+    });
   };
 
   const handleCancelDeleteDetection = () => {
-    if (isDeletingDetection) {
+    if (deleteModal.isDeleting) {
       return;
     }
 
-    setDeleteCandidate(null);
+    setDeleteModal({
+      detection: null,
+      isDeleting: false,
+      missingImageWarning: false,
+    });
   };
 
   const handleConfirmDeleteDetection = async () => {
-    if (!deleteCandidate) {
+    if (!deleteModal.detection || deleteModal.isDeleting) {
       return;
     }
 
-    const targetDetectionId = deleteCandidate.detection_id;
-    setIsDeletingDetection(true);
+    if (deleteModal.missingImageWarning) {
+      handleCancelDeleteDetection();
+      return;
+    }
+
+    const targetDetectionId = deleteModal.detection.detection_id;
+    setDeleteModal((prev) => ({ ...prev, isDeleting: true }));
 
     try {
       const response = await fetch(
@@ -1203,6 +1219,10 @@ export default function App() {
       const payload = await response.json();
       const hasDeletedImage =
         payload && typeof payload.deleted_image_id === "string" && payload.deleted_image_id.length > 0;
+      const relatedImageMissing =
+        payload && typeof payload.related_image_missing === "boolean"
+          ? payload.related_image_missing
+          : !hasDeletedImage;
 
       setDetections((prev) =>
         prev.filter((detection) => detection.detection_id !== targetDetectionId)
@@ -1226,26 +1246,37 @@ export default function App() {
         setHoveredDetectionId(null);
       }
 
-      setDeleteCandidate(null);
-
       try {
         await fetchAnalysisImages();
       } catch (refreshError) {
         console.warn("Nie udalo sie odswiezyc obrazow po usunieciu detekcji:", refreshError);
       }
 
+      if (relatedImageMissing) {
+        setDeleteModal((prev) => ({
+          ...prev,
+          isDeleting: false,
+          missingImageWarning: true,
+        }));
+      } else {
+        setDeleteModal({
+          detection: null,
+          isDeleting: false,
+          missingImageWarning: false,
+        });
+      }
+
       setChosenMessage(
-        hasDeletedImage
-          ? "Detekcja i powiazany obraz zostaly usuniete."
-          : "Detekcja usunieta."
+        relatedImageMissing
+          ? "Detekcja usunieta. Powiazany obraz nie byl dostepny."
+          : "Detekcja i powiazany obraz zostaly usuniete."
       );
     } catch (error) {
       console.error("Blad podczas usuwania detekcji:", error);
+      setDeleteModal((prev) => ({ ...prev, isDeleting: false }));
       setChosenMessage(
         `Nie udalo sie usunac detekcji. ${error instanceof Error ? error.message : ""}`.trim()
       );
-    } finally {
-      setIsDeletingDetection(false);
     }
   };
 
@@ -1963,7 +1994,7 @@ export default function App() {
                               onClick={() => handleRequestDeleteDetection(detection)}
                               title="Usun detekcje"
                               aria-label={`Usun detekcje ${detection.detection_id}`}
-                              disabled={isDeletingDetection}
+                              disabled={deleteModal.isDeleting}
                             >
                               <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
                                 <path
@@ -2075,7 +2106,7 @@ export default function App() {
         </div>
       </div>
 
-      {deleteCandidate && (
+      {deleteModal.detection && (
         <div
           className="confirm-modal-backdrop"
           role="presentation"
@@ -2092,15 +2123,22 @@ export default function App() {
               Usunac detekcje?
             </h6>
             <p className="small text-muted mb-3">
-              Ta operacja usunie detekcje <strong>{deleteCandidate.detection_id}</strong> oraz
+              Ta operacja usunie detekcje <strong>{deleteModal.detection.detection_id}</strong> oraz
               powiazany plik obrazu z backendu.
             </p>
+
+            {deleteModal.missingImageWarning && (
+              <div className="mb-3">
+                <span className="badge text-bg-warning">Brak pliku obrazu</span>
+              </div>
+            )}
+
             <div className="d-flex justify-content-end gap-2">
               <button
                 type="button"
                 className="btn btn-sm btn-outline-secondary"
                 onClick={handleCancelDeleteDetection}
-                disabled={isDeletingDetection}
+                disabled={deleteModal.isDeleting}
               >
                 Anuluj
               </button>
@@ -2108,12 +2146,12 @@ export default function App() {
                 type="button"
                 className="btn btn-sm btn-danger d-flex align-items-center gap-2"
                 onClick={handleConfirmDeleteDetection}
-                disabled={isDeletingDetection}
+                disabled={deleteModal.isDeleting}
               >
-                {isDeletingDetection && (
+                {deleteModal.isDeleting && (
                   <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
                 )}
-                <span>{isDeletingDetection ? "Usuwanie..." : "Usun"}</span>
+                <span>{deleteModal.isDeleting ? "Usuwanie..." : "Usun"}</span>
               </button>
             </div>
           </div>

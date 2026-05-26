@@ -385,6 +385,7 @@ def delete_detection(id: str) -> DetectionDeleteResponse:
             if deleted_payload.get("deleted_image_path") is None
             else str(deleted_payload["deleted_image_path"])
         ),
+        related_image_missing=bool(deleted_payload.get("related_image_missing")),
     )
 
 

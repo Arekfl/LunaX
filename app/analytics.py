@@ -457,6 +457,7 @@ def delete_detection_and_related_assets(detection_id: str) -> dict[str, str | bo
             "detection_deleted": False,
             "deleted_image_id": None,
             "deleted_image_path": None,
+            "related_image_missing": False,
         }
 
     detections_frame = pd.read_parquet(detections_file)
@@ -465,6 +466,7 @@ def delete_detection_and_related_assets(detection_id: str) -> dict[str, str | bo
             "detection_deleted": False,
             "deleted_image_id": None,
             "deleted_image_path": None,
+            "related_image_missing": False,
         }
 
     matched_rows = detections_frame[
@@ -475,6 +477,7 @@ def delete_detection_and_related_assets(detection_id: str) -> dict[str, str | bo
             "detection_deleted": False,
             "deleted_image_id": None,
             "deleted_image_path": None,
+            "related_image_missing": False,
         }
 
     if "timestamp" in matched_rows.columns:
@@ -495,11 +498,16 @@ def delete_detection_and_related_assets(detection_id: str) -> dict[str, str | bo
         analysis_id=analysis_id,
         detection_center=detection_center,
     )
+    related_image_missing = (
+        removed_image is None
+        or not bool(str(removed_image.get("image_id") or "").strip())
+    )
 
     return {
         "detection_deleted": True,
         "deleted_image_id": None if removed_image is None else removed_image.get("image_id") or None,
         "deleted_image_path": None if removed_image is None else removed_image.get("path") or None,
+        "related_image_missing": related_image_missing,
     }
 
 

@@ -1043,6 +1043,7 @@ def test_delete_detection_removes_detection_related_image_and_overrides(
     assert delete_payload["detection_id"] == detection_id
     assert delete_payload["detection_deleted"] is True
     assert delete_payload["deleted_image_id"] == removed_image_id
+    assert delete_payload["related_image_missing"] is False
 
     detections_response = client.get("/detections/query")
     assert detections_response.status_code == 200
@@ -1072,3 +1073,39 @@ def test_delete_detection_returns_404_for_unknown_id(tmp_path, monkeypatch) -> N
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Detection not found"
+
+
+def test_delete_detection_marks_missing_related_image_when_metadata_absent(
+    tmp_path, monkeypatch
+) -> None:
+    no_detections_image_dir = tmp_path / "images" / "no_detections"
+    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    detections_parquet_file = tmp_path / "detections.parquet"
+
+    monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
+    monkeypatch.setenv("NO_DETECTIONS_PARQUET_FILE", str(no_detections_parquet_file))
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+    monkeypatch.setattr("app.main.download_tile", _mock_tile)
+    monkeypatch.setattr("app.main.run_inference", _mock_inference)
+
+    run_response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "detail",
+            "numSamples": 1,
+            "confidenceThreshold": 0.5,
+            "bbox": [-20.0, -10.0, 20.0, 10.0],
+        },
+    )
+    assert run_response.status_code == 200
+    detection_id = run_response.json()["detections"][0]["detection_id"]
+
+    no_detections_parquet_file.unlink()
+
+    delete_response = client.delete(f"/detections/{detection_id}")
+
+    assert delete_response.status_code == 200
+    delete_payload = delete_response.json()
+    assert delete_payload["detection_deleted"] is True
+    assert delete_payload["deleted_image_id"] is None
+    assert delete_payload["related_image_missing"] is True

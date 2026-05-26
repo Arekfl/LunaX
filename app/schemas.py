@@ -91,6 +91,7 @@ class DetectionDeleteResponse(BaseModel):
     detection_deleted: bool
     deleted_image_id: str | None = None
     deleted_image_path: str | None = None
+    related_image_missing: bool = False
 
 
 class DetectionsQueryParams(BaseModel):
