@@ -213,6 +213,38 @@ body {
   padding: 1rem;
 }
 
+.detection-preview-modal-backdrop {
+  z-index: 2050;
+}
+
+.detection-preview-modal-card {
+  width: min(100%, 900px);
+  max-height: min(90vh, 920px);
+  overflow-y: auto;
+}
+
+.detection-preview-image-wrap,
+.detection-preview-bbox-wrap {
+  border: 1px solid #e9ecef;
+  border-radius: 0.4rem;
+  padding: 0.4rem;
+  background: #f8fafc;
+}
+
+.detection-preview-image,
+.detection-preview-bbox-image {
+  width: 100%;
+  max-height: 52vh;
+  object-fit: contain;
+  background: #101319;
+  border-radius: 0.3rem;
+}
+
+.detection-preview-meta-grid {
+  display: grid;
+  gap: 0.25rem;
+}
+
 @media (min-width: 992px) {
   .app-shell {
     height: 100vh;

@@ -155,6 +155,71 @@ function detectionToBounds(detection) {
   return isBoundsInsideImage(bounds) ? bounds : null;
 }
 
+function getDetectionCenter(detection) {
+  const bboxMinMax = parseBBoxToMinMax(detection?.bbox);
+  if (!bboxMinMax) {
+    return null;
+  }
+
+  return {
+    lon: (bboxMinMax.xMin + bboxMinMax.xMax) / 2,
+    lat: (bboxMinMax.yMin + bboxMinMax.yMax) / 2,
+  };
+}
+
+function resolveAnalysisImageForDetection(detection, analysisImageList) {
+  if (!detection || !Array.isArray(analysisImageList) || analysisImageList.length === 0) {
+    return null;
+  }
+
+  const targetAnalysisId = String(detection.analysis_id || "").trim();
+  if (!targetAnalysisId) {
+    return null;
+  }
+
+  const sameAnalysisImages = analysisImageList.filter(
+    (image) => String(image.analysis_id || "").trim() === targetAnalysisId
+  );
+  if (sameAnalysisImages.length === 0) {
+    return null;
+  }
+
+  const withDetectionsImages = sameAnalysisImages.filter(
+    (image) => String(image.status || "").trim().toLowerCase() !== NO_DETECTIONS_FILTER
+  );
+  const candidates = withDetectionsImages.length > 0 ? withDetectionsImages : sameAnalysisImages;
+
+  const center = getDetectionCenter(detection);
+  if (center) {
+    let bestImage = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (const image of candidates) {
+      const lat = Number(image?.lat);
+      const lon = Number(image?.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        continue;
+      }
+
+      const squaredDistance = (lat - center.lat) ** 2 + (lon - center.lon) ** 2;
+      if (squaredDistance < bestDistance) {
+        bestDistance = squaredDistance;
+        bestImage = image;
+      }
+    }
+
+    if (bestImage) {
+      return bestImage;
+    }
+  }
+
+  return [...candidates].sort((leftImage, rightImage) => {
+    const leftTimestamp = String(leftImage?.timestamp || "");
+    const rightTimestamp = String(rightImage?.timestamp || "");
+    return rightTimestamp.localeCompare(leftTimestamp);
+  })[0] ?? null;
+}
+
 function areBBoxesClose(leftBBox, rightBBox, threshold) {
   const left = parseBBoxToMinMax(leftBBox);
   const right = parseBBoxToMinMax(rightBBox);
@@ -496,6 +561,12 @@ export default function App() {
     isDeleting: false,
     missingImageWarning: false,
   });
+  const [detectionPreviewModal, setDetectionPreviewModal] = useState({
+    isOpen: false,
+    detection: null,
+    image: null,
+    showBBoxPreview: true,
+  });
   const [focusBounds, setFocusBounds] = useState(GEO_BOUNDS);
   const [chosenMessage, setChosenMessage] = useState("");
   const [manualCoords, setManualCoords] = useState({
@@ -656,6 +727,21 @@ export default function App() {
   }, [filteredDetections, selectedDetection]);
 
   useEffect(() => {
+    if (!detectionPreviewModal.isOpen || !detectionPreviewModal.detection) {
+      return;
+    }
+
+    const previewDetectionId = String(detectionPreviewModal.detection.detection_id || "");
+    const stillExists = detections.some(
+      (detection) => String(detection.detection_id || "") === previewDetectionId
+    );
+
+    if (!stillExists) {
+      setDetectionPreviewModal((prevModal) => ({ ...prevModal, isOpen: false }));
+    }
+  }, [detectionPreviewModal, detections]);
+
+  useEffect(() => {
     if (!selectedDetection) {
       return;
     }
@@ -750,6 +836,23 @@ export default function App() {
       return nextDrafts;
     });
   }, [detections]);
+
+  useEffect(() => {
+    if (!detectionPreviewModal.isOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setDetectionPreviewModal((prevModal) => ({ ...prevModal, isOpen: false }));
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [detectionPreviewModal.isOpen]);
 
   useEffect(() => {
     const availableTagsSet = new Set(availableDetectionTags);
@@ -1319,8 +1422,34 @@ export default function App() {
     }
   };
 
+  const handleOpenDetectionPreviewModal = (detection) => {
+    if (!detection) {
+      return;
+    }
+
+    const previewImage = resolveAnalysisImageForDetection(detection, analysisImages);
+    setDetectionPreviewModal({
+      isOpen: true,
+      detection,
+      image: previewImage,
+      showBBoxPreview: true,
+    });
+  };
+
+  const handleCloseDetectionPreviewModal = () => {
+    setDetectionPreviewModal((prevModal) => ({ ...prevModal, isOpen: false }));
+  };
+
+  const handleToggleDetectionPreviewBBox = () => {
+    setDetectionPreviewModal((prevModal) => ({
+      ...prevModal,
+      showBBoxPreview: !prevModal.showBBoxPreview,
+    }));
+  };
+
   const handleToggleDetectionExpand = (detection) => {
     const detectionId = detection.detection_id;
+    handleOpenDetectionPreviewModal(detection);
     handleSelectDetection(detection);
 
     if (expandedDetectionId === detectionId) {
@@ -2820,6 +2949,112 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {detectionPreviewModal.isOpen && detectionPreviewModal.detection && (
+        <div
+          className="confirm-modal-backdrop detection-preview-modal-backdrop"
+          role="presentation"
+          onClick={handleCloseDetectionPreviewModal}
+        >
+          <div
+            className="confirm-modal-card detection-preview-modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="detection-preview-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="d-flex justify-content-between align-items-start gap-2 mb-2">
+              <div>
+                <h6 id="detection-preview-title" className="mb-1">
+                  Podglad detekcji {detectionPreviewModal.detection.detection_id}
+                </h6>
+                <div className="small text-muted">Obraz z backendu i metadane detekcji.</div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-secondary"
+                onClick={handleCloseDetectionPreviewModal}
+              >
+                Zamknij
+              </button>
+            </div>
+
+            {detectionPreviewModal.image?.image_id ? (
+              <div className="detection-preview-image-wrap mb-2">
+                <img
+                  src={getAnalysisImageUrl(detectionPreviewModal.image.image_id)}
+                  alt={`Obraz analizy dla ${detectionPreviewModal.detection.detection_id}`}
+                  className="detection-preview-image"
+                />
+              </div>
+            ) : (
+              <div className="alert alert-warning py-2 mb-2">
+                Brak dopasowanego obrazu analizy dla tej detekcji.
+              </div>
+            )}
+
+            <div className="form-check form-switch mb-2">
+              <input
+                className="form-check-input"
+                type="checkbox"
+                id="toggle-detection-preview-bbox"
+                checked={detectionPreviewModal.showBBoxPreview}
+                onChange={handleToggleDetectionPreviewBBox}
+              />
+              <label className="form-check-label small" htmlFor="toggle-detection-preview-bbox">
+                Pokaz podglad bbox
+              </label>
+            </div>
+
+            {detectionPreviewModal.showBBoxPreview && (
+              <div className="detection-preview-bbox-wrap mb-2">
+                {getDetectionPreviewUrl(detectionPreviewModal.detection) ? (
+                  <img
+                    src={getDetectionPreviewUrl(detectionPreviewModal.detection)}
+                    alt={`BBox detekcji ${detectionPreviewModal.detection.detection_id}`}
+                    className="detection-preview-bbox-image"
+                  />
+                ) : (
+                  <div className="small text-muted">Brak danych bbox do podgladu.</div>
+                )}
+              </div>
+            )}
+
+            <div className="small text-muted detection-preview-meta-grid">
+              <div><strong>ID:</strong> {detectionPreviewModal.detection.detection_id}</div>
+              <div><strong>analysis_id:</strong> {detectionPreviewModal.detection.analysis_id}</div>
+              <div><strong>status:</strong> {detectionPreviewModal.detection.status}</div>
+              <div><strong>class:</strong> {detectionPreviewModal.detection.class}</div>
+              <div>
+                <strong>confidence:</strong> {Number(detectionPreviewModal.detection.confidence).toFixed(2)}
+              </div>
+              <div>
+                <strong>tagi:</strong>{" "}
+                {normalizeDetectionTags(detectionPreviewModal.detection.tags).join(", ") || "-"}
+              </div>
+              <div>
+                <strong>bbox:</strong>{" "}
+                {JSON.stringify(parseBBoxToMinMax(detectionPreviewModal.detection.bbox) || {})}
+              </div>
+              <div>
+                <strong>obraz_id:</strong> {detectionPreviewModal.image?.image_id || "-"}
+              </div>
+              <div>
+                <strong>obraz_status:</strong> {detectionPreviewModal.image?.status || "-"}
+              </div>
+              <div>
+                <strong>obraz_resolution:</strong> {detectionPreviewModal.image?.resolution || "-"}
+              </div>
+              <div>
+                <strong>obraz_timestamp:</strong> {detectionPreviewModal.image?.timestamp || "-"}
+              </div>
+              <div className="text-break">
+                <strong>obraz_path:</strong> {detectionPreviewModal.image?.path || "-"}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {deleteModal.targetIds.length > 0 && (
         <div
