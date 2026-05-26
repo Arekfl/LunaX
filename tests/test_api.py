@@ -1311,3 +1311,101 @@ def test_delete_detection_marks_missing_related_image_when_metadata_absent(
     assert delete_payload["detection_deleted"] is True
     assert delete_payload["deleted_image_id"] is None
     assert delete_payload["related_image_missing"] is True
+
+
+def test_delete_analysis_image_removes_metadata_and_file(tmp_path, monkeypatch) -> None:
+    no_detections_image_dir = tmp_path / "images" / "no_detections"
+    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    detections_parquet_file = tmp_path / "detections.parquet"
+
+    monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
+    monkeypatch.setenv("NO_DETECTIONS_PARQUET_FILE", str(no_detections_parquet_file))
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+    monkeypatch.setattr("app.main.download_tile", Mock(return_value=Image.new("L", (64, 64), color=128)))
+    monkeypatch.setattr("app.main.run_inference", Mock(return_value=[]))
+
+    run_response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "preview",
+            "numSamples": 1,
+            "confidenceThreshold": 0.5,
+            "bbox": [-20.0, -10.0, 20.0, 10.0],
+        },
+    )
+    assert run_response.status_code == 200
+
+    images_response = client.get("/analysis-images/query", params={"status": "no_detections"})
+    assert images_response.status_code == 200
+    images_payload = images_response.json()
+    assert len(images_payload) == 1
+
+    image_id = images_payload[0]["image_id"]
+    image_path = Path(images_payload[0]["path"])
+    assert image_path.exists()
+
+    delete_response = client.delete(f"/analysis-images/{image_id}")
+
+    assert delete_response.status_code == 200
+    assert delete_response.json() == {
+        "image_id": image_id,
+        "image_deleted": True,
+    }
+
+    images_after_response = client.get("/analysis-images/query", params={"status": "no_detections"})
+    assert images_after_response.status_code == 200
+    assert images_after_response.json() == []
+    assert not image_path.exists()
+
+
+def test_delete_analysis_images_bulk_reports_missing_ids(tmp_path, monkeypatch) -> None:
+    no_detections_image_dir = tmp_path / "images" / "no_detections"
+    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    detections_parquet_file = tmp_path / "detections.parquet"
+
+    monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
+    monkeypatch.setenv("NO_DETECTIONS_PARQUET_FILE", str(no_detections_parquet_file))
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+    monkeypatch.setattr("app.main.download_tile", Mock(return_value=Image.new("L", (64, 64), color=128)))
+    monkeypatch.setattr("app.main.run_inference", Mock(return_value=[]))
+
+    run_response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "preview",
+            "numSamples": 2,
+            "confidenceThreshold": 0.5,
+            "bbox": [-20.0, -10.0, 20.0, 10.0],
+        },
+    )
+    assert run_response.status_code == 200
+
+    images_response = client.get("/analysis-images/query", params={"status": "no_detections"})
+    assert images_response.status_code == 200
+    images_payload = images_response.json()
+    assert len(images_payload) == 2
+
+    image_ids = [item["image_id"] for item in images_payload]
+    known_id = image_ids[0]
+    other_id = image_ids[1]
+    assert Path(images_payload[0]["path"]).exists()
+
+    delete_response = client.request(
+        "DELETE",
+        "/analysis-images/bulk",
+        json={"imageIds": [known_id, "img-missing"]},
+    )
+
+    assert delete_response.status_code == 200
+    delete_payload = delete_response.json()
+    assert delete_payload["requested_count"] == 2
+    assert delete_payload["deleted_count"] == 1
+    assert delete_payload["deleted_image_ids"] == [known_id]
+    assert delete_payload["missing_image_ids"] == ["img-missing"]
+
+    images_after_response = client.get("/analysis-images/query", params={"status": "no_detections"})
+    assert images_after_response.status_code == 200
+    remaining_payload = images_after_response.json()
+    assert len(remaining_payload) == 1
+    assert remaining_payload[0]["image_id"] == other_id
+    assert Path(remaining_payload[0]["path"]).exists()

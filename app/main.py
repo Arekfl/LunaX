@@ -14,6 +14,9 @@ from PIL import Image
 from ai.adapter import run_inference
 from data.downloader import download_tile
 from app.schemas import (
+    AnalysisImageBulkDeleteRequest,
+    AnalysisImageBulkDeleteResponse,
+    AnalysisImageDeleteResponse,
     AnalysisRunRequest,
     AnalysisRunResponse,
     BBox,
@@ -32,6 +35,8 @@ from app.schemas import (
     LocalValidationRunRequest,
 )
 from app.analytics import (
+    delete_analysis_image_by_id,
+    delete_analysis_images_by_ids,
     delete_detections_bulk_and_related_assets,
     delete_detection_and_related_assets,
     get_analysis_image_path,
@@ -432,6 +437,33 @@ def delete_detection(id: str) -> DetectionDeleteResponse:
         ),
         related_image_missing=bool(deleted_payload.get("related_image_missing")),
     )
+
+
+@app.delete("/analysis-images/bulk", response_model=AnalysisImageBulkDeleteResponse)
+def delete_analysis_images_bulk(
+    payload: AnalysisImageBulkDeleteRequest,
+) -> AnalysisImageBulkDeleteResponse:
+    delete_summary = delete_analysis_images_by_ids(payload.image_ids)
+
+    return AnalysisImageBulkDeleteResponse(
+        requested_count=int(delete_summary.get("requested_count", 0)),
+        deleted_count=int(delete_summary.get("deleted_count", 0)),
+        deleted_image_ids=[
+            str(image_id) for image_id in delete_summary.get("deleted_image_ids", [])
+        ],
+        missing_image_ids=[
+            str(image_id) for image_id in delete_summary.get("missing_image_ids", [])
+        ],
+    )
+
+
+@app.delete("/analysis-images/{image_id}", response_model=AnalysisImageDeleteResponse)
+def delete_analysis_image(image_id: str) -> AnalysisImageDeleteResponse:
+    image_deleted = delete_analysis_image_by_id(image_id=image_id)
+    if not image_deleted:
+        raise HTTPException(status_code=404, detail="Analysis image not found")
+
+    return AnalysisImageDeleteResponse(image_id=image_id, image_deleted=True)
 
 
 @app.get("/detections/statuses", response_model=dict[str, str])

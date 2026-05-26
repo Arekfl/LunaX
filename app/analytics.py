@@ -553,6 +553,111 @@ def delete_detections_bulk_and_related_assets(
     }
 
 
+def delete_analysis_images_by_ids(
+    image_ids: Sequence[str],
+) -> dict[str, int | list[str]]:
+    unique_image_ids: list[str] = []
+    seen_ids: set[str] = set()
+
+    for raw_image_id in image_ids:
+        image_id = str(raw_image_id).strip()
+        if not image_id or image_id in seen_ids:
+            continue
+
+        seen_ids.add(image_id)
+        unique_image_ids.append(image_id)
+
+    metadata_file = _get_no_detections_parquet_path()
+    if not metadata_file.exists():
+        return {
+            "requested_count": len(unique_image_ids),
+            "deleted_count": 0,
+            "deleted_image_ids": [],
+            "missing_image_ids": unique_image_ids,
+        }
+
+    metadata_frame = pd.read_parquet(metadata_file)
+    if metadata_frame.empty or "image_id" not in metadata_frame.columns:
+        return {
+            "requested_count": len(unique_image_ids),
+            "deleted_count": 0,
+            "deleted_image_ids": [],
+            "missing_image_ids": unique_image_ids,
+        }
+
+    requested_set = set(unique_image_ids)
+    selected_rows = metadata_frame[
+        metadata_frame["image_id"].astype(str).isin(requested_set)
+    ]
+
+    if selected_rows.empty:
+        return {
+            "requested_count": len(unique_image_ids),
+            "deleted_count": 0,
+            "deleted_image_ids": [],
+            "missing_image_ids": unique_image_ids,
+        }
+
+    deleted_image_ids_set = set(selected_rows["image_id"].astype(str).tolist())
+    deleted_image_ids = [
+        image_id for image_id in unique_image_ids if image_id in deleted_image_ids_set
+    ]
+    missing_image_ids = [
+        image_id for image_id in unique_image_ids if image_id not in deleted_image_ids_set
+    ]
+
+    updated_frame = metadata_frame[
+        ~metadata_frame["image_id"].astype(str).isin(deleted_image_ids_set)
+    ]
+    if updated_frame.empty:
+        updated_frame = _build_empty_parquet_like(metadata_frame)
+    updated_frame.to_parquet(metadata_file, index=False)
+
+    if "path" in selected_rows.columns:
+        removed_paths = {
+            str(path_value)
+            for path_value in selected_rows["path"].dropna().astype(str).tolist()
+            if str(path_value).strip()
+        }
+    else:
+        removed_paths = set()
+
+    if "path" in updated_frame.columns:
+        remaining_paths = {
+            str(path_value)
+            for path_value in updated_frame["path"].dropna().astype(str).tolist()
+            if str(path_value).strip()
+        }
+    else:
+        remaining_paths = set()
+
+    allowed_root = _get_no_detections_image_dir().expanduser().resolve().parent
+    for removed_path_raw in removed_paths:
+        if removed_path_raw in remaining_paths:
+            continue
+
+        image_path = Path(removed_path_raw).expanduser().resolve()
+        try:
+            image_path.relative_to(allowed_root)
+        except ValueError:
+            continue
+
+        if image_path.exists() and image_path.is_file():
+            image_path.unlink()
+
+    return {
+        "requested_count": len(unique_image_ids),
+        "deleted_count": len(deleted_image_ids),
+        "deleted_image_ids": deleted_image_ids,
+        "missing_image_ids": missing_image_ids,
+    }
+
+
+def delete_analysis_image_by_id(image_id: str) -> bool:
+    summary = delete_analysis_images_by_ids([image_id])
+    return int(summary.get("deleted_count", 0)) > 0
+
+
 def save_detections_to_parquet(
     detections: Sequence[Detection],
     default_status: str = "to_verify",

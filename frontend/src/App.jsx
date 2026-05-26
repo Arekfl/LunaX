@@ -27,7 +27,6 @@ const STATUS_BADGE_CLASS_MAP = {
 };
 const DETECTION_BBOX_PROXIMITY_THRESHOLD = 12;
 const NO_DETECTIONS_FILTER = "no_detections";
-const ALL_ANALYSIS_IMAGES_FILTER = "all";
 const RESOLUTION_DESCRIPTION_MAP = {
   preview: "Szybki podglad, nizsza dokladnosc.",
   detail: "Zbalansowany tryb do codziennej analizy.",
@@ -313,6 +312,15 @@ function getFileNameFromPath(filePath) {
   return parts[parts.length - 1] ?? "";
 }
 
+function formatCoordinate(value, digits = 2) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return "-";
+  }
+
+  return numericValue.toFixed(digits);
+}
+
 function getAnalysisImageUrl(imageId) {
   if (!imageId) {
     return null;
@@ -430,8 +438,9 @@ export default function App() {
   const [gridCells, setGridCells] = useState(() => buildGridCells(GEO_BOUNDS, 0));
   const [detections, setDetections] = useState([]);
   const [analysisImages, setAnalysisImages] = useState([]);
-  const [analysisImagesFilter, setAnalysisImagesFilter] = useState(NO_DETECTIONS_FILTER);
   const [selectedNoDetectionImage, setSelectedNoDetectionImage] = useState(null);
+  const [expandedNoDetectionImageId, setExpandedNoDetectionImageId] = useState(null);
+  const [selectedNoDetectionImageIds, setSelectedNoDetectionImageIds] = useState([]);
   const [currentAnalysisId, setCurrentAnalysisId] = useState(null);
   const [isLoadingDetections, setIsLoadingDetections] = useState(false);
   const [analysisOverlayBounds, setAnalysisOverlayBounds] = useState(null);
@@ -453,7 +462,8 @@ export default function App() {
   const [editingDetectionId, setEditingDetectionId] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
   const [deleteModal, setDeleteModal] = useState({
-    detectionIds: [],
+    targetType: null,
+    targetIds: [],
     isDeleting: false,
     missingImageWarning: false,
   });
@@ -498,37 +508,15 @@ export default function App() {
     [statusResolvedDetections, statusFilter]
   );
 
-  const visibleAnalysisImages = useMemo(() => {
-    if (analysisImagesFilter === ALL_ANALYSIS_IMAGES_FILTER) {
-      return analysisImages;
-    }
-
-    return analysisImages.filter(
-      (image) => (typeof image.status === "string" ? image.status : NO_DETECTIONS_FILTER) === NO_DETECTIONS_FILTER
-    );
-  }, [analysisImages, analysisImagesFilter]);
-
-  const groupedAnalysisImages = useMemo(() => {
-    const groups = new Map();
-
-    for (const image of visibleAnalysisImages) {
-      const analysisId =
-        typeof image.analysis_id === "string" && image.analysis_id.trim().length > 0
-          ? image.analysis_id
-          : "legacy_no_analysis_id";
-
-      if (!groups.has(analysisId)) {
-        groups.set(analysisId, []);
-      }
-
-      groups.get(analysisId).push(image);
-    }
-
-    return Array.from(groups.entries()).map(([analysisId, images]) => ({
-      analysisId,
-      images,
-    }));
-  }, [visibleAnalysisImages]);
+  const visibleAnalysisImages = useMemo(
+    () =>
+      analysisImages.filter(
+        (image) =>
+          (typeof image.status === "string" ? image.status : NO_DETECTIONS_FILTER) ===
+          NO_DETECTIONS_FILTER
+      ),
+    [analysisImages]
+  );
 
   const detectionSectionCount = isNoDetectionsFilterSelected
     ? visibleAnalysisImages.length
@@ -719,6 +707,20 @@ export default function App() {
       setSelectedNoDetectionImage(null);
     }
   }, [visibleAnalysisImages, selectedNoDetectionImage]);
+
+  useEffect(() => {
+    const availableImageIds = new Set(
+      visibleAnalysisImages.map((image) => String(image.image_id || "")).filter(Boolean)
+    );
+
+    setSelectedNoDetectionImageIds((previousSelectedIds) =>
+      previousSelectedIds.filter((imageId) => availableImageIds.has(imageId))
+    );
+
+    if (expandedNoDetectionImageId && !availableImageIds.has(expandedNoDetectionImageId)) {
+      setExpandedNoDetectionImageId(null);
+    }
+  }, [visibleAnalysisImages, expandedNoDetectionImageId]);
 
   const handleResetHomeView = useCallback(() => {
     setCurrentLevel(0);
@@ -1232,9 +1234,34 @@ export default function App() {
     });
   };
 
+  const handleToggleNoDetectionSelection = (imageId) => {
+    setSelectedNoDetectionImageIds((prevSelectedIds) => {
+      if (prevSelectedIds.includes(imageId)) {
+        return prevSelectedIds.filter((selectedId) => selectedId !== imageId);
+      }
+
+      return [...prevSelectedIds, imageId];
+    });
+  };
+
+  const handleToggleNoDetectionExpand = (image) => {
+    const imageId = String(image?.image_id || "").trim();
+    if (!imageId) {
+      return;
+    }
+
+    if (expandedNoDetectionImageId === imageId) {
+      setExpandedNoDetectionImageId(null);
+      return;
+    }
+
+    setExpandedNoDetectionImageId(imageId);
+  };
+
   const handleRequestDeleteDetection = (detection) => {
     setDeleteModal({
-      detectionIds: [detection.detection_id],
+      targetType: "detection",
+      targetIds: [detection.detection_id],
       isDeleting: false,
       missingImageWarning: false,
     });
@@ -1247,7 +1274,35 @@ export default function App() {
     }
 
     setDeleteModal({
-      detectionIds: [...selectedIds],
+      targetType: "detection",
+      targetIds: [...selectedIds],
+      isDeleting: false,
+      missingImageWarning: false,
+    });
+  };
+
+  const handleRequestDeleteNoDetectionImage = (imageId) => {
+    if (!imageId) {
+      return;
+    }
+
+    setDeleteModal({
+      targetType: "analysis_image",
+      targetIds: [imageId],
+      isDeleting: false,
+      missingImageWarning: false,
+    });
+  };
+
+  const handleRequestBulkDeleteNoDetectionImages = () => {
+    if (selectedNoDetectionImageIds.length === 0) {
+      setChosenMessage("Zaznacz co najmniej jeden obraz do usuniecia.");
+      return;
+    }
+
+    setDeleteModal({
+      targetType: "analysis_image",
+      targetIds: [...selectedNoDetectionImageIds],
       isDeleting: false,
       missingImageWarning: false,
     });
@@ -1259,43 +1314,64 @@ export default function App() {
     }
 
     setDeleteModal({
-      detectionIds: [],
+      targetType: null,
+      targetIds: [],
       isDeleting: false,
       missingImageWarning: false,
     });
   };
 
-  const handleConfirmDeleteDetection = async () => {
-    if (deleteModal.detectionIds.length === 0 || deleteModal.isDeleting) {
+  const handleConfirmDeleteAction = async () => {
+    if (deleteModal.targetIds.length === 0 || deleteModal.isDeleting) {
       return;
     }
 
-    if (deleteModal.missingImageWarning) {
+    const targetType = deleteModal.targetType;
+    if (targetType === "detection" && deleteModal.missingImageWarning) {
       handleCancelDeleteDetection();
       return;
     }
 
-    const targetDetectionIds = [...deleteModal.detectionIds];
-    const isBulkDelete = targetDetectionIds.length > 1;
+    if (targetType !== "detection" && targetType !== "analysis_image") {
+      return;
+    }
+
+    const targetIds = [...deleteModal.targetIds];
+    const isBulkDelete = targetIds.length > 1;
     setDeleteModal((prev) => ({ ...prev, isDeleting: true }));
 
     try {
-      const response = await fetch(
-        isBulkDelete
-          ? `${API_BASE_URL}/detections/bulk`
-          : `${API_BASE_URL}/detections/${encodeURIComponent(targetDetectionIds[0])}`,
-        isBulkDelete
+      const endpoint =
+        targetType === "detection"
+          ? isBulkDelete
+            ? `${API_BASE_URL}/detections/bulk`
+            : `${API_BASE_URL}/detections/${encodeURIComponent(targetIds[0])}`
+          : isBulkDelete
+            ? `${API_BASE_URL}/analysis-images/bulk`
+            : `${API_BASE_URL}/analysis-images/${encodeURIComponent(targetIds[0])}`;
+
+      const requestInit =
+        isBulkDelete && targetType === "detection"
           ? {
               method: "DELETE",
               headers: {
                 "Content-Type": "application/json",
               },
-              body: JSON.stringify({ detectionIds: targetDetectionIds }),
+              body: JSON.stringify({ detectionIds: targetIds }),
             }
-          : {
-              method: "DELETE",
-            }
-      );
+          : isBulkDelete
+            ? {
+                method: "DELETE",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ imageIds: targetIds }),
+              }
+            : {
+                method: "DELETE",
+              };
+
+      const response = await fetch(endpoint, requestInit);
 
       if (!response.ok) {
         let errorDetail = `HTTP ${response.status}`;
@@ -1312,117 +1388,172 @@ export default function App() {
       }
 
       const payload = await response.json();
-      const deletedDetectionIds = isBulkDelete
-        ? Array.isArray(payload?.deleted_detection_ids)
-          ? payload.deleted_detection_ids.map((detectionId) => String(detectionId))
-          : []
-        : payload?.detection_deleted
-          ? [targetDetectionIds[0]]
+      if (targetType === "detection") {
+        const deletedDetectionIds = isBulkDelete
+          ? Array.isArray(payload?.deleted_detection_ids)
+            ? payload.deleted_detection_ids.map((detectionId) => String(detectionId))
+            : []
+          : payload?.detection_deleted
+            ? [targetIds[0]]
+            : [];
+
+        const missingDetectionIds = isBulkDelete
+          ? Array.isArray(payload?.missing_detection_ids)
+            ? payload.missing_detection_ids.map((detectionId) => String(detectionId))
+            : []
           : [];
 
-      const missingDetectionIds = isBulkDelete
-        ? Array.isArray(payload?.missing_detection_ids)
-          ? payload.missing_detection_ids.map((detectionId) => String(detectionId))
-          : []
-        : [];
+        const relatedImageMissing =
+          typeof payload?.related_image_missing === "boolean"
+            ? payload.related_image_missing
+            : Boolean(
+                !isBulkDelete &&
+                  (!payload?.deleted_image_id || String(payload.deleted_image_id).length === 0)
+              );
 
-      const relatedImageMissing =
-        typeof payload?.related_image_missing === "boolean"
-          ? payload.related_image_missing
-          : Boolean(
-              !isBulkDelete &&
-                (!payload?.deleted_image_id || String(payload.deleted_image_id).length === 0)
-            );
+        const deletedIdsSet = new Set(deletedDetectionIds);
 
-      const deletedIdsSet = new Set(deletedDetectionIds);
+        if (deletedIdsSet.size > 0) {
+          setDetections((prev) =>
+            prev.filter((detection) => !deletedIdsSet.has(detection.detection_id))
+          );
+          setStoredStatuses((prev) => {
+            const next = { ...prev };
+            for (const detectionId of deletedIdsSet) {
+              delete next[detectionId];
+            }
+            return next;
+          });
+          setSelectedIds((prevSelectedIds) =>
+            prevSelectedIds.filter((detectionId) => !deletedIdsSet.has(detectionId))
+          );
+          setTagDrafts((prevTagDrafts) => {
+            const nextDrafts = { ...prevTagDrafts };
+            for (const detectionId of deletedIdsSet) {
+              delete nextDrafts[detectionId];
+            }
+            return nextDrafts;
+          });
 
-      if (deletedIdsSet.size > 0) {
-        setDetections((prev) =>
-          prev.filter((detection) => !deletedIdsSet.has(detection.detection_id))
-        );
-        setStoredStatuses((prev) => {
-          const next = { ...prev };
-          for (const detectionId of deletedIdsSet) {
-            delete next[detectionId];
+          if (selectedDetection && deletedIdsSet.has(selectedDetection.detection_id)) {
+            setSelectedDetection(null);
           }
-          return next;
-        });
-        setSelectedIds((prevSelectedIds) =>
-          prevSelectedIds.filter((detectionId) => !deletedIdsSet.has(detectionId))
-        );
-        setTagDrafts((prevTagDrafts) => {
-          const nextDrafts = { ...prevTagDrafts };
-          for (const detectionId of deletedIdsSet) {
-            delete nextDrafts[detectionId];
+
+          if (expandedDetectionId && deletedIdsSet.has(expandedDetectionId)) {
+            setExpandedDetectionId(null);
           }
-          return nextDrafts;
-        });
 
-        if (selectedDetection && deletedIdsSet.has(selectedDetection.detection_id)) {
-          setSelectedDetection(null);
-        }
+          if (editingDetectionId && deletedIdsSet.has(editingDetectionId)) {
+            setEditingDetectionId(null);
+            setInputComment("");
+          }
 
-        if (expandedDetectionId && deletedIdsSet.has(expandedDetectionId)) {
-          setExpandedDetectionId(null);
-        }
-
-        if (editingDetectionId && deletedIdsSet.has(editingDetectionId)) {
-          setEditingDetectionId(null);
-          setInputComment("");
-        }
-
-        if (hoveredDetectionId) {
-          const hoveredDetectionIdParts = hoveredDetectionId.split("|");
-          const hoveredDetectionRawId = hoveredDetectionIdParts[1] ?? "";
-          if (deletedIdsSet.has(hoveredDetectionRawId)) {
-            setHoveredDetectionId(null);
+          if (hoveredDetectionId) {
+            const hoveredDetectionIdParts = hoveredDetectionId.split("|");
+            const hoveredDetectionRawId = hoveredDetectionIdParts[1] ?? "";
+            if (deletedIdsSet.has(hoveredDetectionRawId)) {
+              setHoveredDetectionId(null);
+            }
           }
         }
-      }
 
-      try {
-        await fetchAnalysisImages();
-      } catch (refreshError) {
-        console.warn("Nie udalo sie odswiezyc obrazow po usunieciu detekcji:", refreshError);
-      }
+        try {
+          await fetchAnalysisImages();
+        } catch (refreshError) {
+          console.warn("Nie udalo sie odswiezyc obrazow po usunieciu detekcji:", refreshError);
+        }
 
-      if (relatedImageMissing) {
-        setDeleteModal((prev) => ({
-          ...prev,
-          isDeleting: false,
-          missingImageWarning: true,
-        }));
+        if (relatedImageMissing) {
+          setDeleteModal((prev) => ({
+            ...prev,
+            isDeleting: false,
+            missingImageWarning: true,
+          }));
+        } else {
+          setDeleteModal({
+            targetType: null,
+            targetIds: [],
+            isDeleting: false,
+            missingImageWarning: false,
+          });
+        }
+
+        if (isBulkDelete) {
+          const deletedCount = deletedDetectionIds.length;
+          const missingCount = missingDetectionIds.length;
+          const imageWarningMessage = relatedImageMissing
+            ? " Czesc powiazanych obrazow nie byla dostepna."
+            : "";
+          const missingMessage =
+            missingCount > 0 ? ` Nie znaleziono ${missingCount} detekcji.` : "";
+          setChosenMessage(
+            `Usunieto ${deletedCount} zaznaczonych detekcji.${missingMessage}${imageWarningMessage}`
+          );
+        } else {
+          setChosenMessage(
+            relatedImageMissing
+              ? "Detekcja usunieta. Powiazany obraz nie byl dostepny."
+              : "Detekcja i powiazany obraz zostaly usuniete."
+          );
+        }
       } else {
+        const deletedImageIds = isBulkDelete
+          ? Array.isArray(payload?.deleted_image_ids)
+            ? payload.deleted_image_ids.map((imageId) => String(imageId))
+            : []
+          : payload?.image_deleted
+            ? [targetIds[0]]
+            : [];
+
+        const missingImageIds = isBulkDelete
+          ? Array.isArray(payload?.missing_image_ids)
+            ? payload.missing_image_ids.map((imageId) => String(imageId))
+            : []
+          : [];
+
+        const deletedImageIdsSet = new Set(deletedImageIds);
+
+        if (deletedImageIdsSet.size > 0) {
+          setAnalysisImages((prev) =>
+            prev.filter((image) => !deletedImageIdsSet.has(String(image.image_id || "")))
+          );
+          setSelectedNoDetectionImageIds((prevSelectedIds) =>
+            prevSelectedIds.filter((imageId) => !deletedImageIdsSet.has(imageId))
+          );
+
+          if (
+            selectedNoDetectionImage &&
+            deletedImageIdsSet.has(String(selectedNoDetectionImage.image_id || ""))
+          ) {
+            setSelectedNoDetectionImage(null);
+          }
+
+          if (expandedNoDetectionImageId && deletedImageIdsSet.has(expandedNoDetectionImageId)) {
+            setExpandedNoDetectionImageId(null);
+          }
+        }
+
         setDeleteModal({
-          detectionIds: [],
+          targetType: null,
+          targetIds: [],
           isDeleting: false,
           missingImageWarning: false,
         });
-      }
 
-      if (isBulkDelete) {
-        const deletedCount = deletedDetectionIds.length;
-        const missingCount = missingDetectionIds.length;
-        const imageWarningMessage = relatedImageMissing
-          ? " Czesc powiazanych obrazow nie byla dostepna."
-          : "";
-        const missingMessage =
-          missingCount > 0 ? ` Nie znaleziono ${missingCount} detekcji.` : "";
-        setChosenMessage(
-          `Usunieto ${deletedCount} zaznaczonych detekcji.${missingMessage}${imageWarningMessage}`
-        );
-      } else {
-        setChosenMessage(
-          relatedImageMissing
-            ? "Detekcja usunieta. Powiazany obraz nie byl dostepny."
-            : "Detekcja i powiazany obraz zostaly usuniete."
-        );
+        if (isBulkDelete) {
+          const deletedCount = deletedImageIds.length;
+          const missingCount = missingImageIds.length;
+          const missingMessage = missingCount > 0 ? ` Nie znaleziono ${missingCount} obrazow.` : "";
+          setChosenMessage(`Usunieto ${deletedCount} zaznaczonych obrazow.${missingMessage}`);
+        } else {
+          setChosenMessage("Obraz zostal usuniety.");
+        }
       }
     } catch (error) {
-      console.error("Blad podczas usuwania detekcji:", error);
+      console.error("Blad podczas usuwania:", error);
       setDeleteModal((prev) => ({ ...prev, isDeleting: false }));
       setChosenMessage(
-        `Nie udalo sie usunac detekcji. ${error instanceof Error ? error.message : ""}`.trim()
+        `Nie udalo sie usunac elementu. ${error instanceof Error ? error.message : ""}`.trim()
       );
     }
   };
@@ -1614,11 +1745,7 @@ export default function App() {
 
               {selectedNoDetectionImage ? null : isNoDetectionsFilterSelected ? (
                 visibleAnalysisImages.length === 0 ? (
-                  <div className="small text-muted">
-                    {analysisImagesFilter === ALL_ANALYSIS_IMAGES_FILTER
-                      ? "Brak zapisanych obrazow analizy."
-                      : "Brak zapisanych obrazow z wynikiem no_detections."}
-                  </div>
+                  <div className="small text-muted">Brak zapisanych obrazow z wynikiem no_detections.</div>
                 ) : (
                   <div className="row g-3">
                     {visibleAnalysisImages.map((image, imageIndex) => {
@@ -1987,7 +2114,19 @@ export default function App() {
                 </button>
               </div>
 
-              {!isNoDetectionsFilterSelected && (
+              {isNoDetectionsFilterSelected ? (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-danger w-100 mb-3"
+                  onClick={handleRequestBulkDeleteNoDetectionImages}
+                  disabled={selectedNoDetectionImageIds.length === 0 || deleteModal.isDeleting}
+                >
+                  Usun zaznaczone obrazy
+                  {selectedNoDetectionImageIds.length > 0
+                    ? ` (${selectedNoDetectionImageIds.length})`
+                    : ""}
+                </button>
+              ) : (
                 <button
                   type="button"
                   className="btn btn-sm btn-outline-danger w-100 mb-3"
@@ -2001,70 +2140,153 @@ export default function App() {
               <div className="detection-list-scroll" ref={detectionListRef}>
                 {isNoDetectionsFilterSelected ? (
                   <>
-                    <div className="small text-muted mb-2">Zakres zapisanych obrazow</div>
-                    <div className="btn-group btn-group-sm w-100 mb-3" role="group" aria-label="Zakres zapisanych obrazow">
-                      <button
-                        type="button"
-                        className={`btn ${analysisImagesFilter === NO_DETECTIONS_FILTER ? "btn-secondary" : "btn-outline-secondary"}`}
-                        onClick={() => setAnalysisImagesFilter(NO_DETECTIONS_FILTER)}
-                      >
-                        no_detections
-                      </button>
-                      <button
-                        type="button"
-                        className={`btn ${analysisImagesFilter === ALL_ANALYSIS_IMAGES_FILTER ? "btn-secondary" : "btn-outline-secondary"}`}
-                        onClick={() => setAnalysisImagesFilter(ALL_ANALYSIS_IMAGES_FILTER)}
-                      >
-                        wszystkie
-                      </button>
-                    </div>
-
                     {visibleAnalysisImages.length === 0 ? (
-                      <div className="small text-muted">
-                        {analysisImagesFilter === ALL_ANALYSIS_IMAGES_FILTER
-                          ? "Brak zapisanych obrazow analizy."
-                          : "Brak przeanalizowanych zdjec z wynikiem no_detections."}
-                      </div>
+                      <div className="small text-muted">Brak przeanalizowanych zdjec z wynikiem no_detections.</div>
                     ) : (
-                      <div className="list-group">
-                        {groupedAnalysisImages.map((group) => (
-                          <div key={`group-${group.analysisId}`} className="border-bottom pb-2 mb-2">
-                            <div className="small fw-semibold text-muted px-1 mb-1">
-                              sesja: {group.analysisId} ({group.images.length})
-                            </div>
+                      <div className="list-group dense-detection-list">
+                        {visibleAnalysisImages.map((image, imageIndex) => {
+                          const imageId = String(image.image_id || "");
+                          const itemKey = `${imageId || "no-id"}|${image.timestamp || "no-ts"}|${imageIndex}`;
+                          const isSelectedForGallery =
+                            selectedNoDetectionImage?.image_id === image.image_id;
+                          const isExpanded = expandedNoDetectionImageId === imageId;
+                          const imageName = getFileNameFromPath(image.path);
 
-                            <div className="list-group">
-                              {group.images.map((image, imageIndex) => {
-                                const itemKey = `${image.image_id || "no-id"}|${image.timestamp || "no-ts"}|${imageIndex}`;
-                                const imageName = getFileNameFromPath(image.path);
-                                const isActive = selectedNoDetectionImage?.image_id === image.image_id;
+                          return (
+                            <div
+                              key={itemKey}
+                              className={`list-group-item list-group-item-action text-start detection-dense-item ${
+                                isSelectedForGallery ? "bg-primary-subtle border-primary" : ""
+                              }`}
+                            >
+                              <div
+                                className={`detection-dense-row ${isExpanded ? "is-expanded" : ""}`}
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => handleToggleNoDetectionExpand(image)}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter" || event.key === " ") {
+                                    event.preventDefault();
+                                    handleToggleNoDetectionExpand(image);
+                                  }
+                                }}
+                              >
+                                <div className="form-check mb-0">
+                                  <input
+                                    className="form-check-input detection-select-checkbox"
+                                    type="checkbox"
+                                    checked={selectedNoDetectionImageIds.includes(imageId)}
+                                    onChange={(event) => {
+                                      event.stopPropagation();
+                                      handleToggleNoDetectionSelection(imageId);
+                                    }}
+                                    aria-label={`Zaznacz obraz ${imageId}`}
+                                    disabled={deleteModal.isDeleting || imageId.length === 0}
+                                  />
+                                </div>
 
-                                return (
+                                <div className="detection-dense-id fw-semibold text-truncate">
+                                  {imageId || "analysis_image"}
+                                </div>
+
+                                <div className="detection-dense-meta">
+                                  <span className="badge text-bg-secondary">no_detections</span>
+                                </div>
+
+                                <div className="detection-dense-meta text-muted">
+                                  {image.resolution || "-"}
+                                </div>
+
+                                <div className="detection-dense-tags">
+                                  <span className="small text-muted">
+                                    lat {formatCoordinate(image.lat, 2)}, lon {formatCoordinate(image.lon, 2)}
+                                  </span>
+                                </div>
+
+                                <div className="detection-dense-actions">
                                   <button
                                     type="button"
-                                    key={itemKey}
-                                    className={`list-group-item list-group-item-action text-start ${
-                                      isActive ? "active" : ""
-                                    }`}
-                                    onClick={() => handleOpenAnalysisImage(image)}
+                                    className="btn btn-sm btn-outline-secondary detection-icon-btn"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleOpenAnalysisImage(image);
+                                    }}
+                                    title="Podglad"
+                                    aria-label={`Podglad obrazu ${imageId}`}
+                                    disabled={deleteModal.isDeleting}
                                   >
-                                    <div><strong>{image.image_id || "analysis_image"}</strong></div>
-                                    {imageName && <div className={isActive ? "small text-white-50" : "small text-muted"}>plik: {imageName}</div>}
-                                    <div className={isActive ? "small text-white-50" : "small text-muted"}>status: {image.status || NO_DETECTIONS_FILTER}</div>
-                                    <div className={isActive ? "small text-white-50" : "small text-muted"}>rozdzielczosc: {image.resolution || "-"}</div>
-                                    <div className={isActive ? "small text-white-50" : "small text-muted"}>
-                                      lat: {typeof image.lat === "number" ? image.lat.toFixed(6) : "-"}, lon:{" "}
-                                      {typeof image.lon === "number" ? image.lon.toFixed(6) : "-"}
-                                    </div>
-                                    {image.timestamp && (
-                                      <div className={isActive ? "small text-white-50" : "small text-muted"}>czas: {image.timestamp}</div>
-                                    )}
+                                    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                                      <path
+                                        fill="currentColor"
+                                        d="M16 8s-3-5.5-8-5.5S0 8 0 8s3 5.5 8 5.5S16 8 16 8zM1.173 8a13.133 13.133 0 0 1 1.66-2.043C4.12 4.668 5.88 3.5 8 3.5s3.879 1.168 5.168 2.457A13.133 13.133 0 0 1 14.828 8c-.058.087-.122.183-.195.288-.335.48-.83 1.12-1.465 1.755C11.879 11.332 10.119 12.5 8 12.5s-3.879-1.168-5.168-2.457A13.134 13.134 0 0 1 1.172 8z"
+                                      />
+                                      <path
+                                        fill="currentColor"
+                                        d="M8 5.5A2.5 2.5 0 1 0 8 10.5 2.5 2.5 0 0 0 8 5.5zM4.5 8a3.5 3.5 0 1 1 7 0 3.5 3.5 0 0 1-7 0z"
+                                      />
+                                    </svg>
                                   </button>
-                                );
-                              })}
+
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm btn-outline-danger detection-icon-btn"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleRequestDeleteNoDetectionImage(imageId);
+                                    }}
+                                    title="Usun obraz"
+                                    aria-label={`Usun obraz ${imageId}`}
+                                    disabled={deleteModal.isDeleting || imageId.length === 0}
+                                  >
+                                    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                                      <path
+                                        fill="currentColor"
+                                        d="M5.5 5.5a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm5 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6zM1 3.5A.5.5 0 0 1 1.5 3H4V2a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v1h2.5a.5.5 0 0 1 0 1h-.538l-.853 10.66A1 1 0 0 1 12.112 15H3.888a1 1 0 0 1-.997-.84L2.038 4.5H1.5a.5.5 0 0 1-.5-.5zM5 2v1h6V2H5z"
+                                      />
+                                    </svg>
+                                  </button>
+                                </div>
+                              </div>
+
+                              {isExpanded && (
+                                <div className="detection-expand-panel">
+                                  <div className="small text-muted mb-1">Szczegoly obrazu</div>
+                                  <div className="small mb-1">
+                                    <strong>plik:</strong> {imageName || "-"}
+                                  </div>
+                                  <div className="small mb-1">
+                                    <strong>status:</strong> {image.status || NO_DETECTIONS_FILTER}
+                                  </div>
+                                  <div className="small mb-1">
+                                    <strong>resolution:</strong> {image.resolution || "-"}
+                                  </div>
+                                  <div className="small mb-1">
+                                    <strong>lat:</strong> {formatCoordinate(image.lat, 6)}, <strong>lon:</strong>{" "}
+                                    {formatCoordinate(image.lon, 6)}
+                                  </div>
+                                  <div className="small mb-1">
+                                    <strong>timestamp:</strong> {image.timestamp || "-"}
+                                  </div>
+                                  <div className="small mb-2">
+                                    <strong>analysis_id:</strong> {image.analysis_id || "-"}
+                                  </div>
+                                  <div className="small text-muted text-break">{image.path || ""}</div>
+
+                                  <div className="d-flex justify-content-end mt-2">
+                                    <button
+                                      type="button"
+                                      className="btn btn-sm btn-outline-secondary"
+                                      onClick={() => handleOpenAnalysisImage(image)}
+                                      disabled={deleteModal.isDeleting}
+                                    >
+                                      Otworz podglad
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </>
@@ -2313,7 +2535,7 @@ export default function App() {
         </div>
       </div>
 
-      {deleteModal.detectionIds.length > 0 && (
+      {deleteModal.targetIds.length > 0 && (
         <div
           className="confirm-modal-backdrop"
           role="presentation"
@@ -2327,23 +2549,33 @@ export default function App() {
             onClick={(event) => event.stopPropagation()}
           >
             <h6 id="delete-detection-title" className="mb-2">
-              Usunac detekcje?
+              {deleteModal.targetType === "analysis_image" ? "Usunac obraz?" : "Usunac detekcje?"}
             </h6>
             <p className="small text-muted mb-3">
-              {deleteModal.detectionIds.length === 1 ? (
+              {deleteModal.targetType === "analysis_image" ? (
+                deleteModal.targetIds.length === 1 ? (
+                  <>
+                    Ta operacja usunie obraz <strong>{deleteModal.targetIds[0]}</strong> oraz jego plik z backendu.
+                  </>
+                ) : (
+                  <>
+                    Ta operacja usunie <strong>{deleteModal.targetIds.length}</strong> zaznaczonych obrazow oraz ich pliki z backendu.
+                  </>
+                )
+              ) : deleteModal.targetIds.length === 1 ? (
                 <>
-                  Ta operacja usunie detekcje <strong>{deleteModal.detectionIds[0]}</strong> oraz
+                  Ta operacja usunie detekcje <strong>{deleteModal.targetIds[0]}</strong> oraz
                   powiazany plik obrazu z backendu.
                 </>
               ) : (
                 <>
-                  Ta operacja usunie <strong>{deleteModal.detectionIds.length}</strong> zaznaczonych
+                  Ta operacja usunie <strong>{deleteModal.targetIds.length}</strong> zaznaczonych
                   detekcji oraz powiazane pliki obrazow z backendu.
                 </>
               )}
             </p>
 
-            {deleteModal.missingImageWarning && (
+            {deleteModal.targetType === "detection" && deleteModal.missingImageWarning && (
               <div className="mb-3">
                 <span className="badge text-bg-warning">Brak pliku obrazu</span>
               </div>
@@ -2361,7 +2593,7 @@ export default function App() {
               <button
                 type="button"
                 className="btn btn-sm btn-danger d-flex align-items-center gap-2"
-                onClick={handleConfirmDeleteDetection}
+                onClick={handleConfirmDeleteAction}
                 disabled={deleteModal.isDeleting}
               >
                 {deleteModal.isDeleting && (
