@@ -985,3 +985,90 @@ def test_analysis_run_rejects_bbox_when_ymax_not_greater_than_ymin(monkeypatch) 
     assert response.status_code == 422
     assert "ymax > ymin" in str(response.json()["detail"])
     mocked_download.assert_not_called()
+
+
+def test_delete_detection_removes_detection_related_image_and_overrides(
+    tmp_path, monkeypatch
+) -> None:
+    no_detections_image_dir = tmp_path / "images" / "no_detections"
+    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    detections_parquet_file = tmp_path / "detections.parquet"
+    status_file = tmp_path / "detection_statuses.json"
+    comment_file = tmp_path / "detection_comments.json"
+
+    monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
+    monkeypatch.setenv("NO_DETECTIONS_PARQUET_FILE", str(no_detections_parquet_file))
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+    monkeypatch.setenv("DETECTION_STATUS_FILE", str(status_file))
+    monkeypatch.setenv("DETECTION_COMMENT_FILE", str(comment_file))
+    monkeypatch.setattr("app.main.download_tile", _mock_tile)
+    monkeypatch.setattr("app.main.run_inference", _mock_inference)
+
+    run_response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "detail",
+            "numSamples": 1,
+            "confidenceThreshold": 0.5,
+            "bbox": [-20.0, -10.0, 20.0, 10.0],
+        },
+    )
+    assert run_response.status_code == 200
+    run_payload = run_response.json()
+
+    detection_id = run_payload["detections"][0]["detection_id"]
+
+    status_response = client.patch(
+        f"/detections/{detection_id}/status", json={"status": "rejected"}
+    )
+    assert status_response.status_code == 200
+
+    comment_response = client.patch(
+        f"/detections/{detection_id}/comment", json={"comment": "do usuniecia"}
+    )
+    assert comment_response.status_code == 200
+
+    images_before_response = client.get("/analysis-images/query")
+    assert images_before_response.status_code == 200
+    images_before = images_before_response.json()
+    assert len(images_before) == 1
+    removed_image_id = images_before[0]["image_id"]
+    removed_image_path = Path(images_before[0]["path"])
+    assert removed_image_path.exists()
+
+    delete_response = client.delete(f"/detections/{detection_id}")
+
+    assert delete_response.status_code == 200
+    delete_payload = delete_response.json()
+    assert delete_payload["detection_id"] == detection_id
+    assert delete_payload["detection_deleted"] is True
+    assert delete_payload["deleted_image_id"] == removed_image_id
+
+    detections_response = client.get("/detections/query")
+    assert detections_response.status_code == 200
+    assert all(
+        row["detection_id"] != detection_id for row in detections_response.json()
+    )
+
+    statuses_response = client.get("/detections/statuses")
+    assert statuses_response.status_code == 200
+    assert detection_id not in statuses_response.json()
+
+    with comment_file.open("r", encoding="utf-8") as file_handle:
+        comments_payload = json.load(file_handle)
+    assert detection_id not in comments_payload
+
+    images_after_response = client.get("/analysis-images/query")
+    assert images_after_response.status_code == 200
+    assert images_after_response.json() == []
+    assert not removed_image_path.exists()
+
+
+def test_delete_detection_returns_404_for_unknown_id(tmp_path, monkeypatch) -> None:
+    detections_parquet_file = tmp_path / "detections.parquet"
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+
+    response = client.delete("/detections/det-does-not-exist")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Detection not found"

@@ -513,6 +513,8 @@ export default function App() {
   const [hoveredDetectionId, setHoveredDetectionId] = useState(null);
   const [inputComment, setInputComment] = useState("");
   const [editingDetectionId, setEditingDetectionId] = useState(null);
+  const [deleteCandidate, setDeleteCandidate] = useState(null);
+  const [isDeletingDetection, setIsDeletingDetection] = useState(false);
   const [focusBounds, setFocusBounds] = useState(GEO_BOUNDS);
   const [chosenMessage, setChosenMessage] = useState("");
   const [manualCoords, setManualCoords] = useState({
@@ -1153,6 +1155,97 @@ export default function App() {
     } catch (error) {
       console.error("Blad podczas usuwania komentarza:", error);
       setChosenMessage("Nie udalo sie usunac komentarza.");
+    }
+  };
+
+  const handleRequestDeleteDetection = (detection) => {
+    setDeleteCandidate(detection);
+  };
+
+  const handleCancelDeleteDetection = () => {
+    if (isDeletingDetection) {
+      return;
+    }
+
+    setDeleteCandidate(null);
+  };
+
+  const handleConfirmDeleteDetection = async () => {
+    if (!deleteCandidate) {
+      return;
+    }
+
+    const targetDetectionId = deleteCandidate.detection_id;
+    setIsDeletingDetection(true);
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/detections/${encodeURIComponent(targetDetectionId)}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      if (!response.ok) {
+        let errorDetail = `HTTP ${response.status}`;
+        try {
+          const errorPayload = await response.json();
+          if (errorPayload && typeof errorPayload.detail === "string") {
+            errorDetail = `${errorDetail}: ${errorPayload.detail}`;
+          }
+        } catch {
+          // Ignore parse errors and keep fallback detail.
+        }
+
+        throw new Error(errorDetail);
+      }
+
+      const payload = await response.json();
+      const hasDeletedImage =
+        payload && typeof payload.deleted_image_id === "string" && payload.deleted_image_id.length > 0;
+
+      setDetections((prev) =>
+        prev.filter((detection) => detection.detection_id !== targetDetectionId)
+      );
+      setStoredStatuses((prev) => {
+        const next = { ...prev };
+        delete next[targetDetectionId];
+        return next;
+      });
+
+      if (selectedDetection?.detection_id === targetDetectionId) {
+        setSelectedDetection(null);
+      }
+
+      if (editingDetectionId === targetDetectionId) {
+        setEditingDetectionId(null);
+        setInputComment("");
+      }
+
+      if (hoveredDetectionId && hoveredDetectionId.includes(`|${targetDetectionId}|`)) {
+        setHoveredDetectionId(null);
+      }
+
+      setDeleteCandidate(null);
+
+      try {
+        await fetchAnalysisImages();
+      } catch (refreshError) {
+        console.warn("Nie udalo sie odswiezyc obrazow po usunieciu detekcji:", refreshError);
+      }
+
+      setChosenMessage(
+        hasDeletedImage
+          ? "Detekcja i powiazany obraz zostaly usuniete."
+          : "Detekcja usunieta."
+      );
+    } catch (error) {
+      console.error("Blad podczas usuwania detekcji:", error);
+      setChosenMessage(
+        `Nie udalo sie usunac detekcji. ${error instanceof Error ? error.message : ""}`.trim()
+      );
+    } finally {
+      setIsDeletingDetection(false);
     }
   };
 
@@ -1849,19 +1942,37 @@ export default function App() {
                               : undefined
                           }
                         >
-                          <button
-                            type="button"
-                            onClick={() => handleOpenDetectionInGallery(detection)}
-                            className="btn btn-link text-decoration-none text-reset p-0 w-100 text-start"
-                          >
-                            <div><strong>{detection.detection_id}</strong></div>
-                            <div className="small mt-1">
-                              <span className={`badge ${statusBadgeClass}`}>{detection.status}</span>
-                            </div>
-                            <div className="small text-muted">
-                              confidence: {Number(detection.confidence).toFixed(2)}
-                            </div>
-                          </button>
+                          <div className="d-flex align-items-start gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenDetectionInGallery(detection)}
+                              className="btn btn-link text-decoration-none text-reset p-0 w-100 text-start"
+                            >
+                              <div><strong>{detection.detection_id}</strong></div>
+                              <div className="small mt-1">
+                                <span className={`badge ${statusBadgeClass}`}>{detection.status}</span>
+                              </div>
+                              <div className="small text-muted">
+                                confidence: {Number(detection.confidence).toFixed(2)}
+                              </div>
+                            </button>
+
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-outline-danger detection-delete-btn"
+                              onClick={() => handleRequestDeleteDetection(detection)}
+                              title="Usun detekcje"
+                              aria-label={`Usun detekcje ${detection.detection_id}`}
+                              disabled={isDeletingDetection}
+                            >
+                              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                                <path
+                                  fill="currentColor"
+                                  d="M5.5 5.5a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm5 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6zM1 3.5A.5.5 0 0 1 1.5 3H4V2a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v1h2.5a.5.5 0 0 1 0 1h-.538l-.853 10.66A1 1 0 0 1 12.112 15H3.888a1 1 0 0 1-.997-.84L2.038 4.5H1.5a.5.5 0 0 1-.5-.5zM5 2v1h6V2H5z"
+                                />
+                              </svg>
+                            </button>
+                          </div>
 
                           {hasComment && (
                             <div className="small border rounded bg-light px-2 py-1 mt-2 d-flex align-items-start justify-content-between gap-2">
@@ -1963,6 +2074,51 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {deleteCandidate && (
+        <div
+          className="confirm-modal-backdrop"
+          role="presentation"
+          onClick={handleCancelDeleteDetection}
+        >
+          <div
+            className="confirm-modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-detection-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h6 id="delete-detection-title" className="mb-2">
+              Usunac detekcje?
+            </h6>
+            <p className="small text-muted mb-3">
+              Ta operacja usunie detekcje <strong>{deleteCandidate.detection_id}</strong> oraz
+              powiazany plik obrazu z backendu.
+            </p>
+            <div className="d-flex justify-content-end gap-2">
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-secondary"
+                onClick={handleCancelDeleteDetection}
+                disabled={isDeletingDetection}
+              >
+                Anuluj
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-danger d-flex align-items-center gap-2"
+                onClick={handleConfirmDeleteDetection}
+                disabled={isDeletingDetection}
+              >
+                {isDeletingDetection && (
+                  <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                )}
+                <span>{isDeletingDetection ? "Usuwanie..." : "Usun"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

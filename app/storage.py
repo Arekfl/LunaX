@@ -54,6 +54,13 @@ def upsert_detection_status(detection_id: str, status: str) -> dict[str, str]:
     return statuses
 
 
+def delete_detection_status(detection_id: str) -> dict[str, str]:
+    statuses = read_detection_statuses()
+    statuses.pop(detection_id, None)
+    write_detection_statuses(statuses)
+    return statuses
+
+
 def read_detection_comments() -> dict[str, str]:
     return _read_string_mapping(_get_comment_file_path())
 
@@ -65,5 +72,12 @@ def write_detection_comments(comments: dict[str, str]) -> None:
 def upsert_detection_comment(detection_id: str, comment: str) -> dict[str, str]:
     comments = read_detection_comments()
     comments[detection_id] = comment
+    write_detection_comments(comments)
+    return comments
+
+
+def delete_detection_comment(detection_id: str) -> dict[str, str]:
+    comments = read_detection_comments()
+    comments.pop(detection_id, None)
     write_detection_comments(comments)
     return comments

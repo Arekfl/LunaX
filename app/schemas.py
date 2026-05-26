@@ -86,6 +86,13 @@ class DetectionCommentUpdateResponse(BaseModel):
     comment: str
 
 
+class DetectionDeleteResponse(BaseModel):
+    detection_id: str
+    detection_deleted: bool
+    deleted_image_id: str | None = None
+    deleted_image_path: str | None = None
+
+
 class DetectionsQueryParams(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 

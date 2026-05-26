@@ -17,6 +17,7 @@ from app.schemas import (
     AnalysisRunRequest,
     AnalysisRunResponse,
     BBox,
+    DetectionDeleteResponse,
     Detection,
     DetectionCommentUpdateRequest,
     DetectionCommentUpdateResponse,
@@ -27,6 +28,7 @@ from app.schemas import (
     LocalValidationRunRequest,
 )
 from app.analytics import (
+    delete_detection_and_related_assets,
     get_analysis_image_path,
     get_no_detection_image_path,
     query_analysis_images,
@@ -36,6 +38,8 @@ from app.analytics import (
     save_detections_to_parquet,
 )
 from app.storage import (
+    delete_detection_comment,
+    delete_detection_status,
     read_detection_statuses,
     upsert_detection_comment,
     upsert_detection_status,
@@ -357,6 +361,31 @@ def update_detection_comment(
 ) -> DetectionCommentUpdateResponse:
     upsert_detection_comment(detection_id=id, comment=payload.comment)
     return DetectionCommentUpdateResponse(detection_id=id, comment=payload.comment)
+
+
+@app.delete("/detections/{id}", response_model=DetectionDeleteResponse)
+def delete_detection(id: str) -> DetectionDeleteResponse:
+    deleted_payload = delete_detection_and_related_assets(detection_id=id)
+    if not bool(deleted_payload.get("detection_deleted")):
+        raise HTTPException(status_code=404, detail="Detection not found")
+
+    delete_detection_status(detection_id=id)
+    delete_detection_comment(detection_id=id)
+
+    return DetectionDeleteResponse(
+        detection_id=id,
+        detection_deleted=True,
+        deleted_image_id=(
+            None
+            if deleted_payload.get("deleted_image_id") is None
+            else str(deleted_payload["deleted_image_id"])
+        ),
+        deleted_image_path=(
+            None
+            if deleted_payload.get("deleted_image_path") is None
+            else str(deleted_payload["deleted_image_path"])
+        ),
+    )
 
 
 @app.get("/detections/statuses", response_model=dict[str, str])

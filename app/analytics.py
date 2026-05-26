@@ -1,5 +1,6 @@
 import os
 import hashlib
+import math
 from io import BytesIO
 from pathlib import Path
 from typing import Sequence
@@ -330,6 +331,176 @@ def get_analysis_image_path(image_id: str, *, status: str | None = None) -> Path
 
 def get_no_detection_image_path(image_id: str) -> Path | None:
     return get_analysis_image_path(image_id, status="no_detections")
+
+
+def _build_empty_parquet_like(frame: pd.DataFrame) -> pd.DataFrame:
+    return frame.iloc[0:0].copy()
+
+
+def _extract_detection_bbox_center(row: pd.Series) -> tuple[float, float] | None:
+    required_columns = ["bbox_x", "bbox_y", "bbox_width", "bbox_height"]
+    if any(column_name not in row.index for column_name in required_columns):
+        return None
+
+    try:
+        bbox_x = float(row["bbox_x"])
+        bbox_y = float(row["bbox_y"])
+        bbox_width = float(row["bbox_width"])
+        bbox_height = float(row["bbox_height"])
+    except (TypeError, ValueError):
+        return None
+
+    if not all(math.isfinite(value) for value in [bbox_x, bbox_y, bbox_width, bbox_height]):
+        return None
+
+    if bbox_width <= 0 or bbox_height <= 0:
+        return None
+
+    center_lon = bbox_x + bbox_width / 2.0
+    center_lat = bbox_y + bbox_height / 2.0
+    if not (-180.0 <= center_lon <= 180.0 and -90.0 <= center_lat <= 90.0):
+        return None
+
+    return center_lon, center_lat
+
+
+def _delete_related_analysis_image(
+    *,
+    analysis_id: str,
+    detection_center: tuple[float, float] | None,
+) -> dict[str, str] | None:
+    if not analysis_id:
+        return None
+
+    metadata_file = _get_no_detections_parquet_path()
+    if not metadata_file.exists():
+        return None
+
+    metadata_frame = pd.read_parquet(metadata_file)
+    if metadata_frame.empty or "analysis_id" not in metadata_frame.columns:
+        return None
+
+    analysis_rows = metadata_frame[metadata_frame["analysis_id"].astype(str) == analysis_id]
+    if analysis_rows.empty:
+        return None
+
+    if "status" in analysis_rows.columns:
+        normalized_statuses = (
+            analysis_rows["status"]
+            .fillna("no_detections")
+            .astype(str)
+            .map(_normalize_analysis_image_status)
+        )
+        with_detections = analysis_rows[normalized_statuses != "no_detections"]
+        if not with_detections.empty:
+            analysis_rows = with_detections
+
+    selected_index = analysis_rows.index[0]
+
+    if (
+        detection_center is not None
+        and "lat" in analysis_rows.columns
+        and "lon" in analysis_rows.columns
+    ):
+        center_lon, center_lat = detection_center
+        geo_rows = analysis_rows.dropna(subset=["lat", "lon"])
+        if not geo_rows.empty:
+            distances = (geo_rows["lon"].astype(float) - center_lon) ** 2 + (
+                geo_rows["lat"].astype(float) - center_lat
+            ) ** 2
+            selected_index = distances.idxmin()
+        elif "timestamp" in analysis_rows.columns:
+            selected_index = analysis_rows.sort_values(
+                by="timestamp", ascending=False, na_position="last"
+            ).index[0]
+    elif "timestamp" in analysis_rows.columns:
+        selected_index = analysis_rows.sort_values(
+            by="timestamp", ascending=False, na_position="last"
+        ).index[0]
+
+    selected_row = metadata_frame.loc[selected_index]
+    removed_image_id = str(selected_row.get("image_id") or "")
+    removed_path_raw = str(selected_row.get("path") or "")
+
+    updated_frame = metadata_frame.drop(index=selected_index)
+    if updated_frame.empty:
+        updated_frame = _build_empty_parquet_like(metadata_frame)
+    updated_frame.to_parquet(metadata_file, index=False)
+
+    if removed_path_raw and "path" in updated_frame.columns:
+        still_referenced = (updated_frame["path"].astype(str) == removed_path_raw).any()
+    else:
+        still_referenced = False
+
+    if removed_path_raw and not still_referenced:
+        image_path = Path(removed_path_raw).expanduser().resolve()
+        allowed_root = _get_no_detections_image_dir().expanduser().resolve().parent
+
+        try:
+            image_path.relative_to(allowed_root)
+        except ValueError:
+            image_path = None
+
+        if image_path is not None and image_path.exists() and image_path.is_file():
+            image_path.unlink()
+
+    return {
+        "image_id": removed_image_id,
+        "path": removed_path_raw,
+    }
+
+
+def delete_detection_and_related_assets(detection_id: str) -> dict[str, str | bool | None]:
+    detections_file = _get_detections_parquet_path()
+    if not detections_file.exists():
+        return {
+            "detection_deleted": False,
+            "deleted_image_id": None,
+            "deleted_image_path": None,
+        }
+
+    detections_frame = pd.read_parquet(detections_file)
+    if detections_frame.empty or "detection_id" not in detections_frame.columns:
+        return {
+            "detection_deleted": False,
+            "deleted_image_id": None,
+            "deleted_image_path": None,
+        }
+
+    matched_rows = detections_frame[
+        detections_frame["detection_id"].astype(str) == str(detection_id)
+    ]
+    if matched_rows.empty:
+        return {
+            "detection_deleted": False,
+            "deleted_image_id": None,
+            "deleted_image_path": None,
+        }
+
+    if "timestamp" in matched_rows.columns:
+        matched_rows = matched_rows.sort_values(by="timestamp", ascending=False, na_position="last")
+
+    representative_row = matched_rows.iloc[0]
+    analysis_id = str(representative_row.get("analysis_id") or "")
+    detection_center = _extract_detection_bbox_center(representative_row)
+
+    updated_detections_frame = detections_frame[
+        detections_frame["detection_id"].astype(str) != str(detection_id)
+    ]
+    if updated_detections_frame.empty:
+        updated_detections_frame = _build_empty_parquet_like(detections_frame)
+    updated_detections_frame.to_parquet(detections_file, index=False)
+
+    removed_image = _delete_related_analysis_image(
+        analysis_id=analysis_id,
+        detection_center=detection_center,
+    )
+
+    return {
+        "detection_deleted": True,
+        "deleted_image_id": None if removed_image is None else removed_image.get("image_id") or None,
+        "deleted_image_path": None if removed_image is None else removed_image.get("path") or None,
+    }
 
 
 def save_detections_to_parquet(
