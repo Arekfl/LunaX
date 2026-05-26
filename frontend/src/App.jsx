@@ -1662,12 +1662,17 @@ export default function App() {
   };
 
   const handleToggleNoDetectionSelection = (imageId) => {
+    const normalizedImageId = String(imageId || "").trim();
+    if (!normalizedImageId) {
+      return;
+    }
+
     setSelectedNoDetectionImageIds((prevSelectedIds) => {
-      if (prevSelectedIds.includes(imageId)) {
-        return prevSelectedIds.filter((selectedId) => selectedId !== imageId);
+      if (prevSelectedIds.includes(normalizedImageId)) {
+        return prevSelectedIds.filter((selectedId) => selectedId !== normalizedImageId);
       }
 
-      return [...prevSelectedIds, imageId];
+      return [...prevSelectedIds, normalizedImageId];
     });
   };
 
@@ -1709,27 +1714,32 @@ export default function App() {
   };
 
   const handleRequestDeleteNoDetectionImage = (imageId) => {
-    if (!imageId) {
+    const normalizedImageId = String(imageId || "").trim();
+    if (!normalizedImageId) {
       return;
     }
 
     setDeleteModal({
       targetType: "analysis_image",
-      targetIds: [imageId],
+      targetIds: [normalizedImageId],
       isDeleting: false,
       missingImageWarning: false,
     });
   };
 
   const handleRequestBulkDeleteNoDetectionImages = () => {
-    if (selectedNoDetectionImageIds.length === 0) {
+    const normalizedSelectedIds = selectedNoDetectionImageIds
+      .map((imageId) => String(imageId || "").trim())
+      .filter(Boolean);
+
+    if (normalizedSelectedIds.length === 0) {
       setChosenMessage("Zaznacz co najmniej jeden obraz do usuniecia.");
       return;
     }
 
     setDeleteModal({
       targetType: "analysis_image",
-      targetIds: [...selectedNoDetectionImageIds],
+      targetIds: [...new Set(normalizedSelectedIds)],
       isDeleting: false,
       missingImageWarning: false,
     });
@@ -1767,7 +1777,14 @@ export default function App() {
     const isBulkDelete = targetIds.length > 1;
     setDeleteModal((prev) => ({ ...prev, isDeleting: true }));
 
+    let timeoutId = null;
     try {
+      const abortController = new AbortController();
+      const requestTimeoutMs = 30000;
+      timeoutId = window.setTimeout(() => {
+        abortController.abort();
+      }, requestTimeoutMs);
+
       const endpoint =
         targetType === "detection"
           ? isBulkDelete
@@ -1798,7 +1815,13 @@ export default function App() {
                 method: "DELETE",
               };
 
-      const response = await fetch(endpoint, requestInit);
+      const response = await fetch(endpoint, {
+        ...requestInit,
+        signal: abortController.signal,
+      });
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
 
       if (!response.ok) {
         let errorDetail = `HTTP ${response.status}`;
@@ -1977,10 +2000,17 @@ export default function App() {
         }
       }
     } catch (error) {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
       console.error("Blad podczas usuwania:", error);
       setDeleteModal((prev) => ({ ...prev, isDeleting: false }));
+      const timeoutHint =
+        error instanceof DOMException && error.name === "AbortError"
+          ? " Zadanie przekroczylo limit czasu."
+          : "";
       setChosenMessage(
-        `Nie udalo sie usunac elementu. ${error instanceof Error ? error.message : ""}`.trim()
+        `Nie udalo sie usunac elementu.${timeoutHint} ${error instanceof Error ? error.message : ""}`.trim()
       );
     }
   };

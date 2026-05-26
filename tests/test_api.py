@@ -378,7 +378,7 @@ def test_analysis_run_saves_no_detection_images_and_metadata_per_sample(
     tmp_path, monkeypatch
 ) -> None:
     no_detections_image_dir = tmp_path / "images" / "no_detections"
-    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    no_detections_parquet_file = tmp_path / "detections.parquet"
     detections_parquet_file = tmp_path / "detections.parquet"
 
     monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
@@ -410,6 +410,10 @@ def test_analysis_run_saves_no_detection_images_and_metadata_per_sample(
     assert all("lon-" in saved_image.name for saved_image in saved_images)
 
     metadata = pd.read_parquet(no_detections_parquet_file)
+    metadata = metadata[
+        metadata["image_id"].notna()
+        & (metadata["image_id"].astype(str).str.strip() != "")
+    ]
     assert len(metadata) == 3
     assert {
         "image_id",
@@ -422,7 +426,7 @@ def test_analysis_run_saves_no_detection_images_and_metadata_per_sample(
         "timestamp",
         "content_hash",
     }.issubset(metadata.columns)
-    assert set(metadata["status"]) == {"no_detections"}
+    assert set(metadata["status"]) == {"no_detection"}
     assert metadata["analysis_id"].nunique() == 1
     assert metadata["analysis_id"].iloc[0] == payload["analysis_id"]
     assert set(metadata["resolution"]) == {"detail"}
@@ -438,7 +442,7 @@ def test_analysis_run_saves_images_and_metadata_per_sample_when_detections_exist
 ) -> None:
     no_detections_image_dir = tmp_path / "images" / "no_detections"
     to_verify_image_dir = tmp_path / "images" / "to_verify"
-    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    no_detections_parquet_file = tmp_path / "detections.parquet"
     detections_parquet_file = tmp_path / "detections.parquet"
 
     monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
@@ -480,6 +484,10 @@ def test_analysis_run_saves_images_and_metadata_per_sample_when_detections_exist
     assert len(sorted(no_detections_image_dir.glob("*.png"))) == 0
 
     metadata = pd.read_parquet(no_detections_parquet_file)
+    metadata = metadata[
+        metadata["image_id"].notna()
+        & (metadata["image_id"].astype(str).str.strip() != "")
+    ]
     assert len(metadata) == 3
     assert set(metadata["status"]) == {"to_verify"}
     assert set(metadata["analysis_id"]) == {payload["analysis_id"]}
@@ -492,7 +500,7 @@ def test_get_no_detections_query_excludes_samples_with_detections(
     tmp_path, monkeypatch
 ) -> None:
     no_detections_image_dir = tmp_path / "images" / "no_detections"
-    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    no_detections_parquet_file = tmp_path / "detections.parquet"
     detections_parquet_file = tmp_path / "detections.parquet"
 
     monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
@@ -533,7 +541,7 @@ def test_get_no_detections_query_excludes_samples_with_detections(
 
 def test_get_no_detections_query_returns_saved_images(tmp_path, monkeypatch) -> None:
     no_detections_image_dir = tmp_path / "images" / "no_detections"
-    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    no_detections_parquet_file = tmp_path / "detections.parquet"
     detections_parquet_file = tmp_path / "detections.parquet"
 
     monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
@@ -579,7 +587,7 @@ def test_get_no_detections_query_returns_saved_images(tmp_path, monkeypatch) -> 
 
 def test_no_detections_reuses_file_but_keeps_entries_per_sample(tmp_path, monkeypatch) -> None:
     no_detections_image_dir = tmp_path / "images" / "no_detections"
-    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    no_detections_parquet_file = tmp_path / "detections.parquet"
     detections_parquet_file = tmp_path / "detections.parquet"
 
     monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
@@ -618,7 +626,7 @@ def test_no_detections_reuses_file_but_keeps_entries_per_sample(tmp_path, monkey
 
 def test_get_no_detections_image_returns_png(tmp_path, monkeypatch) -> None:
     no_detections_image_dir = tmp_path / "images" / "no_detections"
-    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    no_detections_parquet_file = tmp_path / "detections.parquet"
     detections_parquet_file = tmp_path / "detections.parquet"
 
     monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
@@ -654,7 +662,7 @@ def test_get_no_detections_image_returns_png(tmp_path, monkeypatch) -> None:
 
 def test_get_analysis_images_query_returns_all_saved_images(tmp_path, monkeypatch) -> None:
     no_detections_image_dir = tmp_path / "images" / "no_detections"
-    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    no_detections_parquet_file = tmp_path / "detections.parquet"
     detections_parquet_file = tmp_path / "detections.parquet"
 
     monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
@@ -726,7 +734,7 @@ def test_get_analysis_images_query_returns_all_saved_images(tmp_path, monkeypatc
 
 def test_get_analysis_image_returns_png_for_detection_sample(tmp_path, monkeypatch) -> None:
     no_detections_image_dir = tmp_path / "images" / "no_detections"
-    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    no_detections_parquet_file = tmp_path / "detections.parquet"
     detections_parquet_file = tmp_path / "detections.parquet"
 
     monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
@@ -1025,7 +1033,7 @@ def test_delete_detection_removes_detection_related_image_and_overrides(
     tmp_path, monkeypatch
 ) -> None:
     no_detections_image_dir = tmp_path / "images" / "no_detections"
-    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    no_detections_parquet_file = tmp_path / "detections.parquet"
     detections_parquet_file = tmp_path / "detections.parquet"
     status_file = tmp_path / "detection_statuses.json"
     comment_file = tmp_path / "detection_comments.json"
@@ -1114,7 +1122,7 @@ def test_delete_detections_bulk_removes_detections_related_images_and_overrides(
     tmp_path, monkeypatch
 ) -> None:
     no_detections_image_dir = tmp_path / "images" / "no_detections"
-    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    no_detections_parquet_file = tmp_path / "detections.parquet"
     detections_parquet_file = tmp_path / "detections.parquet"
     status_file = tmp_path / "detection_statuses.json"
     comment_file = tmp_path / "detection_comments.json"
@@ -1221,7 +1229,7 @@ def test_delete_detections_bulk_removes_detections_related_images_and_overrides(
 
 def test_delete_detections_bulk_reports_missing_detection_ids(tmp_path, monkeypatch) -> None:
     no_detections_image_dir = tmp_path / "images" / "no_detections"
-    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    no_detections_parquet_file = tmp_path / "detections.parquet"
     detections_parquet_file = tmp_path / "detections.parquet"
 
     monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
@@ -1281,7 +1289,7 @@ def test_delete_detection_marks_missing_related_image_when_metadata_absent(
     tmp_path, monkeypatch
 ) -> None:
     no_detections_image_dir = tmp_path / "images" / "no_detections"
-    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    no_detections_parquet_file = tmp_path / "detections.parquet"
     detections_parquet_file = tmp_path / "detections.parquet"
 
     monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
@@ -1302,7 +1310,11 @@ def test_delete_detection_marks_missing_related_image_when_metadata_absent(
     assert run_response.status_code == 200
     detection_id = run_response.json()["detections"][0]["detection_id"]
 
-    no_detections_parquet_file.unlink()
+    stored = pd.read_parquet(detections_parquet_file)
+    stored = stored[
+        stored["image_id"].isna() | (stored["image_id"].astype(str).str.strip() == "")
+    ]
+    stored.to_parquet(detections_parquet_file, index=False)
 
     delete_response = client.delete(f"/detections/{detection_id}")
 
@@ -1315,7 +1327,7 @@ def test_delete_detection_marks_missing_related_image_when_metadata_absent(
 
 def test_delete_analysis_image_removes_metadata_and_file(tmp_path, monkeypatch) -> None:
     no_detections_image_dir = tmp_path / "images" / "no_detections"
-    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    no_detections_parquet_file = tmp_path / "detections.parquet"
     detections_parquet_file = tmp_path / "detections.parquet"
 
     monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
@@ -1358,9 +1370,58 @@ def test_delete_analysis_image_removes_metadata_and_file(tmp_path, monkeypatch) 
     assert not image_path.exists()
 
 
+def test_delete_analysis_image_matches_trimmed_image_id(tmp_path, monkeypatch) -> None:
+    no_detections_image_dir = tmp_path / "images" / "no_detections"
+    no_detections_parquet_file = tmp_path / "detections.parquet"
+    detections_parquet_file = tmp_path / "detections.parquet"
+
+    monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
+    monkeypatch.setenv("NO_DETECTIONS_PARQUET_FILE", str(no_detections_parquet_file))
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+    monkeypatch.setattr("app.main.download_tile", Mock(return_value=Image.new("L", (64, 64), color=128)))
+    monkeypatch.setattr("app.main.run_inference", Mock(return_value=[]))
+
+    run_response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "preview",
+            "numSamples": 1,
+            "confidenceThreshold": 0.5,
+            "bbox": [-20.0, -10.0, 20.0, 10.0],
+        },
+    )
+    assert run_response.status_code == 200
+
+    images_response = client.get("/analysis-images/query", params={"status": "no_detections"})
+    assert images_response.status_code == 200
+    images_payload = images_response.json()
+    assert len(images_payload) == 1
+
+    image_id = str(images_payload[0]["image_id"])
+    image_path = Path(images_payload[0]["path"])
+    assert image_path.exists()
+
+    stored = pd.read_parquet(detections_parquet_file)
+    stored.loc[stored["image_id"].astype(str) == image_id, "image_id"] = f"  {image_id}  "
+    stored.to_parquet(detections_parquet_file, index=False)
+
+    delete_response = client.delete(f"/analysis-images/{image_id}")
+
+    assert delete_response.status_code == 200
+    assert delete_response.json() == {
+        "image_id": image_id,
+        "image_deleted": True,
+    }
+
+    images_after_response = client.get("/analysis-images/query", params={"status": "no_detections"})
+    assert images_after_response.status_code == 200
+    assert images_after_response.json() == []
+    assert not image_path.exists()
+
+
 def test_delete_analysis_images_bulk_reports_missing_ids(tmp_path, monkeypatch) -> None:
     no_detections_image_dir = tmp_path / "images" / "no_detections"
-    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    no_detections_parquet_file = tmp_path / "detections.parquet"
     detections_parquet_file = tmp_path / "detections.parquet"
 
     monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))

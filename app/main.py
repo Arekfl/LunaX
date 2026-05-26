@@ -239,7 +239,7 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
             if detection.confidence >= payload.confidence_threshold
         ]
 
-        sample_status = "to_verify" if sample_filtered_detections else "no_detections"
+        sample_status = "to_verify" if sample_filtered_detections else "no_detection"
 
         if sample_filtered_detections:
             filtered_detections.extend(sample_filtered_detections)

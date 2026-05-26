@@ -28,11 +28,8 @@ def _get_detections_parquet_path() -> Path:
 
 
 def _get_no_detections_parquet_path() -> Path:
-    configured_path = os.getenv("NO_DETECTIONS_PARQUET_FILE")
-    if configured_path:
-        return Path(configured_path)
-
-    return Path(__file__).resolve().parents[1] / "data" / "no_detections.parquet"
+    # Backward compatibility shim: analysis image metadata now lives in detections.parquet.
+    return _get_detections_parquet_path()
 
 
 def _get_no_detections_image_dir() -> Path:
@@ -48,11 +45,33 @@ def _normalize_analysis_image_status(status: str | None) -> str:
     if not normalized_status:
         return "no_detections"
 
+    if normalized_status in {"no_detection", "no_detections"}:
+        return "no_detections"
+
     # Backward compatibility for rows created before status-specific folders.
     if normalized_status == "detections":
         return "to_verify"
 
     return normalized_status
+
+
+def _status_for_analysis_image_storage(status: str | None) -> str:
+    normalized_status = _normalize_analysis_image_status(status)
+    if normalized_status == "no_detections":
+        return "no_detection"
+    return normalized_status
+
+
+def _filter_image_rows(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+
+    if "image_id" not in frame.columns or "path" not in frame.columns:
+        return frame.iloc[0:0].copy()
+
+    image_ids = frame["image_id"].fillna("").astype(str).str.strip()
+    paths = frame["path"].fillna("").astype(str).str.strip()
+    return frame[(image_ids != "") & (paths != "")]
 
 
 def _get_analysis_image_dir(status: str) -> Path:
@@ -73,7 +92,13 @@ def _append_rows_to_parquet(parquet_file: Path, rows: list[dict]) -> Path:
 
     if parquet_file.exists():
         existing_frame = pd.read_parquet(parquet_file)
-        combined_frame = pd.concat([existing_frame, new_frame], ignore_index=True)
+        if existing_frame.empty:
+            combined_frame = new_frame
+        else:
+            columns = list(dict.fromkeys([*existing_frame.columns, *new_frame.columns]))
+            existing_aligned = existing_frame.reindex(columns=columns)
+            new_aligned = new_frame.reindex(columns=columns)
+            combined_frame = pd.concat([existing_aligned, new_aligned], ignore_index=True)
         combined_frame.to_parquet(parquet_file, index=False)
     else:
         new_frame.to_parquet(parquet_file, index=False)
@@ -95,7 +120,7 @@ def _find_analysis_image_row_by_hash(
     if not parquet_file.exists():
         return None
 
-    frame = pd.read_parquet(parquet_file)
+    frame = _filter_image_rows(pd.read_parquet(parquet_file))
     if frame.empty or "content_hash" not in frame.columns:
         return None
 
@@ -148,7 +173,8 @@ def save_analysis_image_and_metadata(
 ) -> dict[str, str | float]:
     analysis_timestamp = timestamp or datetime.now(timezone.utc).isoformat()
     normalized_status = _normalize_analysis_image_status(status)
-    parquet_file = _get_no_detections_parquet_path()
+    stored_status = _status_for_analysis_image_storage(status)
+    parquet_file = _get_detections_parquet_path()
     content_hash, png_bytes = _compute_png_hash_and_bytes(image)
     image_id = f"img-{uuid4().hex}"
 
@@ -177,15 +203,27 @@ def save_analysis_image_and_metadata(
         image_path.write_bytes(png_bytes)
 
     metadata_row: dict[str, str | float] = {
+        "detection_id": "",
         "image_id": image_id,
         "analysis_id": str(analysis_id) if analysis_id else "",
         "path": str(image_path),
-        "status": normalized_status,
+        "status": stored_status,
+        "class": None,
+        "class_name": None,
+        "confidence": None,
+        "bbox": None,
+        "bbox_x": None,
+        "bbox_y": None,
+        "bbox_width": None,
+        "bbox_height": None,
         "lat": float(lat),
         "lon": float(lon),
         "resolution": resolution,
+        "resolutionMode": resolution,
         "timestamp": analysis_timestamp,
         "content_hash": content_hash,
+        "comment": "",
+        "tags": None,
     }
 
     _append_rows_to_parquet(parquet_file, [metadata_row])
@@ -214,11 +252,11 @@ def save_no_detections_image_and_metadata(
 
 
 def query_analysis_images(status: str | None = None) -> list[dict]:
-    parquet_file = _get_no_detections_parquet_path()
+    parquet_file = _get_detections_parquet_path()
     if not parquet_file.exists():
         return []
 
-    analysis_images_frame = pd.read_parquet(parquet_file)
+    analysis_images_frame = _filter_image_rows(pd.read_parquet(parquet_file))
     if analysis_images_frame.empty:
         return []
 
@@ -234,11 +272,11 @@ def query_analysis_images(status: str | None = None) -> list[dict]:
     ]
     for column_name in expected_columns:
         if column_name not in analysis_images_frame.columns:
-            analysis_images_frame[column_name] = "no_detections" if column_name == "status" else None
+            analysis_images_frame[column_name] = "no_detection" if column_name == "status" else None
 
     analysis_images_frame["status"] = (
         analysis_images_frame["status"]
-        .fillna("no_detections")
+        .fillna("no_detection")
         .astype(str)
         .map(_normalize_analysis_image_status)
     )
@@ -256,9 +294,10 @@ def query_analysis_images(status: str | None = None) -> list[dict]:
 
     records: list[dict] = []
     for row in sorted_frame.to_dict(orient="records"):
+        image_id = str(row["image_id"]).strip() if row["image_id"] is not None else ""
         records.append(
             {
-                "image_id": str(row["image_id"]) if row["image_id"] is not None else "",
+                "image_id": image_id,
                 "analysis_id": str(row["analysis_id"]) if row["analysis_id"] is not None else "",
                 "path": str(row["path"]) if row["path"] is not None else "",
                 "status": str(row["status"]) if row["status"] is not None else "no_detections",
@@ -277,16 +316,20 @@ def query_no_detections() -> list[dict]:
 
 
 def get_analysis_image_path(image_id: str, *, status: str | None = None) -> Path | None:
-    parquet_file = _get_no_detections_parquet_path()
+    parquet_file = _get_detections_parquet_path()
     if not parquet_file.exists():
         return None
 
-    analysis_images_frame = pd.read_parquet(parquet_file)
+    analysis_images_frame = _filter_image_rows(pd.read_parquet(parquet_file))
     if analysis_images_frame.empty or "image_id" not in analysis_images_frame.columns:
         return None
 
+    requested_image_id = str(image_id).strip()
+    if not requested_image_id:
+        return None
+
     filtered_frame = analysis_images_frame[
-        analysis_images_frame["image_id"].astype(str) == str(image_id)
+        analysis_images_frame["image_id"].fillna("").astype(str).str.strip() == requested_image_id
     ]
     if filtered_frame.empty or "path" not in filtered_frame.columns:
         return None
@@ -299,7 +342,7 @@ def get_analysis_image_path(image_id: str, *, status: str | None = None) -> Path
         else:
             filtered_frame = filtered_frame[
                 filtered_frame["status"]
-                .fillna("no_detections")
+                .fillna("no_detection")
                 .astype(str)
                 .map(_normalize_analysis_image_status)
                 == requested_status
@@ -376,22 +419,23 @@ def _delete_related_analysis_image(
     if not analysis_id:
         return None
 
-    metadata_file = _get_no_detections_parquet_path()
+    metadata_file = _get_detections_parquet_path()
     if not metadata_file.exists():
         return None
 
     metadata_frame = pd.read_parquet(metadata_file)
-    if metadata_frame.empty or "analysis_id" not in metadata_frame.columns:
+    image_rows = _filter_image_rows(metadata_frame)
+    if image_rows.empty or "analysis_id" not in image_rows.columns:
         return None
 
-    analysis_rows = metadata_frame[metadata_frame["analysis_id"].astype(str) == analysis_id]
+    analysis_rows = image_rows[image_rows["analysis_id"].astype(str) == analysis_id]
     if analysis_rows.empty:
         return None
 
     if "status" in analysis_rows.columns:
         normalized_statuses = (
             analysis_rows["status"]
-            .fillna("no_detections")
+            .fillna("no_detection")
             .astype(str)
             .map(_normalize_analysis_image_status)
         )
@@ -422,7 +466,7 @@ def _delete_related_analysis_image(
             by="timestamp", ascending=False, na_position="last"
         ).index[0]
 
-    selected_row = metadata_frame.loc[selected_index]
+    selected_row = image_rows.loc[selected_index]
     removed_image_id = str(selected_row.get("image_id") or "")
     removed_path_raw = str(selected_row.get("path") or "")
 
@@ -567,7 +611,7 @@ def delete_analysis_images_by_ids(
         seen_ids.add(image_id)
         unique_image_ids.append(image_id)
 
-    metadata_file = _get_no_detections_parquet_path()
+    metadata_file = _get_detections_parquet_path()
     if not metadata_file.exists():
         return {
             "requested_count": len(unique_image_ids),
@@ -577,7 +621,8 @@ def delete_analysis_images_by_ids(
         }
 
     metadata_frame = pd.read_parquet(metadata_file)
-    if metadata_frame.empty or "image_id" not in metadata_frame.columns:
+    image_rows = _filter_image_rows(metadata_frame)
+    if image_rows.empty or "image_id" not in image_rows.columns:
         return {
             "requested_count": len(unique_image_ids),
             "deleted_count": 0,
@@ -586,9 +631,8 @@ def delete_analysis_images_by_ids(
         }
 
     requested_set = set(unique_image_ids)
-    selected_rows = metadata_frame[
-        metadata_frame["image_id"].astype(str).isin(requested_set)
-    ]
+    normalized_image_ids = image_rows["image_id"].fillna("").astype(str).str.strip()
+    selected_rows = image_rows[normalized_image_ids.isin(requested_set)]
 
     if selected_rows.empty:
         return {
@@ -598,7 +642,9 @@ def delete_analysis_images_by_ids(
             "missing_image_ids": unique_image_ids,
         }
 
-    deleted_image_ids_set = set(selected_rows["image_id"].astype(str).tolist())
+    deleted_image_ids_set = set(
+        selected_rows["image_id"].fillna("").astype(str).str.strip().tolist()
+    )
     deleted_image_ids = [
         image_id for image_id in unique_image_ids if image_id in deleted_image_ids_set
     ]
@@ -606,9 +652,7 @@ def delete_analysis_images_by_ids(
         image_id for image_id in unique_image_ids if image_id not in deleted_image_ids_set
     ]
 
-    updated_frame = metadata_frame[
-        ~metadata_frame["image_id"].astype(str).isin(deleted_image_ids_set)
-    ]
+    updated_frame = metadata_frame.drop(index=selected_rows.index)
     if updated_frame.empty:
         updated_frame = _build_empty_parquet_like(metadata_frame)
     updated_frame.to_parquet(metadata_file, index=False)
@@ -671,7 +715,9 @@ def save_detections_to_parquet(
     rows = [
         {
             "detection_id": detection.detection_id,
+            "image_id": None,
             "analysis_id": detection.analysis_id,
+            "path": None,
             "class": detection.class_name,
             "class_name": detection.class_name,
             "confidence": float(detection.confidence),
@@ -686,8 +732,14 @@ def save_detections_to_parquet(
             "bbox_width": float(detection.bbox.width),
             "bbox_height": float(detection.bbox.height),
             "status": default_status,
+            "lat": None,
+            "lon": None,
+            "resolution": resolution_mode,
             "resolutionMode": resolution_mode,
             "timestamp": analysis_timestamp,
+            "content_hash": None,
+            "comment": "",
+            "tags": None,
         }
         for detection in detections
     ]
@@ -749,6 +801,13 @@ def query_detections(
             LEFT JOIN status_overrides AS s USING (detection_id)
             LEFT JOIN comment_overrides AS c USING (detection_id)
             WHERE (? IS NULL OR COALESCE(s.status, d.status, 'to_verify') = ?)
+                            AND d.detection_id IS NOT NULL
+                            AND TRIM(CAST(d.detection_id AS VARCHAR)) <> ''
+                            AND d.confidence IS NOT NULL
+                            AND d.bbox_x IS NOT NULL
+                            AND d.bbox_y IS NOT NULL
+                            AND d.bbox_width IS NOT NULL
+                            AND d.bbox_height IS NOT NULL
               AND (? IS NULL OR d.class_name = ?)
               AND (? IS NULL OR d.confidence >= ?)
                             AND (? IS NULL OR d.resolutionMode = ?)

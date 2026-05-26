@@ -15,7 +15,7 @@ def isolate_data_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     images_dir = data_dir / "images"
 
     monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(data_dir / "detections.parquet"))
-    monkeypatch.setenv("NO_DETECTIONS_PARQUET_FILE", str(data_dir / "no_detections.parquet"))
+    monkeypatch.setenv("NO_DETECTIONS_PARQUET_FILE", str(data_dir / "detections.parquet"))
     monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(images_dir / "no_detections"))
 
     monkeypatch.setenv("DETECTION_STATUS_FILE", str(data_dir / "detection_statuses.json"))
