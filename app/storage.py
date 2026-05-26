@@ -19,6 +19,14 @@ def _get_comment_file_path() -> Path:
     return Path(__file__).resolve().parents[1] / "data" / "detection_comments.json"
 
 
+def _get_tags_file_path() -> Path:
+    configured_path = os.getenv("DETECTION_TAG_FILE")
+    if configured_path:
+        return Path(configured_path)
+
+    return Path(__file__).resolve().parents[1] / "data" / "detection_tags.json"
+
+
 def _read_string_mapping(file_path: Path) -> dict[str, str]:
     if not file_path.exists():
         return {}
@@ -37,6 +45,40 @@ def _write_string_mapping(file_path: Path, values: dict[str, str]) -> None:
 
     with file_path.open("w", encoding="utf-8") as file_handle:
         json.dump(values, file_handle, indent=2, ensure_ascii=True)
+
+
+def _read_tags_mapping(file_path: Path) -> dict[str, list[str]]:
+    if not file_path.exists():
+        return {}
+
+    with file_path.open("r", encoding="utf-8") as file_handle:
+        raw_data = json.load(file_handle)
+
+    if not isinstance(raw_data, dict):
+        return {}
+
+    normalized: dict[str, list[str]] = {}
+    for key, value in raw_data.items():
+        if not isinstance(value, list):
+            continue
+
+        normalized[str(key)] = [str(tag) for tag in value if str(tag).strip()]
+
+    return normalized
+
+
+def _write_tags_mapping(file_path: Path, values: dict[str, list[str]]) -> None:
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    normalized_values: dict[str, list[str]] = {}
+    for key, value in values.items():
+        if not isinstance(value, list):
+            continue
+
+        normalized_values[str(key)] = [str(tag) for tag in value if str(tag).strip()]
+
+    with file_path.open("w", encoding="utf-8") as file_handle:
+        json.dump(normalized_values, file_handle, indent=2, ensure_ascii=True)
 
 
 def read_detection_statuses() -> dict[str, str]:
@@ -81,3 +123,28 @@ def delete_detection_comment(detection_id: str) -> dict[str, str]:
     comments.pop(detection_id, None)
     write_detection_comments(comments)
     return comments
+
+
+def read_detection_tags() -> dict[str, list[str]]:
+    return _read_tags_mapping(_get_tags_file_path())
+
+
+def write_detection_tags(tags: dict[str, list[str]]) -> None:
+    _write_tags_mapping(_get_tags_file_path(), tags)
+
+
+def upsert_detection_tags(detection_id: str, tags: list[str]) -> dict[str, list[str]]:
+    normalized_tags = [str(tag).strip() for tag in tags if str(tag).strip()]
+    unique_tags = list(dict.fromkeys(normalized_tags))
+
+    stored_tags = read_detection_tags()
+    stored_tags[detection_id] = unique_tags
+    write_detection_tags(stored_tags)
+    return stored_tags
+
+
+def delete_detection_tags(detection_id: str) -> dict[str, list[str]]:
+    stored_tags = read_detection_tags()
+    stored_tags.pop(detection_id, None)
+    write_detection_tags(stored_tags)
+    return stored_tags

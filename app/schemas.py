@@ -86,6 +86,15 @@ class DetectionCommentUpdateResponse(BaseModel):
     comment: str
 
 
+class DetectionTagsUpdateRequest(BaseModel):
+    tags: list[str] = Field(default_factory=list)
+
+
+class DetectionTagsUpdateResponse(BaseModel):
+    detection_id: str
+    tags: list[str]
+
+
 class DetectionDeleteResponse(BaseModel):
     detection_id: str
     detection_deleted: bool

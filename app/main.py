@@ -23,6 +23,8 @@ from app.schemas import (
     Detection,
     DetectionCommentUpdateRequest,
     DetectionCommentUpdateResponse,
+    DetectionTagsUpdateRequest,
+    DetectionTagsUpdateResponse,
     DetectionsQueryParams,
     DetectionStatusUpdateRequest,
     DetectionStatusUpdateResponse,
@@ -43,9 +45,11 @@ from app.analytics import (
 from app.storage import (
     delete_detection_comment,
     delete_detection_status,
+    delete_detection_tags,
     read_detection_statuses,
     upsert_detection_comment,
     upsert_detection_status,
+    upsert_detection_tags,
 )
 
 app = FastAPI(title="LunaX API", version="0.1.0")
@@ -366,6 +370,15 @@ def update_detection_comment(
     return DetectionCommentUpdateResponse(detection_id=id, comment=payload.comment)
 
 
+@app.patch("/detections/{id}/tags", response_model=DetectionTagsUpdateResponse)
+def update_detection_tags(
+    id: str, payload: DetectionTagsUpdateRequest
+) -> DetectionTagsUpdateResponse:
+    upsert_detection_tags(detection_id=id, tags=payload.tags)
+    normalized_tags = list(dict.fromkeys([str(tag).strip() for tag in payload.tags if str(tag).strip()]))
+    return DetectionTagsUpdateResponse(detection_id=id, tags=normalized_tags)
+
+
 @app.delete("/detections/bulk", response_model=DetectionBulkDeleteResponse)
 def delete_detections_bulk(payload: DetectionBulkDeleteRequest) -> DetectionBulkDeleteResponse:
     delete_summary = delete_detections_bulk_and_related_assets(
@@ -380,6 +393,7 @@ def delete_detections_bulk(payload: DetectionBulkDeleteRequest) -> DetectionBulk
     for detection_id in deleted_detection_ids:
         delete_detection_status(detection_id=detection_id)
         delete_detection_comment(detection_id=detection_id)
+        delete_detection_tags(detection_id=detection_id)
 
     return DetectionBulkDeleteResponse(
         requested_count=int(delete_summary.get("requested_count", 0)),
@@ -401,6 +415,7 @@ def delete_detection(id: str) -> DetectionDeleteResponse:
 
     delete_detection_status(detection_id=id)
     delete_detection_comment(detection_id=id)
+    delete_detection_tags(detection_id=id)
 
     return DetectionDeleteResponse(
         detection_id=id,

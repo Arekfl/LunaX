@@ -12,7 +12,11 @@ import pandas as pd
 from PIL import Image
 
 from app.schemas import Detection
-from app.storage import read_detection_comments, read_detection_statuses
+from app.storage import (
+    read_detection_comments,
+    read_detection_statuses,
+    read_detection_tags,
+)
 
 
 def _get_detections_parquet_path() -> Path:
@@ -602,6 +606,7 @@ def query_detections(
 
     stored_statuses = read_detection_statuses()
     stored_comments = read_detection_comments()
+    stored_tags = read_detection_tags()
 
     connection = duckdb.connect(database=":memory:")
     try:
@@ -677,6 +682,7 @@ def query_detections(
                 },
                 "status": row[8],
                 "comment": row[9],
+                "tags": [str(tag) for tag in stored_tags.get(str(row[0]), []) if str(tag).strip()],
             }
             for row in rows
         ]

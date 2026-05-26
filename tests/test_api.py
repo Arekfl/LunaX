@@ -827,13 +827,36 @@ def test_patch_detection_comment_persists_comment_by_detection_id(tmp_path, monk
     assert payload["det-42"] == "To verify manually"
 
 
+def test_patch_detection_tags_persists_tags_by_detection_id(tmp_path, monkeypatch) -> None:
+    tags_file = tmp_path / "detection_tags.json"
+    monkeypatch.setenv("DETECTION_TAG_FILE", str(tags_file))
+
+    response = client.patch(
+        "/detections/det-42/tags",
+        json={"tags": ["cave", "priority", "cave", "  "]},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "detection_id": "det-42",
+        "tags": ["cave", "priority"],
+    }
+
+    with tags_file.open("r", encoding="utf-8") as file_handle:
+        payload = json.load(file_handle)
+
+    assert payload["det-42"] == ["cave", "priority"]
+
+
 def test_get_detections_query_filters_with_query_params(tmp_path, monkeypatch) -> None:
     parquet_file = tmp_path / "detections.parquet"
     status_file = tmp_path / "detection_statuses.json"
     comment_file = tmp_path / "detection_comments.json"
+    tags_file = tmp_path / "detection_tags.json"
     monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(parquet_file))
     monkeypatch.setenv("DETECTION_STATUS_FILE", str(status_file))
     monkeypatch.setenv("DETECTION_COMMENT_FILE", str(comment_file))
+    monkeypatch.setenv("DETECTION_TAG_FILE", str(tags_file))
     monkeypatch.setattr("app.main.download_tile", _mock_tile)
     monkeypatch.setattr("app.main.run_inference", _mock_inference)
 
@@ -868,6 +891,12 @@ def test_get_detections_query_filters_with_query_params(tmp_path, monkeypatch) -
     )
     assert comment_response.status_code == 200
 
+    tags_response = client.patch(
+        f"/detections/{target_detection_id}/tags",
+        json={"tags": ["manual", "priority"]},
+    )
+    assert tags_response.status_code == 200
+
     response = client.get(
         "/detections/query",
         params={
@@ -886,15 +915,18 @@ def test_get_detections_query_filters_with_query_params(tmp_path, monkeypatch) -
     assert payload[0]["analysis_id"] == first_analysis_id
     assert payload[0]["status"] == "rejected"
     assert payload[0]["comment"] == "Potential false positive"
+    assert payload[0]["tags"] == ["manual", "priority"]
 
 
 def test_get_detections_query_returns_rows_without_filters(tmp_path, monkeypatch) -> None:
     parquet_file = tmp_path / "detections.parquet"
     status_file = tmp_path / "detection_statuses.json"
     comment_file = tmp_path / "detection_comments.json"
+    tags_file = tmp_path / "detection_tags.json"
     monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(parquet_file))
     monkeypatch.setenv("DETECTION_STATUS_FILE", str(status_file))
     monkeypatch.setenv("DETECTION_COMMENT_FILE", str(comment_file))
+    monkeypatch.setenv("DETECTION_TAG_FILE", str(tags_file))
     monkeypatch.setattr("app.main.download_tile", _mock_tile)
     monkeypatch.setattr("app.main.run_inference", _mock_inference)
 
@@ -915,7 +947,9 @@ def test_get_detections_query_returns_rows_without_filters(tmp_path, monkeypatch
         "bbox",
         "status",
         "comment",
+        "tags",
     }.issubset(payload[0].keys())
+    assert isinstance(payload[0]["tags"], list)
 
 
 def test_patch_detection_status_rejects_invalid_status_value() -> None:
@@ -995,12 +1029,14 @@ def test_delete_detection_removes_detection_related_image_and_overrides(
     detections_parquet_file = tmp_path / "detections.parquet"
     status_file = tmp_path / "detection_statuses.json"
     comment_file = tmp_path / "detection_comments.json"
+    tags_file = tmp_path / "detection_tags.json"
 
     monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
     monkeypatch.setenv("NO_DETECTIONS_PARQUET_FILE", str(no_detections_parquet_file))
     monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
     monkeypatch.setenv("DETECTION_STATUS_FILE", str(status_file))
     monkeypatch.setenv("DETECTION_COMMENT_FILE", str(comment_file))
+    monkeypatch.setenv("DETECTION_TAG_FILE", str(tags_file))
     monkeypatch.setattr("app.main.download_tile", _mock_tile)
     monkeypatch.setattr("app.main.run_inference", _mock_inference)
 
@@ -1027,6 +1063,11 @@ def test_delete_detection_removes_detection_related_image_and_overrides(
         f"/detections/{detection_id}/comment", json={"comment": "do usuniecia"}
     )
     assert comment_response.status_code == 200
+
+    tags_response = client.patch(
+        f"/detections/{detection_id}/tags", json={"tags": ["remove", "single"]}
+    )
+    assert tags_response.status_code == 200
 
     images_before_response = client.get("/analysis-images/query")
     assert images_before_response.status_code == 200
@@ -1059,6 +1100,10 @@ def test_delete_detection_removes_detection_related_image_and_overrides(
         comments_payload = json.load(file_handle)
     assert detection_id not in comments_payload
 
+    with tags_file.open("r", encoding="utf-8") as file_handle:
+        tags_payload = json.load(file_handle)
+    assert detection_id not in tags_payload
+
     images_after_response = client.get("/analysis-images/query")
     assert images_after_response.status_code == 200
     assert images_after_response.json() == []
@@ -1073,12 +1118,14 @@ def test_delete_detections_bulk_removes_detections_related_images_and_overrides(
     detections_parquet_file = tmp_path / "detections.parquet"
     status_file = tmp_path / "detection_statuses.json"
     comment_file = tmp_path / "detection_comments.json"
+    tags_file = tmp_path / "detection_tags.json"
 
     monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
     monkeypatch.setenv("NO_DETECTIONS_PARQUET_FILE", str(no_detections_parquet_file))
     monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
     monkeypatch.setenv("DETECTION_STATUS_FILE", str(status_file))
     monkeypatch.setenv("DETECTION_COMMENT_FILE", str(comment_file))
+    monkeypatch.setenv("DETECTION_TAG_FILE", str(tags_file))
     monkeypatch.setattr("app.main.download_tile", _mock_tile)
 
     inference_call_index = {"value": 0}
@@ -1123,6 +1170,11 @@ def test_delete_detections_bulk_removes_detections_related_images_and_overrides(
         )
         assert comment_response.status_code == 200
 
+        tags_response = client.patch(
+            f"/detections/{detection_id}/tags", json={"tags": ["bulk", detection_id]}
+        )
+        assert tags_response.status_code == 200
+
     images_before_response = client.get("/analysis-images/query")
     assert images_before_response.status_code == 200
     assert len(images_before_response.json()) == 2
@@ -1157,6 +1209,10 @@ def test_delete_detections_bulk_removes_detections_related_images_and_overrides(
     with comment_file.open("r", encoding="utf-8") as file_handle:
         comments_payload = json.load(file_handle)
     assert all(detection_id not in comments_payload for detection_id in detection_ids)
+
+    with tags_file.open("r", encoding="utf-8") as file_handle:
+        tags_payload = json.load(file_handle)
+    assert all(detection_id not in tags_payload for detection_id in detection_ids)
 
     images_after_response = client.get("/analysis-images/query")
     assert images_after_response.status_code == 200

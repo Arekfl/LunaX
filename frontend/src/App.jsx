@@ -238,10 +238,23 @@ function resolveDetectionStatus(detection, statusMap) {
   return statusMap[detection.detection_id] ?? detection.status ?? DEFAULT_DETECTION_STATUS;
 }
 
+function normalizeDetectionTags(tags) {
+  if (!Array.isArray(tags)) {
+    return [];
+  }
+
+  const normalizedTags = tags
+    .map((tag) => String(tag).trim())
+    .filter((tag) => tag.length > 0);
+
+  return [...new Set(normalizedTags)];
+}
+
 function applyStatusesToDetections(detectionList, statusMap) {
   return detectionList.map((detection) => ({
     ...detection,
     status: statusMap[detection.detection_id] ?? detection.status ?? DEFAULT_DETECTION_STATUS,
+    tags: normalizeDetectionTags(detection.tags),
   }));
 }
 
@@ -512,6 +525,7 @@ export default function App() {
   const [selectedDetection, setSelectedDetection] = useState(null);
   const [hoveredDetectionId, setHoveredDetectionId] = useState(null);
   const [inputComment, setInputComment] = useState("");
+  const [tagDrafts, setTagDrafts] = useState({});
   const [editingDetectionId, setEditingDetectionId] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
   const [deleteModal, setDeleteModal] = useState({
@@ -545,6 +559,7 @@ export default function App() {
       detections.map((detection) => ({
         ...detection,
         status: resolveDetectionStatus(detection, storedStatuses),
+        tags: normalizeDetectionTags(detection.tags),
       })),
     [detections, storedStatuses]
   );
@@ -738,6 +753,15 @@ export default function App() {
     setSelectedIds((prevSelectedIds) =>
       prevSelectedIds.filter((detectionId) => availableIds.has(detectionId))
     );
+    setTagDrafts((prevTagDrafts) => {
+      const nextDrafts = { ...prevTagDrafts };
+      for (const detectionId of Object.keys(nextDrafts)) {
+        if (!availableIds.has(detectionId)) {
+          delete nextDrafts[detectionId];
+        }
+      }
+      return nextDrafts;
+    });
   }, [detections]);
 
   useEffect(() => {
@@ -1169,6 +1193,75 @@ export default function App() {
     }
   };
 
+  const handleUpdateDetectionTags = async (detectionId, tags) => {
+    const normalizedTags = normalizeDetectionTags(tags);
+
+    const response = await fetch(`${API_BASE_URL}/detections/${detectionId}/tags`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ tags: normalizedTags }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const updatedTags = normalizeDetectionTags(payload.tags);
+
+    setDetections((prev) =>
+      prev.map((detection) =>
+        detection.detection_id === detectionId
+          ? { ...detection, tags: updatedTags }
+          : detection
+      )
+    );
+
+    return updatedTags;
+  };
+
+  const handleAddTag = async (detectionId) => {
+    const draftTag = String(tagDrafts[detectionId] ?? "").trim();
+    if (!draftTag) {
+      return;
+    }
+
+    const detection = detections.find((item) => item.detection_id === detectionId);
+    const currentTags = normalizeDetectionTags(detection?.tags);
+    const nextTags = normalizeDetectionTags([...currentTags, draftTag]);
+
+    if (nextTags.length === currentTags.length) {
+      setTagDrafts((prev) => ({ ...prev, [detectionId]: "" }));
+      setChosenMessage("Tag juz istnieje.");
+      return;
+    }
+
+    try {
+      await handleUpdateDetectionTags(detectionId, nextTags);
+      setTagDrafts((prev) => ({ ...prev, [detectionId]: "" }));
+      setChosenMessage("Tag dodany.");
+    } catch (error) {
+      console.error("Blad podczas dodawania tagu:", error);
+      setChosenMessage("Nie udalo sie dodac tagu.");
+    }
+  };
+
+  const handleRemoveTag = async (detectionId, tagToRemove) => {
+    const detection = detections.find((item) => item.detection_id === detectionId);
+    const currentTags = normalizeDetectionTags(detection?.tags);
+    const nextTags = currentTags.filter((tag) => tag !== tagToRemove);
+
+    try {
+      await handleUpdateDetectionTags(detectionId, nextTags);
+      setChosenMessage("Tag usuniety.");
+    } catch (error) {
+      console.error("Blad podczas usuwania tagu:", error);
+      setChosenMessage("Nie udalo sie usunac tagu.");
+    }
+  };
+
   const handleToggleDetectionSelection = (detectionId) => {
     setSelectedIds((prevSelectedIds) => {
       if (prevSelectedIds.includes(detectionId)) {
@@ -1297,6 +1390,13 @@ export default function App() {
         setSelectedIds((prevSelectedIds) =>
           prevSelectedIds.filter((detectionId) => !deletedIdsSet.has(detectionId))
         );
+        setTagDrafts((prevTagDrafts) => {
+          const nextDrafts = { ...prevTagDrafts };
+          for (const detectionId of deletedIdsSet) {
+            delete nextDrafts[detectionId];
+          }
+          return nextDrafts;
+        });
 
         if (selectedDetection && deletedIdsSet.has(selectedDetection.detection_id)) {
           setSelectedDetection(null);
@@ -2038,6 +2138,8 @@ export default function App() {
                       const isSelected = isSameDetection(selectedDetection, detection);
                       const isHovered = hoveredDetectionId === detectionUniqueId;
                       const statusBadgeClass = getStatusBadgeClass(detection.status);
+                      const detectionTags = normalizeDetectionTags(detection.tags);
+                      const tagDraftValue = tagDrafts[detection.detection_id] ?? "";
                       const commentText = (detection.comment ?? "").trim();
                       const hasComment = commentText.length > 0;
                       const isEditingThis = editingDetectionId === detection.detection_id;
@@ -2108,6 +2210,59 @@ export default function App() {
                                 />
                               </svg>
                             </button>
+                          </div>
+
+                          <div className="mt-2">
+                            {detectionTags.length > 0 ? (
+                              <div className="d-flex flex-wrap gap-1 mb-2">
+                                {detectionTags.map((tag) => (
+                                  <span key={`${detection.detection_id}|${tag}`} className="badge text-bg-light border">
+                                    <span className="me-1">{tag}</span>
+                                    <button
+                                      type="button"
+                                      className="btn btn-sm p-0 border-0 bg-transparent detection-tag-remove"
+                                      onClick={() => handleRemoveTag(detection.detection_id, tag)}
+                                      aria-label={`Usun tag ${tag}`}
+                                      disabled={deleteModal.isDeleting}
+                                    >
+                                      x
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="small text-muted mb-2">Brak tagow.</div>
+                            )}
+
+                            <div className="d-flex gap-2">
+                              <input
+                                className="form-control form-control-sm"
+                                type="text"
+                                placeholder="Dodaj tag"
+                                value={tagDraftValue}
+                                onChange={(event) =>
+                                  setTagDrafts((prev) => ({
+                                    ...prev,
+                                    [detection.detection_id]: event.target.value,
+                                  }))
+                                }
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter") {
+                                    event.preventDefault();
+                                    handleAddTag(detection.detection_id);
+                                  }
+                                }}
+                                disabled={deleteModal.isDeleting}
+                              />
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline-primary"
+                                onClick={() => handleAddTag(detection.detection_id)}
+                                disabled={deleteModal.isDeleting}
+                              >
+                                Dodaj tag
+                              </button>
+                            </div>
                           </div>
 
                           {hasComment && (

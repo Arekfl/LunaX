@@ -89,6 +89,15 @@ body {
   cursor: pointer;
 }
 
+.detection-tag-remove {
+  line-height: 1;
+  color: #6c757d;
+}
+
+.detection-tag-remove:hover {
+  color: #dc3545;
+}
+
 .confirm-modal-backdrop {
   position: fixed;
   inset: 0;
