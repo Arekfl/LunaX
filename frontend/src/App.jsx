@@ -197,12 +197,37 @@ function deduplicateDetectionsByProximity(detectionList, threshold) {
   return deduplicated;
 }
 
+function detectionMatchesSelectedTags(detection, selectedTags, tagMatchMode) {
+  const normalizedSelectedTags = normalizeDetectionTags(selectedTags);
+  if (normalizedSelectedTags.length === 0) {
+    return true;
+  }
+
+  const detectionTags = normalizeDetectionTags(detection?.tags);
+  if (detectionTags.length === 0) {
+    return false;
+  }
+
+  if (tagMatchMode === "and") {
+    return normalizedSelectedTags.every((tag) => detectionTags.includes(tag));
+  }
+
+  return normalizedSelectedTags.some((tag) => detectionTags.includes(tag));
+}
+
 function getDisplayDetectionsForStatus(detectionList, status, options = {}) {
-  const { requireValidBounds = true } = options;
+  const {
+    requireValidBounds = true,
+    selectedTags = [],
+    tagMatchMode = "or",
+  } = options;
   const statusMatched = detectionList.filter((detection) => detection.status === status);
+  const tagsMatched = statusMatched.filter((detection) =>
+    detectionMatchesSelectedTags(detection, selectedTags, tagMatchMode)
+  );
   const scopeMatched = requireValidBounds
-    ? statusMatched.filter((detection) => detectionToBounds(detection))
-    : statusMatched;
+    ? tagsMatched.filter((detection) => detectionToBounds(detection))
+    : tagsMatched;
 
   return deduplicateDetectionsByProximity(scopeMatched, DETECTION_BBOX_PROXIMITY_THRESHOLD);
 }
@@ -430,6 +455,7 @@ export default function App() {
   const mapRef = useRef(null);
   const detectionListRef = useRef(null);
   const detectionItemRefs = useRef(new Map());
+  const tagFilterDropdownRef = useRef(null);
   const suppressZoomOutRef = useRef(0);
   const [currentLevel, setCurrentLevel] = useState(0);
   const [isLevelLocked, setIsLevelLocked] = useState(false);
@@ -452,6 +478,9 @@ export default function App() {
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
   const [storedStatuses, setStoredStatuses] = useState({});
   const [statusFilter, setStatusFilter] = useState("to_verify");
+  const [selectedTagFilters, setSelectedTagFilters] = useState([]);
+  const [tagFilterMode, setTagFilterMode] = useState("or");
+  const [isTagFilterDropdownOpen, setIsTagFilterDropdownOpen] = useState(false);
   const [hoveredSegmentId, setHoveredSegmentId] = useState(null);
   const [selectedSegment, setSelectedSegment] = useState(null);
   const [selectedDetection, setSelectedDetection] = useState(null);
@@ -499,14 +528,42 @@ export default function App() {
   );
 
   const filteredDetections = useMemo(
-    () => getDisplayDetectionsForStatus(statusResolvedDetections, statusFilter, { requireValidBounds: false }),
-    [statusResolvedDetections, statusFilter]
+    () =>
+      getDisplayDetectionsForStatus(statusResolvedDetections, statusFilter, {
+        requireValidBounds: false,
+        selectedTags: selectedTagFilters,
+        tagMatchMode: tagFilterMode,
+      }),
+    [statusResolvedDetections, statusFilter, selectedTagFilters, tagFilterMode]
   );
 
   const mapDetections = useMemo(
-    () => getDisplayDetectionsForStatus(statusResolvedDetections, statusFilter),
-    [statusResolvedDetections, statusFilter]
+    () =>
+      getDisplayDetectionsForStatus(statusResolvedDetections, statusFilter, {
+        selectedTags: selectedTagFilters,
+        tagMatchMode: tagFilterMode,
+      }),
+    [statusResolvedDetections, statusFilter, selectedTagFilters, tagFilterMode]
   );
+
+  const availableDetectionTags = useMemo(() => {
+    if (isNoDetectionsFilterSelected) {
+      return [];
+    }
+
+    const tagsSet = new Set();
+    for (const detection of statusResolvedDetections) {
+      if (detection.status !== statusFilter) {
+        continue;
+      }
+
+      for (const tag of normalizeDetectionTags(detection.tags)) {
+        tagsSet.add(tag);
+      }
+    }
+
+    return Array.from(tagsSet).sort((leftTag, rightTag) => leftTag.localeCompare(rightTag));
+  }, [statusResolvedDetections, statusFilter, isNoDetectionsFilterSelected]);
 
   const visibleAnalysisImages = useMemo(
     () =>
@@ -695,6 +752,50 @@ export default function App() {
   }, [detections]);
 
   useEffect(() => {
+    const availableTagsSet = new Set(availableDetectionTags);
+    setSelectedTagFilters((prevSelectedTags) =>
+      prevSelectedTags.filter((tag) => availableTagsSet.has(tag))
+    );
+  }, [availableDetectionTags]);
+
+  useEffect(() => {
+    if (isNoDetectionsFilterSelected) {
+      setIsTagFilterDropdownOpen(false);
+    }
+  }, [isNoDetectionsFilterSelected]);
+
+  useEffect(() => {
+    if (!isTagFilterDropdownOpen) {
+      return;
+    }
+
+    const handleDocumentMouseDown = (event) => {
+      const dropdownNode = tagFilterDropdownRef.current;
+      if (!dropdownNode) {
+        return;
+      }
+
+      if (!dropdownNode.contains(event.target)) {
+        setIsTagFilterDropdownOpen(false);
+      }
+    };
+
+    const handleDocumentKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setIsTagFilterDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleDocumentMouseDown);
+    document.addEventListener("keydown", handleDocumentKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", handleDocumentMouseDown);
+      document.removeEventListener("keydown", handleDocumentKeyDown);
+    };
+  }, [isTagFilterDropdownOpen]);
+
+  useEffect(() => {
     if (!selectedNoDetectionImage) {
       return;
     }
@@ -865,7 +966,11 @@ export default function App() {
       const visibleWithCurrentFilter = getDisplayDetectionsForStatus(
         detectionsWithStatus,
         statusFilter,
-        { requireValidBounds: false }
+        {
+          requireValidBounds: false,
+          selectedTags: selectedTagFilters,
+          tagMatchMode: tagFilterMode,
+        }
       );
 
       if (detectionsWithStatus.length > 0 && visibleWithCurrentFilter.length === 0) {
@@ -873,6 +978,8 @@ export default function App() {
           (candidateStatus) =>
             getDisplayDetectionsForStatus(detectionsWithStatus, candidateStatus, {
               requireValidBounds: false,
+              selectedTags: selectedTagFilters,
+              tagMatchMode: tagFilterMode,
             }).length > 0
         );
 
@@ -972,7 +1079,11 @@ export default function App() {
       const visibleWithCurrentFilter = getDisplayDetectionsForStatus(
         detectionsWithStatus,
         statusFilter,
-        { requireValidBounds: false }
+        {
+          requireValidBounds: false,
+          selectedTags: selectedTagFilters,
+          tagMatchMode: tagFilterMode,
+        }
       );
 
       if (detectionsWithStatus.length > 0 && visibleWithCurrentFilter.length === 0) {
@@ -980,6 +1091,8 @@ export default function App() {
           (candidateStatus) =>
             getDisplayDetectionsForStatus(detectionsWithStatus, candidateStatus, {
               requireValidBounds: false,
+              selectedTags: selectedTagFilters,
+              tagMatchMode: tagFilterMode,
             }).length > 0
         );
 
@@ -1232,6 +1345,22 @@ export default function App() {
 
       return [...prevSelectedIds, detectionId];
     });
+  };
+
+  const handleToggleTagFilter = (tag) => {
+    setSelectedTagFilters((prevSelectedTags) => {
+      if (prevSelectedTags.includes(tag)) {
+        return prevSelectedTags.filter((selectedTag) => selectedTag !== tag);
+      }
+
+      return normalizeDetectionTags([...prevSelectedTags, tag]);
+    });
+  };
+
+  const handleRemoveTagFilter = (tagToRemove) => {
+    setSelectedTagFilters((prevSelectedTags) =>
+      prevSelectedTags.filter((selectedTag) => selectedTag !== tagToRemove)
+    );
   };
 
   const handleToggleNoDetectionSelection = (imageId) => {
@@ -1739,7 +1868,7 @@ export default function App() {
                 <div className="small text-muted mb-3">
                   {isNoDetectionsFilterSelected
                     ? "Widok kart oparty o zapisane obrazy analizy."
-                    : "Widok kart oparty o aktualnie widoczne detekcje (filtr statusu jest zachowany)."}
+                    : "Widok kart oparty o aktualnie widoczne detekcje (filtry statusu i tagow sa zachowane)."}
                 </div>
               )}
 
@@ -1789,7 +1918,13 @@ export default function App() {
               ) : detections.length === 0 ? (
                 <div className="small text-muted">Brak detekcji. Kliknij "Uruchom analize".</div>
               ) : filteredDetections.length === 0 ? (
-                <div className="small text-muted">Brak detekcji dla statusu: {statusFilter}.</div>
+                <div className="small text-muted">
+                  Brak detekcji dla statusu: {statusFilter}
+                  {selectedTagFilters.length > 0
+                    ? ` (tagi: ${selectedTagFilters.join(", ")} - ${tagFilterMode.toUpperCase()})`
+                    : ""}
+                  .
+                </div>
               ) : (
                 <div className="row g-3">
                   {filteredDetections.map((detection, detectionIndex) => {
@@ -2114,6 +2249,129 @@ export default function App() {
                 </button>
               </div>
 
+              {!isNoDetectionsFilterSelected && (
+                <div className="mb-3">
+                  <div className="d-flex justify-content-between align-items-center mb-2">
+                    <div className="small text-muted">Filtr tagow</div>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-secondary py-0"
+                      onClick={() => {
+                        setSelectedTagFilters([]);
+                        setIsTagFilterDropdownOpen(false);
+                      }}
+                      disabled={selectedTagFilters.length === 0}
+                    >
+                      Wyczysc
+                    </button>
+                  </div>
+
+                  {availableDetectionTags.length === 0 ? (
+                    <div className="small text-muted">Brak dostepnych tagow dla wybranego statusu.</div>
+                  ) : (
+                    <>
+                      <div className="dropdown tag-filter-dropdown mb-2" ref={tagFilterDropdownRef}>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-secondary w-100 d-flex justify-content-between align-items-center"
+                          onClick={() => setIsTagFilterDropdownOpen((prevState) => !prevState)}
+                          aria-expanded={isTagFilterDropdownOpen}
+                          aria-haspopup="listbox"
+                        >
+                          <span>
+                            {selectedTagFilters.length > 0
+                              ? `Wybrane tagi (${selectedTagFilters.length})`
+                              : "Wybierz tagi"}
+                          </span>
+                          <span className="small text-muted">
+                            {isTagFilterDropdownOpen ? "Zamknij" : "Otworz"}
+                          </span>
+                        </button>
+
+                        {isTagFilterDropdownOpen && (
+                          <div className="dropdown-menu d-block w-100 mt-1 p-2 tag-filter-dropdown-menu">
+                            {availableDetectionTags.map((tag) => {
+                              const isChecked = selectedTagFilters.includes(tag);
+
+                              return (
+                                <label key={`tag-filter-${tag}`} className="form-check mb-1 tag-filter-option">
+                                  <input
+                                    className="form-check-input"
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={() => handleToggleTagFilter(tag)}
+                                  />
+                                  <span className="form-check-label small">{tag}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+
+                      {selectedTagFilters.length > 0 ? (
+                        <div className="d-flex flex-wrap gap-1 mb-2">
+                          {selectedTagFilters.map((tag) => (
+                            <span
+                              key={`active-tag-filter-${tag}`}
+                              className="badge text-bg-light border dense-tag-chip d-inline-flex align-items-center"
+                            >
+                              <span className="me-1">{tag}</span>
+                              <button
+                                type="button"
+                                className="btn btn-sm p-0 border-0 bg-transparent detection-tag-remove"
+                                onClick={() => handleRemoveTagFilter(tag)}
+                                aria-label={`Usun filtr tagu ${tag}`}
+                              >
+                                x
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="small text-muted mb-2">Brak wybranych tagow.</div>
+                      )}
+
+                      <div className="small text-muted mb-1">Tryb dopasowania:</div>
+                      <div className="d-flex align-items-center gap-3 mb-1">
+                        <div className="form-check form-check-inline mb-0">
+                          <input
+                            className="form-check-input"
+                            type="radio"
+                            name="tag-filter-mode"
+                            id="tag-filter-mode-or"
+                            checked={tagFilterMode === "or"}
+                            onChange={() => setTagFilterMode("or")}
+                          />
+                          <label className="form-check-label small" htmlFor="tag-filter-mode-or">
+                            OR
+                          </label>
+                        </div>
+                        <div className="form-check form-check-inline mb-0">
+                          <input
+                            className="form-check-input"
+                            type="radio"
+                            name="tag-filter-mode"
+                            id="tag-filter-mode-and"
+                            checked={tagFilterMode === "and"}
+                            onChange={() => setTagFilterMode("and")}
+                          />
+                          <label className="form-check-label small" htmlFor="tag-filter-mode-and">
+                            AND
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="small text-muted">
+                        {tagFilterMode === "or"
+                          ? "OR: pokaz detekcje zawierajace dowolny wybrany tag."
+                          : "AND: pokaz tylko detekcje zawierajace wszystkie wybrane tagi."}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
               {isNoDetectionsFilterSelected ? (
                 <button
                   type="button"
@@ -2293,7 +2551,13 @@ export default function App() {
                 ) : detections.length === 0 ? (
                   <div className="small text-muted">Brak detekcji. Kliknij "Uruchom analize".</div>
                 ) : filteredDetections.length === 0 ? (
-                  <div className="small text-muted">Brak detekcji dla statusu: {statusFilter}.</div>
+                  <div className="small text-muted">
+                    Brak detekcji dla statusu: {statusFilter}
+                    {selectedTagFilters.length > 0
+                      ? ` (tagi: ${selectedTagFilters.join(", ")} - ${tagFilterMode.toUpperCase()})`
+                      : ""}
+                    .
+                  </div>
                 ) : (
                   <div className="list-group dense-detection-list">
                     {filteredDetections.map((detection, detectionIndex) => {
@@ -2375,12 +2639,23 @@ export default function App() {
                             <div className="detection-dense-tags">
                               {detectionTags.length > 0 ? (
                                 detectionTags.map((tag) => (
-                                  <span
+                                  <button
+                                    type="button"
                                     key={`${detection.detection_id}|dense|${tag}`}
-                                    className="badge text-bg-light border dense-tag-chip"
+                                    className={`badge border dense-tag-chip tag-filter-chip-btn ${
+                                      selectedTagFilters.includes(tag)
+                                        ? "text-bg-primary border-primary is-active"
+                                        : "text-bg-light"
+                                    }`}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleToggleTagFilter(tag);
+                                    }}
+                                    title="Kliknij, aby dodac/usunac tag z filtra"
+                                    aria-label={`Przelacz filtr tagu ${tag}`}
                                   >
                                     {tag}
-                                  </span>
+                                  </button>
                                 ))
                               ) : (
                                 <span className="small text-muted">-</span>
@@ -2435,7 +2710,18 @@ export default function App() {
                                 <div className="d-flex flex-wrap gap-1 mb-2">
                                   {detectionTags.map((tag) => (
                                     <span key={`${detection.detection_id}|${tag}`} className="badge text-bg-light border dense-tag-chip">
-                                      <span className="me-1">{tag}</span>
+                                      <button
+                                        type="button"
+                                        className={`btn btn-sm p-0 border-0 bg-transparent detection-tag-filter-toggle me-1 ${
+                                          selectedTagFilters.includes(tag)
+                                            ? "text-primary fw-semibold"
+                                            : "text-body"
+                                        }`}
+                                        onClick={() => handleToggleTagFilter(tag)}
+                                        aria-label={`Przelacz filtr tagu ${tag}`}
+                                      >
+                                        {tag}
+                                      </button>
                                       <button
                                         type="button"
                                         className="btn btn-sm p-0 border-0 bg-transparent detection-tag-remove"
