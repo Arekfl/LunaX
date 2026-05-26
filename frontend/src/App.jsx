@@ -345,83 +345,6 @@ function getDetectionPreviewUrl(detection) {
   return `https://planetarymaps.usgs.gov/cgi-bin/mapserv?${params.toString()}`;
 }
 
-function isGeoLikeBBox(bboxMinMax) {
-  if (!bboxMinMax) {
-    return false;
-  }
-
-  const { xMin, yMin, xMax, yMax } = bboxMinMax;
-  return (
-    Number.isFinite(xMin) &&
-    Number.isFinite(yMin) &&
-    Number.isFinite(xMax) &&
-    Number.isFinite(yMax) &&
-    xMin >= -180 &&
-    xMax <= 180 &&
-    yMin >= -90 &&
-    yMax <= 90 &&
-    xMax > xMin &&
-    yMax > yMin
-  );
-}
-
-function detectionIdHash(detectionId) {
-  const idText = String(detectionId || "");
-  let hash = 0;
-  for (let index = 0; index < idText.length; index += 1) {
-    hash = (hash + idText.charCodeAt(index) * (index + 1)) % 2147483647;
-  }
-  return hash;
-}
-
-function findAnalysisImageForDetection(detection, analysisImageList) {
-  if (!detection || !Array.isArray(analysisImageList) || analysisImageList.length === 0) {
-    return null;
-  }
-
-  const analysisId =
-    typeof detection.analysis_id === "string" && detection.analysis_id.trim().length > 0
-      ? detection.analysis_id
-      : null;
-
-  let candidates = analysisId
-    ? analysisImageList.filter((image) => image.analysis_id === analysisId)
-    : [];
-
-  if (candidates.length === 0) {
-    return null;
-  }
-
-  const preferredCandidates = candidates.filter((image) => image.status !== NO_DETECTIONS_FILTER);
-  if (preferredCandidates.length > 0) {
-    candidates = preferredCandidates;
-  }
-
-  const bboxMinMax = parseBBoxToMinMax(detection.bbox);
-  if (isGeoLikeBBox(bboxMinMax)) {
-    const centerLon = (bboxMinMax.xMin + bboxMinMax.xMax) / 2;
-    const centerLat = (bboxMinMax.yMin + bboxMinMax.yMax) / 2;
-    const candidatesWithCoords = candidates.filter(
-      (image) => typeof image.lat === "number" && typeof image.lon === "number"
-    );
-
-    if (candidatesWithCoords.length > 0) {
-      return candidatesWithCoords.reduce((bestImage, image) => {
-        if (!bestImage) {
-          return image;
-        }
-
-        const bestDistance = Math.hypot(bestImage.lon - centerLon, bestImage.lat - centerLat);
-        const currentDistance = Math.hypot(image.lon - centerLon, image.lat - centerLat);
-        return currentDistance < bestDistance ? image : bestImage;
-      }, null);
-    }
-  }
-
-  const hashedIndex = detectionIdHash(detection.detection_id) % candidates.length;
-  return candidates[hashedIndex] ?? candidates[0] ?? null;
-}
-
 function FitBoundsOnChange({ bounds }) {
   const map = useMap();
 
@@ -523,6 +446,7 @@ export default function App() {
   const [hoveredSegmentId, setHoveredSegmentId] = useState(null);
   const [selectedSegment, setSelectedSegment] = useState(null);
   const [selectedDetection, setSelectedDetection] = useState(null);
+  const [expandedDetectionId, setExpandedDetectionId] = useState(null);
   const [hoveredDetectionId, setHoveredDetectionId] = useState(null);
   const [inputComment, setInputComment] = useState("");
   const [tagDrafts, setTagDrafts] = useState({});
@@ -747,6 +671,24 @@ export default function App() {
       setInputComment("");
     }
   }, [filteredDetections, editingDetectionId]);
+
+  useEffect(() => {
+    if (!expandedDetectionId) {
+      return;
+    }
+
+    const stillVisible = filteredDetections.some(
+      (detection) => detection.detection_id === expandedDetectionId
+    );
+
+    if (!stillVisible) {
+      setExpandedDetectionId(null);
+      if (editingDetectionId === expandedDetectionId) {
+        setEditingDetectionId(null);
+        setInputComment("");
+      }
+    }
+  }, [filteredDetections, expandedDetectionId, editingDetectionId]);
 
   useEffect(() => {
     const availableIds = new Set(detections.map((detection) => detection.detection_id));
@@ -1114,6 +1056,7 @@ export default function App() {
 
   const handleStartEditComment = (detection) => {
     setSelectedDetection(detection);
+    setExpandedDetectionId(detection.detection_id);
     setEditingDetectionId(detection.detection_id);
     setInputComment(detection.comment ?? "");
   };
@@ -1150,8 +1093,8 @@ export default function App() {
         )
       );
 
-      setInputComment("");
-      setEditingDetectionId(null);
+      setInputComment(payload.comment);
+      setEditingDetectionId(targetDetectionId);
       setChosenMessage(editingDetectionId ? "Komentarz zaktualizowany." : "Komentarz zapisany.");
     } catch (error) {
       console.error("Blad podczas zapisu komentarza:", error);
@@ -1182,7 +1125,6 @@ export default function App() {
       );
 
       if (editingDetectionId === detectionId) {
-        setEditingDetectionId(null);
         setInputComment("");
       }
 
@@ -1260,6 +1202,24 @@ export default function App() {
       console.error("Blad podczas usuwania tagu:", error);
       setChosenMessage("Nie udalo sie usunac tagu.");
     }
+  };
+
+  const handleToggleDetectionExpand = (detection) => {
+    const detectionId = detection.detection_id;
+    handleSelectDetection(detection);
+
+    if (expandedDetectionId === detectionId) {
+      setExpandedDetectionId(null);
+      if (editingDetectionId === detectionId) {
+        setEditingDetectionId(null);
+        setInputComment("");
+      }
+      return;
+    }
+
+    setExpandedDetectionId(detectionId);
+    setEditingDetectionId(detectionId);
+    setInputComment(detection.comment ?? "");
   };
 
   const handleToggleDetectionSelection = (detectionId) => {
@@ -1402,6 +1362,10 @@ export default function App() {
           setSelectedDetection(null);
         }
 
+        if (expandedDetectionId && deletedIdsSet.has(expandedDetectionId)) {
+          setExpandedDetectionId(null);
+        }
+
         if (editingDetectionId && deletedIdsSet.has(editingDetectionId)) {
           setEditingDetectionId(null);
           setInputComment("");
@@ -1467,28 +1431,6 @@ export default function App() {
     setSelectedNoDetectionImage(image);
     setViewMode("gallery");
   }, []);
-
-  const handleOpenDetectionInGallery = useCallback(
-    (detection) => {
-      handleSelectDetection(detection);
-
-      const matchedImage = findAnalysisImageForDetection(detection, analysisImages);
-      if (!matchedImage) {
-        setChosenMessage(
-          "Brak zapisanego obrazu pasujacego do tej detekcji. Uruchom ponownie analize, aby odswiezyc obrazy."
-        );
-        return;
-      }
-
-      if (matchedImage.status !== NO_DETECTIONS_FILTER) {
-        setAnalysisImagesFilter(ALL_ANALYSIS_IMAGES_FILTER);
-      }
-
-      setSelectedNoDetectionImage(matchedImage);
-      setViewMode("gallery");
-    },
-    [analysisImages, handleSelectDetection]
-  );
 
   return (
     <div className="container-fluid py-3 app-shell">
@@ -2131,19 +2073,20 @@ export default function App() {
                 ) : filteredDetections.length === 0 ? (
                   <div className="small text-muted">Brak detekcji dla statusu: {statusFilter}.</div>
                 ) : (
-                  <div className="list-group">
+                  <div className="list-group dense-detection-list">
                     {filteredDetections.map((detection, detectionIndex) => {
                       const detectionUniqueId = getDetectionUniqueId(detection);
                       const detectionRenderKey = `${detectionUniqueId}|${detectionIndex}`;
                       const isSelected = isSameDetection(selectedDetection, detection);
+                      const isExpanded = expandedDetectionId === detection.detection_id;
                       const isHovered = hoveredDetectionId === detectionUniqueId;
                       const statusBadgeClass = getStatusBadgeClass(detection.status);
                       const detectionTags = normalizeDetectionTags(detection.tags);
                       const tagDraftValue = tagDrafts[detection.detection_id] ?? "";
                       const commentText = (detection.comment ?? "").trim();
-                      const hasComment = commentText.length > 0;
                       const isEditingThis = editingDetectionId === detection.detection_id;
-                      const isInputVisible = isEditingThis || (!hasComment && isSelected);
+                      const commentInputValue = isEditingThis ? inputComment : commentText;
+                      const hasComment = commentText.length > 0;
 
                       return (
                         <div
@@ -2157,7 +2100,7 @@ export default function App() {
                           }}
                           onMouseEnter={() => setHoveredDetectionId(detectionUniqueId)}
                           onMouseLeave={() => setHoveredDetectionId(null)}
-                          className={`list-group-item list-group-item-action text-start ${
+                          className={`list-group-item list-group-item-action text-start detection-dense-item ${
                             isSelected ? "bg-primary-subtle border-primary" : ""
                           }`}
                           style={
@@ -2169,190 +2112,194 @@ export default function App() {
                               : undefined
                           }
                         >
-                          <div className="d-flex align-items-start gap-2">
-                            <div className="form-check mt-1 mb-0">
+                          <div
+                            className={`detection-dense-row ${isExpanded ? "is-expanded" : ""}`}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => handleToggleDetectionExpand(detection)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                handleToggleDetectionExpand(detection);
+                              }
+                            }}
+                          >
+                            <div className="form-check mb-0">
                               <input
                                 className="form-check-input detection-select-checkbox"
                                 type="checkbox"
                                 checked={selectedIds.includes(detection.detection_id)}
-                                onChange={() => handleToggleDetectionSelection(detection.detection_id)}
+                                onChange={(event) => {
+                                  event.stopPropagation();
+                                  handleToggleDetectionSelection(detection.detection_id);
+                                }}
                                 aria-label={`Zaznacz detekcje ${detection.detection_id}`}
                                 disabled={deleteModal.isDeleting}
                               />
                             </div>
 
-                            <button
-                              type="button"
-                              onClick={() => handleOpenDetectionInGallery(detection)}
-                              className="btn btn-link text-decoration-none text-reset p-0 w-100 text-start"
-                            >
-                              <div><strong>{detection.detection_id}</strong></div>
-                              <div className="small mt-1">
-                                <span className={`badge ${statusBadgeClass}`}>{detection.status}</span>
-                              </div>
-                              <div className="small text-muted">
-                                confidence: {Number(detection.confidence).toFixed(2)}
-                              </div>
-                            </button>
+                            <div className="detection-dense-id fw-semibold text-truncate">
+                              {detection.detection_id}
+                            </div>
 
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-outline-danger detection-delete-btn"
-                              onClick={() => handleRequestDeleteDetection(detection)}
-                              title="Usun detekcje"
-                              aria-label={`Usun detekcje ${detection.detection_id}`}
-                              disabled={deleteModal.isDeleting}
-                            >
-                              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
-                                <path
-                                  fill="currentColor"
-                                  d="M5.5 5.5a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm5 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6zM1 3.5A.5.5 0 0 1 1.5 3H4V2a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v1h2.5a.5.5 0 0 1 0 1h-.538l-.853 10.66A1 1 0 0 1 12.112 15H3.888a1 1 0 0 1-.997-.84L2.038 4.5H1.5a.5.5 0 0 1-.5-.5zM5 2v1h6V2H5z"
-                                />
-                              </svg>
-                            </button>
-                          </div>
+                            <div className="detection-dense-meta">
+                              <span className={`badge ${statusBadgeClass}`}>{detection.status}</span>
+                            </div>
 
-                          <div className="mt-2">
-                            {detectionTags.length > 0 ? (
-                              <div className="d-flex flex-wrap gap-1 mb-2">
-                                {detectionTags.map((tag) => (
-                                  <span key={`${detection.detection_id}|${tag}`} className="badge text-bg-light border">
-                                    <span className="me-1">{tag}</span>
-                                    <button
-                                      type="button"
-                                      className="btn btn-sm p-0 border-0 bg-transparent detection-tag-remove"
-                                      onClick={() => handleRemoveTag(detection.detection_id, tag)}
-                                      aria-label={`Usun tag ${tag}`}
-                                      disabled={deleteModal.isDeleting}
-                                    >
-                                      x
-                                    </button>
+                            <div className="detection-dense-meta text-muted">
+                              {Number(detection.confidence).toFixed(2)}
+                            </div>
+
+                            <div className="detection-dense-tags">
+                              {detectionTags.length > 0 ? (
+                                detectionTags.map((tag) => (
+                                  <span
+                                    key={`${detection.detection_id}|dense|${tag}`}
+                                    className="badge text-bg-light border dense-tag-chip"
+                                  >
+                                    {tag}
                                   </span>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="small text-muted mb-2">Brak tagow.</div>
-                            )}
+                                ))
+                              ) : (
+                                <span className="small text-muted">-</span>
+                              )}
+                            </div>
 
-                            <div className="d-flex gap-2">
-                              <input
-                                className="form-control form-control-sm"
-                                type="text"
-                                placeholder="Dodaj tag"
-                                value={tagDraftValue}
-                                onChange={(event) =>
-                                  setTagDrafts((prev) => ({
-                                    ...prev,
-                                    [detection.detection_id]: event.target.value,
-                                  }))
-                                }
-                                onKeyDown={(event) => {
-                                  if (event.key === "Enter") {
-                                    event.preventDefault();
-                                    handleAddTag(detection.detection_id);
-                                  }
-                                }}
-                                disabled={deleteModal.isDeleting}
-                              />
+                            <div className="detection-dense-actions">
                               <button
                                 type="button"
-                                className="btn btn-sm btn-outline-primary"
-                                onClick={() => handleAddTag(detection.detection_id)}
+                                className="btn btn-sm btn-outline-secondary detection-icon-btn"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleStartEditComment(detection);
+                                }}
+                                title="Komentarz"
+                                aria-label={`Komentarz dla ${detection.detection_id}`}
                                 disabled={deleteModal.isDeleting}
                               >
-                                Dodaj tag
+                                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                                  <path
+                                    fill="currentColor"
+                                    d="M2 2.5A1.5 1.5 0 0 1 3.5 1h9A1.5 1.5 0 0 1 14 2.5v7A1.5 1.5 0 0 1 12.5 11H6l-3.5 3v-3H3.5A1.5 1.5 0 0 1 2 9.5v-7z"
+                                  />
+                                </svg>
+                              </button>
+
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline-danger detection-icon-btn"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleRequestDeleteDetection(detection);
+                                }}
+                                title="Usun detekcje"
+                                aria-label={`Usun detekcje ${detection.detection_id}`}
+                                disabled={deleteModal.isDeleting}
+                              >
+                                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                                  <path
+                                    fill="currentColor"
+                                    d="M5.5 5.5a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm5 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6zM1 3.5A.5.5 0 0 1 1.5 3H4V2a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v1h2.5a.5.5 0 0 1 0 1h-.538l-.853 10.66A1 1 0 0 1 12.112 15H3.888a1 1 0 0 1-.997-.84L2.038 4.5H1.5a.5.5 0 0 1-.5-.5zM5 2v1h6V2H5z"
+                                  />
+                                </svg>
                               </button>
                             </div>
                           </div>
 
-                          {hasComment && (
-                            <div className="small border rounded bg-light px-2 py-1 mt-2 d-flex align-items-start justify-content-between gap-2">
-                              <div className="flex-grow-1">
-                                <strong>Komentarz:</strong> {commentText}
-                              </div>
-                              <div className="d-flex gap-1">
-                                {!isEditingThis && (
-                                  <button
-                                    type="button"
-                                    className="btn btn-sm btn-outline-secondary px-2 py-0"
-                                    onClick={() => handleStartEditComment(detection)}
-                                    title="Edytuj komentarz"
-                                    aria-label="Edytuj komentarz"
-                                  >
-                                    <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
-                                      <path
-                                        fill="currentColor"
-                                        d="M12.854 1.146a.5.5 0 0 1 0 .708L6.207 8.5H4v-2.207l6.646-6.647a.5.5 0 0 1 .708 0l1.5 1.5zm-8.354 8.354L10.646 3.354l2 2L6.5 11.5H4.5v-2zM2 13h12v1H2v-1z"
-                                      />
-                                    </svg>
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  className="btn btn-sm btn-outline-danger px-2 py-0"
-                                  onClick={() => handleDeleteComment(detection.detection_id)}
-                                  title="Usun komentarz"
-                                  aria-label="Usun komentarz"
-                                >
-                                  <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
-                                    <path
-                                      fill="currentColor"
-                                      d="M5.5 5.5a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm5 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6zM1 3.5A.5.5 0 0 1 1.5 3H4V2a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v1h2.5a.5.5 0 0 1 0 1h-.538l-.853 10.66A1 1 0 0 1 12.112 15H3.888a1 1 0 0 1-.997-.84L2.038 4.5H1.5a.5.5 0 0 1-.5-.5zM5 2v1h6V2H5z"
-                                    />
-                                  </svg>
-                                </button>
-                              </div>
-                            </div>
-                          )}
+                          {isExpanded && (
+                            <div className="detection-expand-panel">
+                              <div className="small text-muted mb-1">Tagi</div>
+                              {detectionTags.length > 0 ? (
+                                <div className="d-flex flex-wrap gap-1 mb-2">
+                                  {detectionTags.map((tag) => (
+                                    <span key={`${detection.detection_id}|${tag}`} className="badge text-bg-light border dense-tag-chip">
+                                      <span className="me-1">{tag}</span>
+                                      <button
+                                        type="button"
+                                        className="btn btn-sm p-0 border-0 bg-transparent detection-tag-remove"
+                                        onClick={() => handleRemoveTag(detection.detection_id, tag)}
+                                        aria-label={`Usun tag ${tag}`}
+                                        disabled={deleteModal.isDeleting}
+                                      >
+                                        x
+                                      </button>
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="small text-muted mb-2">Brak tagow.</div>
+                              )}
 
-                          <div className="d-flex gap-2 mt-2 flex-wrap">
-                            {hasComment ? (
-                              null
-                            ) : (
-                              !isInputVisible && (
+                              <div className="d-flex gap-2 mb-2">
+                                <input
+                                  className="form-control form-control-sm"
+                                  type="text"
+                                  placeholder="Dodaj tag"
+                                  value={tagDraftValue}
+                                  onChange={(event) =>
+                                    setTagDrafts((prev) => ({
+                                      ...prev,
+                                      [detection.detection_id]: event.target.value,
+                                    }))
+                                  }
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") {
+                                      event.preventDefault();
+                                      handleAddTag(detection.detection_id);
+                                    }
+                                  }}
+                                  disabled={deleteModal.isDeleting}
+                                />
                                 <button
                                   type="button"
                                   className="btn btn-sm btn-outline-primary"
-                                  onClick={() => {
-                                    setSelectedDetection(detection);
-                                    setEditingDetectionId(null);
-                                    setInputComment("");
-                                  }}
+                                  onClick={() => handleAddTag(detection.detection_id)}
+                                  disabled={deleteModal.isDeleting}
                                 >
-                                  Dodaj komentarz
+                                  Dodaj tag
                                 </button>
-                              )
-                            )}
-                          </div>
+                              </div>
 
-                          {isInputVisible && (
-                            <div className="d-flex gap-2 mt-2">
-                              <input
-                                className="form-control form-control-sm"
-                                type="text"
-                                placeholder="Wpisz komentarz"
-                                value={inputComment}
-                                onChange={(event) => setInputComment(event.target.value)}
-                              />
-                              <button
-                                type="button"
-                                className="btn btn-sm btn-outline-primary"
-                                onClick={() => handleSaveComment(detection.detection_id)}
-                              >
-                                {isEditingThis ? "Zapisz zmiany" : "Zapisz"}
-                              </button>
-                              {isEditingThis && (
+                              <div className="small text-muted mb-1">Komentarz</div>
+                              <div className="d-flex gap-2">
+                                <input
+                                  className="form-control form-control-sm"
+                                  type="text"
+                                  placeholder="Wpisz komentarz"
+                                  value={commentInputValue}
+                                  onChange={(event) => {
+                                    if (!isEditingThis) {
+                                      setEditingDetectionId(detection.detection_id);
+                                    }
+                                    setInputComment(event.target.value);
+                                  }}
+                                  onFocus={() => {
+                                    if (!isEditingThis) {
+                                      setEditingDetectionId(detection.detection_id);
+                                      setInputComment(commentText);
+                                    }
+                                  }}
+                                  disabled={deleteModal.isDeleting}
+                                />
                                 <button
                                   type="button"
-                                  className="btn btn-sm btn-outline-secondary"
-                                  onClick={() => {
-                                    setEditingDetectionId(null);
-                                    setInputComment("");
-                                  }}
+                                  className="btn btn-sm btn-outline-primary"
+                                  onClick={() => handleSaveComment(detection.detection_id)}
+                                  disabled={deleteModal.isDeleting}
                                 >
-                                  Anuluj
+                                  Zapisz
                                 </button>
-                              )}
+                                {hasComment && (
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm btn-outline-danger"
+                                    onClick={() => handleDeleteComment(detection.detection_id)}
+                                    disabled={deleteModal.isDeleting}
+                                  >
+                                    Usun
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           )}
                         </div>

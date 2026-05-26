@@ -80,6 +80,63 @@ body {
   padding-right: 2px;
 }
 
+.dense-detection-list .list-group-item {
+  padding: 0.35rem 0.5rem;
+}
+
+.detection-dense-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 1.9rem;
+  cursor: pointer;
+}
+
+.detection-dense-id {
+  min-width: 5.8rem;
+  max-width: 8.5rem;
+  font-size: 0.82rem;
+}
+
+.detection-dense-meta {
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.detection-dense-tags {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  min-width: 0;
+  flex: 1;
+}
+
+.dense-tag-chip {
+  font-size: 0.68rem;
+  font-weight: 500;
+  padding: 0.18rem 0.35rem;
+}
+
+.detection-dense-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.detection-icon-btn {
+  line-height: 1;
+  padding: 0.2rem 0.35rem;
+}
+
+.detection-expand-panel {
+  border-top: 1px solid #e9ecef;
+  margin-top: 0.45rem;
+  padding-top: 0.45rem;
+}
+
 .detection-delete-btn {
   flex: 0 0 auto;
   line-height: 1;
