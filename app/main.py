@@ -17,6 +17,8 @@ from app.schemas import (
     AnalysisRunRequest,
     AnalysisRunResponse,
     BBox,
+    DetectionBulkDeleteRequest,
+    DetectionBulkDeleteResponse,
     DetectionDeleteResponse,
     Detection,
     DetectionCommentUpdateRequest,
@@ -28,6 +30,7 @@ from app.schemas import (
     LocalValidationRunRequest,
 )
 from app.analytics import (
+    delete_detections_bulk_and_related_assets,
     delete_detection_and_related_assets,
     get_analysis_image_path,
     get_no_detection_image_path,
@@ -361,6 +364,33 @@ def update_detection_comment(
 ) -> DetectionCommentUpdateResponse:
     upsert_detection_comment(detection_id=id, comment=payload.comment)
     return DetectionCommentUpdateResponse(detection_id=id, comment=payload.comment)
+
+
+@app.delete("/detections/bulk", response_model=DetectionBulkDeleteResponse)
+def delete_detections_bulk(payload: DetectionBulkDeleteRequest) -> DetectionBulkDeleteResponse:
+    delete_summary = delete_detections_bulk_and_related_assets(
+        detection_ids=payload.detection_ids
+    )
+
+    deleted_detection_ids = [
+        str(detection_id)
+        for detection_id in delete_summary.get("deleted_detection_ids", [])
+    ]
+
+    for detection_id in deleted_detection_ids:
+        delete_detection_status(detection_id=detection_id)
+        delete_detection_comment(detection_id=detection_id)
+
+    return DetectionBulkDeleteResponse(
+        requested_count=int(delete_summary.get("requested_count", 0)),
+        deleted_count=int(delete_summary.get("deleted_count", 0)),
+        deleted_detection_ids=deleted_detection_ids,
+        missing_detection_ids=[
+            str(detection_id)
+            for detection_id in delete_summary.get("missing_detection_ids", [])
+        ],
+        related_image_missing=bool(delete_summary.get("related_image_missing")),
+    )
 
 
 @app.delete("/detections/{id}", response_model=DetectionDeleteResponse)

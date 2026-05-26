@@ -85,6 +85,10 @@ body {
   line-height: 1;
 }
 
+.detection-select-checkbox {
+  cursor: pointer;
+}
+
 .confirm-modal-backdrop {
   position: fixed;
   inset: 0;

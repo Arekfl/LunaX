@@ -94,6 +94,20 @@ class DetectionDeleteResponse(BaseModel):
     related_image_missing: bool = False
 
 
+class DetectionBulkDeleteRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    detection_ids: list[str] = Field(..., min_length=1, alias="detectionIds")
+
+
+class DetectionBulkDeleteResponse(BaseModel):
+    requested_count: int
+    deleted_count: int
+    deleted_detection_ids: list[str]
+    missing_detection_ids: list[str]
+    related_image_missing: bool = False
+
+
 class DetectionsQueryParams(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 

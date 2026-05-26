@@ -1065,6 +1065,152 @@ def test_delete_detection_removes_detection_related_image_and_overrides(
     assert not removed_image_path.exists()
 
 
+def test_delete_detections_bulk_removes_detections_related_images_and_overrides(
+    tmp_path, monkeypatch
+) -> None:
+    no_detections_image_dir = tmp_path / "images" / "no_detections"
+    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    detections_parquet_file = tmp_path / "detections.parquet"
+    status_file = tmp_path / "detection_statuses.json"
+    comment_file = tmp_path / "detection_comments.json"
+
+    monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
+    monkeypatch.setenv("NO_DETECTIONS_PARQUET_FILE", str(no_detections_parquet_file))
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+    monkeypatch.setenv("DETECTION_STATUS_FILE", str(status_file))
+    monkeypatch.setenv("DETECTION_COMMENT_FILE", str(comment_file))
+    monkeypatch.setattr("app.main.download_tile", _mock_tile)
+
+    inference_call_index = {"value": 0}
+
+    def _bulk_mock_inference(*_args, **_kwargs):
+        inference_call_index["value"] += 1
+        idx = inference_call_index["value"]
+        return [
+            {
+                "detection_id": f"det-bulk-{idx}",
+                "bbox": {"x": 10.0 + idx, "y": 20.0 + idx, "width": 30.0, "height": 40.0},
+                "confidence": 0.95,
+                "class": "cave_candidate",
+            }
+        ]
+
+    monkeypatch.setattr("app.main.run_inference", _bulk_mock_inference)
+
+    run_response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "detail",
+            "numSamples": 2,
+            "confidenceThreshold": 0.5,
+            "bbox": [-20.0, -10.0, 20.0, 10.0],
+        },
+    )
+    assert run_response.status_code == 200
+    detection_ids = sorted(
+        {detection["detection_id"] for detection in run_response.json()["detections"]}
+    )
+    assert len(detection_ids) == 2
+
+    for detection_id in detection_ids:
+        status_response = client.patch(
+            f"/detections/{detection_id}/status", json={"status": "rejected"}
+        )
+        assert status_response.status_code == 200
+
+        comment_response = client.patch(
+            f"/detections/{detection_id}/comment", json={"comment": "bulk-delete"}
+        )
+        assert comment_response.status_code == 200
+
+    images_before_response = client.get("/analysis-images/query")
+    assert images_before_response.status_code == 200
+    assert len(images_before_response.json()) == 2
+
+    delete_response = client.request(
+        "DELETE",
+        "/detections/bulk",
+        json={"detectionIds": detection_ids},
+    )
+
+    assert delete_response.status_code == 200
+    delete_payload = delete_response.json()
+    assert delete_payload["requested_count"] == 2
+    assert delete_payload["deleted_count"] == 2
+    assert sorted(delete_payload["deleted_detection_ids"]) == detection_ids
+    assert delete_payload["missing_detection_ids"] == []
+    assert delete_payload["related_image_missing"] is False
+
+    detections_response = client.get("/detections/query")
+    assert detections_response.status_code == 200
+    assert all(
+        row["detection_id"] not in set(detection_ids)
+        for row in detections_response.json()
+    )
+
+    statuses_response = client.get("/detections/statuses")
+    assert statuses_response.status_code == 200
+    assert all(
+        detection_id not in statuses_response.json() for detection_id in detection_ids
+    )
+
+    with comment_file.open("r", encoding="utf-8") as file_handle:
+        comments_payload = json.load(file_handle)
+    assert all(detection_id not in comments_payload for detection_id in detection_ids)
+
+    images_after_response = client.get("/analysis-images/query")
+    assert images_after_response.status_code == 200
+    assert images_after_response.json() == []
+
+
+def test_delete_detections_bulk_reports_missing_detection_ids(tmp_path, monkeypatch) -> None:
+    no_detections_image_dir = tmp_path / "images" / "no_detections"
+    no_detections_parquet_file = tmp_path / "no_detections.parquet"
+    detections_parquet_file = tmp_path / "detections.parquet"
+
+    monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
+    monkeypatch.setenv("NO_DETECTIONS_PARQUET_FILE", str(no_detections_parquet_file))
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+    monkeypatch.setattr("app.main.download_tile", _mock_tile)
+    monkeypatch.setattr(
+        "app.main.run_inference",
+        Mock(
+            return_value=[
+                {
+                    "detection_id": "det-bulk-known",
+                    "bbox": {"x": 10.0, "y": 20.0, "width": 30.0, "height": 40.0},
+                    "confidence": 0.95,
+                    "class": "cave_candidate",
+                }
+            ]
+        ),
+    )
+
+    run_response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "detail",
+            "numSamples": 1,
+            "confidenceThreshold": 0.5,
+            "bbox": [-20.0, -10.0, 20.0, 10.0],
+        },
+    )
+    assert run_response.status_code == 200
+
+    delete_response = client.request(
+        "DELETE",
+        "/detections/bulk",
+        json={"detectionIds": ["det-bulk-known", "det-bulk-missing"]},
+    )
+
+    assert delete_response.status_code == 200
+    delete_payload = delete_response.json()
+    assert delete_payload["requested_count"] == 2
+    assert delete_payload["deleted_count"] == 1
+    assert delete_payload["deleted_detection_ids"] == ["det-bulk-known"]
+    assert delete_payload["missing_detection_ids"] == ["det-bulk-missing"]
+
+
 def test_delete_detection_returns_404_for_unknown_id(tmp_path, monkeypatch) -> None:
     detections_parquet_file = tmp_path / "detections.parquet"
     monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))

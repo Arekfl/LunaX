@@ -511,6 +511,44 @@ def delete_detection_and_related_assets(detection_id: str) -> dict[str, str | bo
     }
 
 
+def delete_detections_bulk_and_related_assets(
+    detection_ids: Sequence[str],
+) -> dict[str, int | bool | list[str]]:
+    unique_detection_ids: list[str] = []
+    seen_ids: set[str] = set()
+
+    for raw_detection_id in detection_ids:
+        detection_id = str(raw_detection_id).strip()
+        if not detection_id or detection_id in seen_ids:
+            continue
+
+        seen_ids.add(detection_id)
+        unique_detection_ids.append(detection_id)
+
+    deleted_detection_ids: list[str] = []
+    missing_detection_ids: list[str] = []
+    related_image_missing = False
+
+    for detection_id in unique_detection_ids:
+        delete_payload = delete_detection_and_related_assets(detection_id=detection_id)
+        if bool(delete_payload.get("detection_deleted")):
+            deleted_detection_ids.append(detection_id)
+            related_image_missing = related_image_missing or bool(
+                delete_payload.get("related_image_missing")
+            )
+            continue
+
+        missing_detection_ids.append(detection_id)
+
+    return {
+        "requested_count": len(unique_detection_ids),
+        "deleted_count": len(deleted_detection_ids),
+        "deleted_detection_ids": deleted_detection_ids,
+        "missing_detection_ids": missing_detection_ids,
+        "related_image_missing": related_image_missing,
+    }
+
+
 def save_detections_to_parquet(
     detections: Sequence[Detection],
     default_status: str = "to_verify",
