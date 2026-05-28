@@ -728,6 +728,8 @@ export default function App() {
   const [selectedNoDetectionImage, setSelectedNoDetectionImage] = useState(null);
   const [expandedNoDetectionImageId, setExpandedNoDetectionImageId] = useState(null);
   const [selectedNoDetectionImageIds, setSelectedNoDetectionImageIds] = useState([]);
+  const [noDetectionBulkTagDraft, setNoDetectionBulkTagDraft] = useState("");
+  const [isNoDetectionBulkTagging, setIsNoDetectionBulkTagging] = useState(false);
   const [currentAnalysisId, setCurrentAnalysisId] = useState(null);
   const [isLoadingDetections, setIsLoadingDetections] = useState(false);
   const [analysisOverlayBounds, setAnalysisOverlayBounds] = useState(null);
@@ -753,6 +755,8 @@ export default function App() {
   const [tagDrafts, setTagDrafts] = useState({});
   const [editingDetectionId, setEditingDetectionId] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkTagDraft, setBulkTagDraft] = useState("");
+  const [isBulkTagging, setIsBulkTagging] = useState(false);
   const [deleteModal, setDeleteModal] = useState({
     targetType: null,
     targetIds: [],
@@ -1817,6 +1821,90 @@ export default function App() {
     });
   };
 
+  const handleApplyBulkTag = async () => {
+    const normalizedTag = String(bulkTagDraft || "").trim();
+    if (!normalizedTag) {
+      setChosenMessage("Wpisz tag do dodania.");
+      return;
+    }
+
+    const normalizedSelectedIds = [
+      ...new Set(selectedIds.map((id) => String(id || "").trim()).filter(Boolean)),
+    ];
+    if (normalizedSelectedIds.length === 0) {
+      setChosenMessage("Zaznacz co najmniej jedna detekcje do tagowania.");
+      return;
+    }
+
+    setIsBulkTagging(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/detections/bulk/tags`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          detectionIds: normalizedSelectedIds,
+          tag: normalizedTag,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const payload = await response.json();
+      const appliedTag = String(payload?.tag ?? normalizedTag).trim() || normalizedTag;
+      const updatedDetectionIds = Array.isArray(payload?.updated_detection_ids)
+        ? payload.updated_detection_ids
+            .map((id) => String(id || "").trim())
+            .filter(Boolean)
+        : [];
+      const missingDetectionIds = Array.isArray(payload?.missing_detection_ids)
+        ? payload.missing_detection_ids
+            .map((id) => String(id || "").trim())
+            .filter(Boolean)
+        : [];
+      const updatedDetectionIdsSet = new Set(updatedDetectionIds);
+
+      if (updatedDetectionIdsSet.size > 0) {
+        setDetections((prev) =>
+          prev.map((detection) => {
+            const detectionId = String(detection?.detection_id || "").trim();
+            if (!updatedDetectionIdsSet.has(detectionId)) {
+              return detection;
+            }
+
+            const nextTags = normalizeDetectionTags([
+              ...normalizeDetectionTags(detection?.tags),
+              appliedTag,
+            ]);
+            return { ...detection, tags: nextTags };
+          })
+        );
+      }
+
+      setBulkTagDraft("");
+      if (updatedDetectionIds.length === 0) {
+        setChosenMessage("Nie znaleziono wybranych detekcji do tagowania.");
+        return;
+      }
+
+      const missingMessage =
+        missingDetectionIds.length > 0
+          ? ` Nie znaleziono ${missingDetectionIds.length} detekcji.`
+          : "";
+      setChosenMessage(
+        `Dodano tag \"${appliedTag}\" do ${updatedDetectionIds.length} detekcji.${missingMessage}`
+      );
+    } catch (error) {
+      console.error("Blad podczas masowego dodawania tagu:", error);
+      setChosenMessage("Nie udalo sie dodac tagu do zaznaczonych detekcji.");
+    } finally {
+      setIsBulkTagging(false);
+    }
+  };
+
   const handleToggleTagFilter = (tag) => {
     setSelectedTagFilters((prevSelectedTags) => {
       if (prevSelectedTags.includes(tag)) {
@@ -1860,6 +1948,88 @@ export default function App() {
     }
 
     setExpandedNoDetectionImageId(imageId);
+  };
+
+  const handleApplyNoDetectionBulkTag = async () => {
+    const normalizedTag = String(noDetectionBulkTagDraft || "").trim();
+    if (!normalizedTag) {
+      setChosenMessage("Wpisz tag do dodania.");
+      return;
+    }
+
+    const normalizedSelectedIds = [
+      ...new Set(
+        selectedNoDetectionImageIds
+          .map((imageId) => String(imageId || "").trim())
+          .filter(Boolean)
+      ),
+    ];
+    if (normalizedSelectedIds.length === 0) {
+      setChosenMessage("Zaznacz co najmniej jeden obraz no_detections do tagowania.");
+      return;
+    }
+
+    setIsNoDetectionBulkTagging(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/analysis-images/bulk/tags`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          imageIds: normalizedSelectedIds,
+          tag: normalizedTag,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const payload = await response.json();
+      const appliedTag = String(payload?.tag ?? normalizedTag).trim() || normalizedTag;
+      const updatedImageIds = Array.isArray(payload?.updated_image_ids)
+        ? payload.updated_image_ids.map((imageId) => String(imageId || "").trim()).filter(Boolean)
+        : [];
+      const missingImageIds = Array.isArray(payload?.missing_image_ids)
+        ? payload.missing_image_ids.map((imageId) => String(imageId || "").trim()).filter(Boolean)
+        : [];
+      const updatedImageIdsSet = new Set(updatedImageIds);
+
+      if (updatedImageIdsSet.size > 0) {
+        setAnalysisImages((prev) =>
+          prev.map((image) => {
+            const imageId = String(image?.image_id || "").trim();
+            if (!updatedImageIdsSet.has(imageId)) {
+              return image;
+            }
+
+            const nextTags = normalizeDetectionTags([
+              ...normalizeDetectionTags(image?.tags),
+              appliedTag,
+            ]);
+            return { ...image, tags: nextTags };
+          })
+        );
+      }
+
+      setNoDetectionBulkTagDraft("");
+      if (updatedImageIds.length === 0) {
+        setChosenMessage("Nie znaleziono wybranych obrazow no_detections do tagowania.");
+        return;
+      }
+
+      const missingMessage =
+        missingImageIds.length > 0 ? ` Nie znaleziono ${missingImageIds.length} obrazow.` : "";
+      setChosenMessage(
+        `Dodano tag \"${appliedTag}\" do ${updatedImageIds.length} obrazow no_detections.${missingMessage}`
+      );
+    } catch (error) {
+      console.error("Blad podczas masowego tagowania obrazow no_detections:", error);
+      setChosenMessage("Nie udalo sie dodac tagu do zaznaczonych obrazow no_detections.");
+    } finally {
+      setIsNoDetectionBulkTagging(false);
+    }
   };
 
   const handleRequestDeleteDetection = (detection) => {
@@ -2903,26 +3073,98 @@ export default function App() {
               )}
 
               {isNoDetectionsFilterSelected ? (
-                <button
-                  type="button"
-                  className="btn btn-sm btn-outline-danger w-100 mb-3"
-                  onClick={handleRequestBulkDeleteNoDetectionImages}
-                  disabled={selectedNoDetectionImageIds.length === 0 || deleteModal.isDeleting}
-                >
-                  Usun zaznaczone obrazy
-                  {selectedNoDetectionImageIds.length > 0
-                    ? ` (${selectedNoDetectionImageIds.length})`
-                    : ""}
-                </button>
+                <>
+                  <div className="d-flex gap-2 mb-2">
+                    <input
+                      className="form-control form-control-sm"
+                      type="text"
+                      placeholder="Dodaj tag"
+                      value={noDetectionBulkTagDraft}
+                      onChange={(event) => setNoDetectionBulkTagDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          handleApplyNoDetectionBulkTag();
+                        }
+                      }}
+                      disabled={
+                        selectedNoDetectionImageIds.length === 0 ||
+                        deleteModal.isDeleting ||
+                        isNoDetectionBulkTagging
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-primary"
+                      onClick={handleApplyNoDetectionBulkTag}
+                      disabled={
+                        selectedNoDetectionImageIds.length === 0 ||
+                        deleteModal.isDeleting ||
+                        isNoDetectionBulkTagging ||
+                        String(noDetectionBulkTagDraft || "").trim().length === 0
+                      }
+                    >
+                      {isNoDetectionBulkTagging ? "Dodawanie..." : "Dodaj tag"}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-danger w-100 mb-3"
+                    onClick={handleRequestBulkDeleteNoDetectionImages}
+                    disabled={
+                      selectedNoDetectionImageIds.length === 0 ||
+                      deleteModal.isDeleting ||
+                      isNoDetectionBulkTagging
+                    }
+                  >
+                    Usun zaznaczone obrazy
+                    {selectedNoDetectionImageIds.length > 0
+                      ? ` (${selectedNoDetectionImageIds.length})`
+                      : ""}
+                  </button>
+                </>
               ) : (
-                <button
-                  type="button"
-                  className="btn btn-sm btn-outline-danger w-100 mb-3"
-                  onClick={handleRequestBulkDeleteDetections}
-                  disabled={selectedIds.length === 0 || deleteModal.isDeleting}
-                >
-                  Usun zaznaczone{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
-                </button>
+                <>
+                  <div className="d-flex gap-2 mb-2">
+                    <input
+                      className="form-control form-control-sm"
+                      type="text"
+                      placeholder="Dodaj tag"
+                      value={bulkTagDraft}
+                      onChange={(event) => setBulkTagDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          handleApplyBulkTag();
+                        }
+                      }}
+                      disabled={
+                        selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-primary"
+                      onClick={handleApplyBulkTag}
+                      disabled={
+                        selectedIds.length === 0 ||
+                        deleteModal.isDeleting ||
+                        isBulkTagging ||
+                        String(bulkTagDraft || "").trim().length === 0
+                      }
+                    >
+                      {isBulkTagging ? "Dodawanie..." : "Dodaj tag"}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-danger w-100 mb-3"
+                    onClick={handleRequestBulkDeleteDetections}
+                    disabled={selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging}
+                  >
+                    Usun zaznaczone{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+                  </button>
+                </>
               )}
 
               <div className="detection-list-scroll" ref={detectionListRef}>
@@ -2939,6 +3181,7 @@ export default function App() {
                             selectedNoDetectionImage?.image_id === image.image_id;
                           const isExpanded = expandedNoDetectionImageId === imageId;
                           const imageName = getFileNameFromPath(image.path);
+                          const imageTags = normalizeDetectionTags(image.tags);
 
                           return (
                             <div
@@ -2972,7 +3215,11 @@ export default function App() {
                                       handleToggleNoDetectionSelection(imageId);
                                     }}
                                     aria-label={`Zaznacz obraz ${imageId}`}
-                                    disabled={deleteModal.isDeleting || imageId.length === 0}
+                                    disabled={
+                                      deleteModal.isDeleting ||
+                                      isNoDetectionBulkTagging ||
+                                      imageId.length === 0
+                                    }
                                   />
                                 </div>
 
@@ -3004,7 +3251,7 @@ export default function App() {
                                     }}
                                     title="Podglad"
                                     aria-label={`Podglad obrazu ${imageId}`}
-                                    disabled={deleteModal.isDeleting}
+                                    disabled={deleteModal.isDeleting || isNoDetectionBulkTagging}
                                   >
                                     <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
                                       <path
@@ -3027,7 +3274,11 @@ export default function App() {
                                     }}
                                     title="Usun obraz"
                                     aria-label={`Usun obraz ${imageId}`}
-                                    disabled={deleteModal.isDeleting || imageId.length === 0}
+                                    disabled={
+                                      deleteModal.isDeleting ||
+                                      isNoDetectionBulkTagging ||
+                                      imageId.length === 0
+                                    }
                                   >
                                     <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
                                       <path
@@ -3061,6 +3312,21 @@ export default function App() {
                                   <div className="small mb-2">
                                     <strong>analysis_id:</strong> {image.analysis_id || "-"}
                                   </div>
+                                  <div className="small text-muted mb-1">Tagi</div>
+                                  {imageTags.length > 0 ? (
+                                    <div className="d-flex flex-wrap gap-1 mb-2">
+                                      {imageTags.map((tag) => (
+                                        <span
+                                          key={`${imageId}|tag|${tag}`}
+                                          className="badge text-bg-light border dense-tag-chip"
+                                        >
+                                          {tag}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div className="small text-muted mb-2">Brak tagow.</div>
+                                  )}
                                   <div className="small text-muted text-break">{image.path || ""}</div>
 
                                   <div className="d-flex justify-content-end mt-2">
@@ -3068,7 +3334,7 @@ export default function App() {
                                       type="button"
                                       className="btn btn-sm btn-outline-secondary"
                                       onClick={() => handleOpenAnalysisImage(image)}
-                                      disabled={deleteModal.isDeleting}
+                                      disabled={deleteModal.isDeleting || isNoDetectionBulkTagging}
                                     >
                                       Otworz podglad
                                     </button>
@@ -3159,7 +3425,7 @@ export default function App() {
                                   handleToggleDetectionSelection(detection.detection_id);
                                 }}
                                 aria-label={`Zaznacz detekcje ${detection.detection_id}`}
-                                disabled={deleteModal.isDeleting}
+                                disabled={deleteModal.isDeleting || isBulkTagging}
                               />
                             </div>
 
@@ -3211,7 +3477,7 @@ export default function App() {
                                 }}
                                 title="Podglad"
                                 aria-label={`Podglad detekcji ${detection.detection_id}`}
-                                disabled={deleteModal.isDeleting}
+                                disabled={deleteModal.isDeleting || isBulkTagging}
                               >
                                 <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
                                   <path
@@ -3234,7 +3500,7 @@ export default function App() {
                                 }}
                                 title="Usun detekcje"
                                 aria-label={`Usun detekcje ${detection.detection_id}`}
-                                disabled={deleteModal.isDeleting}
+                                disabled={deleteModal.isDeleting || isBulkTagging}
                               >
                                 <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
                                   <path

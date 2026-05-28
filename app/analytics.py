@@ -260,6 +260,8 @@ def query_analysis_images(status: str | None = None) -> list[dict]:
     if analysis_images_frame.empty:
         return []
 
+    stored_tags = read_detection_tags()
+
     expected_columns = [
         "image_id",
         "analysis_id",
@@ -324,6 +326,11 @@ def query_analysis_images(status: str | None = None) -> list[dict]:
                 "lon": float(row["lon"]) if pd.notna(row["lon"]) else None,
                 "resolution": str(row["resolution"]) if row["resolution"] is not None else "",
                 "timestamp": str(row["timestamp"]) if row["timestamp"] is not None else "",
+                "tags": [
+                    str(tag)
+                    for tag in stored_tags.get(image_id, [])
+                    if str(tag).strip()
+                ],
             }
         )
 
@@ -613,6 +620,91 @@ def delete_detections_bulk_and_related_assets(
         "deleted_detection_ids": deleted_detection_ids,
         "missing_detection_ids": missing_detection_ids,
         "related_image_missing": related_image_missing,
+    }
+
+
+def get_existing_detection_ids(detection_ids: Sequence[str]) -> set[str]:
+    unique_detection_ids: list[str] = []
+    seen_ids: set[str] = set()
+
+    for raw_detection_id in detection_ids:
+        detection_id = str(raw_detection_id).strip()
+        if not detection_id or detection_id in seen_ids:
+            continue
+
+        seen_ids.add(detection_id)
+        unique_detection_ids.append(detection_id)
+
+    if not unique_detection_ids:
+        return set()
+
+    detections_file = _get_detections_parquet_path()
+    if not detections_file.exists():
+        return set()
+
+    detections_frame = pd.read_parquet(detections_file)
+    if detections_frame.empty or "detection_id" not in detections_frame.columns:
+        return set()
+
+    requested_ids = set(unique_detection_ids)
+    detection_ids_series = (
+        detections_frame["detection_id"].fillna("").astype(str).str.strip()
+    )
+
+    return {
+        detection_id
+        for detection_id in detection_ids_series.tolist()
+        if detection_id and detection_id in requested_ids
+    }
+
+
+def get_existing_analysis_image_ids(
+    image_ids: Sequence[str], *, status: str | None = None
+) -> set[str]:
+    unique_image_ids: list[str] = []
+    seen_ids: set[str] = set()
+
+    for raw_image_id in image_ids:
+        image_id = str(raw_image_id).strip()
+        if not image_id or image_id in seen_ids:
+            continue
+
+        seen_ids.add(image_id)
+        unique_image_ids.append(image_id)
+
+    if not unique_image_ids:
+        return set()
+
+    metadata_file = _get_detections_parquet_path()
+    if not metadata_file.exists():
+        return set()
+
+    metadata_frame = _filter_image_rows(pd.read_parquet(metadata_file))
+    if metadata_frame.empty or "image_id" not in metadata_frame.columns:
+        return set()
+
+    if status is not None:
+        requested_status = _normalize_analysis_image_status(status)
+        if "status" not in metadata_frame.columns:
+            if requested_status != "no_detections":
+                return set()
+        else:
+            metadata_frame = metadata_frame[
+                metadata_frame["status"]
+                .fillna("no_detection")
+                .astype(str)
+                .map(_normalize_analysis_image_status)
+                == requested_status
+            ]
+            if metadata_frame.empty:
+                return set()
+
+    requested_ids = set(unique_image_ids)
+    image_ids_series = metadata_frame["image_id"].fillna("").astype(str).str.strip()
+    return {
+        image_id
+        for image_id in image_ids_series.tolist()
+        if image_id and image_id in requested_ids
     }
 
 

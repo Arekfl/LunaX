@@ -16,12 +16,16 @@ from data.downloader import download_tile
 from app.schemas import (
     AnalysisImageBulkDeleteRequest,
     AnalysisImageBulkDeleteResponse,
+    AnalysisImageBulkTagsUpdateRequest,
+    AnalysisImageBulkTagsUpdateResponse,
     AnalysisImageDeleteResponse,
     AnalysisRunRequest,
     AnalysisRunResponse,
     BBox,
     DetectionBulkDeleteRequest,
     DetectionBulkDeleteResponse,
+    DetectionBulkTagsUpdateRequest,
+    DetectionBulkTagsUpdateResponse,
     DetectionDeleteResponse,
     Detection,
     DetectionCommentUpdateRequest,
@@ -39,6 +43,8 @@ from app.analytics import (
     delete_analysis_images_by_ids,
     delete_detections_bulk_and_related_assets,
     delete_detection_and_related_assets,
+    get_existing_analysis_image_ids,
+    get_existing_detection_ids,
     get_analysis_image_path,
     get_no_detection_image_path,
     query_analysis_images,
@@ -55,6 +61,7 @@ from app.storage import (
     upsert_detection_comment,
     upsert_detection_status,
     upsert_detection_tags,
+    upsert_detection_tags_bulk,
 )
 
 app = FastAPI(title="LunaX API", version="0.1.0")
@@ -375,6 +382,51 @@ def update_detection_comment(
     return DetectionCommentUpdateResponse(detection_id=id, comment=payload.comment)
 
 
+@app.patch("/detections/bulk/tags", response_model=DetectionBulkTagsUpdateResponse)
+def update_detections_bulk_tags(
+    payload: DetectionBulkTagsUpdateRequest,
+) -> DetectionBulkTagsUpdateResponse:
+    normalized_tag = str(payload.tag).strip()
+    if not normalized_tag:
+        raise HTTPException(status_code=422, detail="Tag cannot be empty")
+
+    normalized_detection_ids: list[str] = []
+    seen_ids: set[str] = set()
+    for raw_detection_id in payload.detection_ids:
+        detection_id = str(raw_detection_id).strip()
+        if not detection_id or detection_id in seen_ids:
+            continue
+
+        seen_ids.add(detection_id)
+        normalized_detection_ids.append(detection_id)
+
+    if not normalized_detection_ids:
+        raise HTTPException(status_code=422, detail="At least one detection ID is required")
+
+    existing_detection_ids = get_existing_detection_ids(normalized_detection_ids)
+    updated_detection_ids = [
+        detection_id
+        for detection_id in normalized_detection_ids
+        if detection_id in existing_detection_ids
+    ]
+    missing_detection_ids = [
+        detection_id
+        for detection_id in normalized_detection_ids
+        if detection_id not in existing_detection_ids
+    ]
+
+    if updated_detection_ids:
+        upsert_detection_tags_bulk(detection_ids=updated_detection_ids, tag=normalized_tag)
+
+    return DetectionBulkTagsUpdateResponse(
+        requested_count=len(normalized_detection_ids),
+        updated_count=len(updated_detection_ids),
+        updated_detection_ids=updated_detection_ids,
+        missing_detection_ids=missing_detection_ids,
+        tag=normalized_tag,
+    )
+
+
 @app.patch("/detections/{id}/tags", response_model=DetectionTagsUpdateResponse)
 def update_detection_tags(
     id: str, payload: DetectionTagsUpdateRequest
@@ -382,6 +434,50 @@ def update_detection_tags(
     upsert_detection_tags(detection_id=id, tags=payload.tags)
     normalized_tags = list(dict.fromkeys([str(tag).strip() for tag in payload.tags if str(tag).strip()]))
     return DetectionTagsUpdateResponse(detection_id=id, tags=normalized_tags)
+
+
+@app.patch("/analysis-images/bulk/tags", response_model=AnalysisImageBulkTagsUpdateResponse)
+def update_analysis_images_bulk_tags(
+    payload: AnalysisImageBulkTagsUpdateRequest,
+) -> AnalysisImageBulkTagsUpdateResponse:
+    normalized_tag = str(payload.tag).strip()
+    if not normalized_tag:
+        raise HTTPException(status_code=422, detail="Tag cannot be empty")
+
+    normalized_image_ids: list[str] = []
+    seen_ids: set[str] = set()
+    for raw_image_id in payload.image_ids:
+        image_id = str(raw_image_id).strip()
+        if not image_id or image_id in seen_ids:
+            continue
+
+        seen_ids.add(image_id)
+        normalized_image_ids.append(image_id)
+
+    if not normalized_image_ids:
+        raise HTTPException(status_code=422, detail="At least one image ID is required")
+
+    existing_image_ids = get_existing_analysis_image_ids(
+        normalized_image_ids,
+        status="no_detections",
+    )
+    updated_image_ids = [
+        image_id for image_id in normalized_image_ids if image_id in existing_image_ids
+    ]
+    missing_image_ids = [
+        image_id for image_id in normalized_image_ids if image_id not in existing_image_ids
+    ]
+
+    if updated_image_ids:
+        upsert_detection_tags_bulk(detection_ids=updated_image_ids, tag=normalized_tag)
+
+    return AnalysisImageBulkTagsUpdateResponse(
+        requested_count=len(normalized_image_ids),
+        updated_count=len(updated_image_ids),
+        updated_image_ids=updated_image_ids,
+        missing_image_ids=missing_image_ids,
+        tag=normalized_tag,
+    )
 
 
 @app.delete("/detections/bulk", response_model=DetectionBulkDeleteResponse)

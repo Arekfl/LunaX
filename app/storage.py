@@ -143,6 +143,40 @@ def upsert_detection_tags(detection_id: str, tags: list[str]) -> dict[str, list[
     return stored_tags
 
 
+def upsert_detection_tags_bulk(detection_ids: list[str], tag: str) -> dict[str, list[str]]:
+    normalized_tag = str(tag).strip()
+    if not normalized_tag:
+        return read_detection_tags()
+
+    unique_detection_ids: list[str] = []
+    seen_ids: set[str] = set()
+    for raw_detection_id in detection_ids:
+        detection_id = str(raw_detection_id).strip()
+        if not detection_id or detection_id in seen_ids:
+            continue
+
+        seen_ids.add(detection_id)
+        unique_detection_ids.append(detection_id)
+
+    if not unique_detection_ids:
+        return read_detection_tags()
+
+    stored_tags = read_detection_tags()
+    for detection_id in unique_detection_ids:
+        current_tags = [
+            str(item).strip()
+            for item in stored_tags.get(detection_id, [])
+            if str(item).strip()
+        ]
+        if normalized_tag not in current_tags:
+            current_tags.append(normalized_tag)
+
+        stored_tags[detection_id] = list(dict.fromkeys(current_tags))
+
+    write_detection_tags(stored_tags)
+    return stored_tags
+
+
 def delete_detection_tags(detection_id: str) -> dict[str, list[str]]:
     stored_tags = read_detection_tags()
     stored_tags.pop(detection_id, None)

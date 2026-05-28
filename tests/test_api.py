@@ -856,6 +856,145 @@ def test_patch_detection_tags_persists_tags_by_detection_id(tmp_path, monkeypatc
     assert payload["det-42"] == ["cave", "priority"]
 
 
+def test_patch_detections_bulk_tags_adds_tag_for_existing_detections(
+    tmp_path, monkeypatch
+) -> None:
+    tags_file = tmp_path / "detection_tags.json"
+    parquet_file = tmp_path / "detections.parquet"
+    monkeypatch.setenv("DETECTION_TAG_FILE", str(tags_file))
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(parquet_file))
+
+    pd.DataFrame(
+        [
+            {"detection_id": "det-1"},
+            {"detection_id": "det-2"},
+        ]
+    ).to_parquet(parquet_file, index=False)
+
+    with tags_file.open("w", encoding="utf-8") as file_handle:
+        json.dump({"det-1": ["manual"]}, file_handle)
+
+    response = client.patch(
+        "/detections/bulk/tags",
+        json={
+            "detectionIds": ["det-1", "det-2", "det-2", "missing", "  "],
+            "tag": "priority",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "requested_count": 3,
+        "updated_count": 2,
+        "updated_detection_ids": ["det-1", "det-2"],
+        "missing_detection_ids": ["missing"],
+        "tag": "priority",
+    }
+
+    with tags_file.open("r", encoding="utf-8") as file_handle:
+        payload = json.load(file_handle)
+
+    assert payload["det-1"] == ["manual", "priority"]
+    assert payload["det-2"] == ["priority"]
+
+
+def test_patch_detections_bulk_tags_rejects_blank_tag(tmp_path, monkeypatch) -> None:
+    parquet_file = tmp_path / "detections.parquet"
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(parquet_file))
+
+    pd.DataFrame([{"detection_id": "det-1"}]).to_parquet(parquet_file, index=False)
+
+    response = client.patch(
+        "/detections/bulk/tags",
+        json={"detectionIds": ["det-1"], "tag": "   "},
+    )
+
+    assert response.status_code == 422
+
+
+def test_patch_analysis_images_bulk_tags_updates_no_detections_images(
+    tmp_path, monkeypatch
+) -> None:
+    parquet_file = tmp_path / "detections.parquet"
+    tags_file = tmp_path / "detection_tags.json"
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(parquet_file))
+    monkeypatch.setenv("DETECTION_TAG_FILE", str(tags_file))
+
+    image_one_path = tmp_path / "img-1.png"
+    image_two_path = tmp_path / "img-2.png"
+    image_one_path.write_bytes(b"img-1")
+    image_two_path.write_bytes(b"img-2")
+
+    pd.DataFrame(
+        [
+            {
+                "detection_id": "",
+                "image_id": "img-1",
+                "analysis_id": "analysis-no-det",
+                "path": str(image_one_path),
+                "status": "no_detection",
+                "lat": 10.0,
+                "lon": 20.0,
+                "resolution": "preview",
+                "timestamp": "2026-05-28T10:00:00+00:00",
+            },
+            {
+                "detection_id": "",
+                "image_id": "img-2",
+                "analysis_id": "analysis-no-det",
+                "path": str(image_two_path),
+                "status": "no_detection",
+                "lat": 11.0,
+                "lon": 21.0,
+                "resolution": "preview",
+                "timestamp": "2026-05-28T10:05:00+00:00",
+            },
+            {
+                "detection_id": "det-regular",
+                "image_id": "img-3",
+                "analysis_id": "analysis-regular",
+                "path": str(image_two_path),
+                "status": "to_verify",
+                "lat": 12.0,
+                "lon": 22.0,
+                "resolution": "detail",
+                "timestamp": "2026-05-28T10:10:00+00:00",
+            },
+        ]
+    ).to_parquet(parquet_file, index=False)
+
+    response = client.patch(
+        "/analysis-images/bulk/tags",
+        json={
+            "imageIds": ["img-1", "img-2", "img-2", "img-3", "missing", "  "],
+            "tag": "requires_review",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "requested_count": 4,
+        "updated_count": 2,
+        "updated_image_ids": ["img-1", "img-2"],
+        "missing_image_ids": ["img-3", "missing"],
+        "tag": "requires_review",
+    }
+
+    with tags_file.open("r", encoding="utf-8") as file_handle:
+        tags_payload = json.load(file_handle)
+
+    assert tags_payload["img-1"] == ["requires_review"]
+    assert tags_payload["img-2"] == ["requires_review"]
+    assert "img-3" not in tags_payload
+
+    no_detections_response = client.get("/no-detections/query")
+    assert no_detections_response.status_code == 200
+    payload = no_detections_response.json()
+    tags_by_image_id = {item["image_id"]: item.get("tags", []) for item in payload}
+    assert tags_by_image_id["img-1"] == ["requires_review"]
+    assert tags_by_image_id["img-2"] == ["requires_review"]
+
+
 def test_get_detections_query_filters_with_query_params(tmp_path, monkeypatch) -> None:
     parquet_file = tmp_path / "detections.parquet"
     status_file = tmp_path / "detection_statuses.json"
