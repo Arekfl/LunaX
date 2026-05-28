@@ -606,6 +606,24 @@ function formatCoordinate(value, digits = 2) {
   return numericValue.toFixed(digits);
 }
 
+function escapeCsvCell(value) {
+  const stringValue = String(value ?? "");
+  const escapedValue = stringValue.replaceAll('"', '""');
+  return `"${escapedValue}"`;
+}
+
+function triggerTextDownload(content, fileName, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const downloadUrl = URL.createObjectURL(blob);
+  const linkElement = document.createElement("a");
+  linkElement.href = downloadUrl;
+  linkElement.download = fileName;
+  document.body.appendChild(linkElement);
+  linkElement.click();
+  document.body.removeChild(linkElement);
+  URL.revokeObjectURL(downloadUrl);
+}
+
 function getAnalysisImageUrl(imageId) {
   if (!imageId) {
     return null;
@@ -757,6 +775,7 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkTagDraft, setBulkTagDraft] = useState("");
   const [isBulkTagging, setIsBulkTagging] = useState(false);
+  const [exportFormat, setExportFormat] = useState("json");
   const [deleteModal, setDeleteModal] = useState({
     targetType: null,
     targetIds: [],
@@ -1903,6 +1922,78 @@ export default function App() {
     } finally {
       setIsBulkTagging(false);
     }
+  };
+
+  const handleExportSelectedDetections = () => {
+    const normalizedSelectedIds = [
+      ...new Set(selectedIds.map((id) => String(id || "").trim()).filter(Boolean)),
+    ];
+    if (normalizedSelectedIds.length === 0) {
+      setChosenMessage("Zaznacz co najmniej jedna detekcje do eksportu.");
+      return;
+    }
+
+    const selectedIdsSet = new Set(normalizedSelectedIds);
+    const selectedDetections = statusResolvedDetections.filter((detection) =>
+      selectedIdsSet.has(String(detection?.detection_id || "").trim())
+    );
+    if (selectedDetections.length === 0) {
+      setChosenMessage("Nie znaleziono wybranych detekcji do eksportu.");
+      return;
+    }
+
+    const exportRows = selectedDetections.map((detection) => {
+      const relatedImage = resolveAnalysisImageForDetection(detection, analysisImages);
+      const bbox = detection?.bbox ?? {};
+      return {
+        id: String(detection?.detection_id || "").trim(),
+        bbox: {
+          x: Number(bbox?.x),
+          y: Number(bbox?.y),
+          width: Number(bbox?.width),
+          height: Number(bbox?.height),
+        },
+        confidence: Number(detection?.confidence),
+        status: String(detection?.status || "").trim(),
+        tags: normalizeDetectionTags(detection?.tags),
+        image_path: String(relatedImage?.path || detection?.path || "").trim(),
+      };
+    });
+
+    const timestampToken = new Date().toISOString().replace(/[:.]/g, "-");
+    const normalizedExportFormat = exportFormat === "csv" ? "csv" : "json";
+
+    if (normalizedExportFormat === "csv") {
+      const headerRow = ["id", "bbox", "confidence", "status", "tags", "image_path"];
+      const csvRows = exportRows.map((row) => [
+        row.id,
+        JSON.stringify(row.bbox),
+        row.confidence,
+        row.status,
+        JSON.stringify(row.tags),
+        row.image_path,
+      ]);
+
+      const csvContent = [headerRow, ...csvRows]
+        .map((cells) => cells.map((cell) => escapeCsvCell(cell)).join(","))
+        .join("\n");
+
+      triggerTextDownload(
+        csvContent,
+        `detections_export_${timestampToken}.csv`,
+        "text/csv;charset=utf-8"
+      );
+      setChosenMessage(`Wyeksportowano ${exportRows.length} detekcji do CSV.`);
+      return;
+    }
+
+    const jsonContent = JSON.stringify(exportRows, null, 2);
+    triggerTextDownload(
+      jsonContent,
+      `detections_export_${timestampToken}.json`,
+      "application/json;charset=utf-8"
+    );
+    setChosenMessage(`Wyeksportowano ${exportRows.length} detekcji do JSON.`);
   };
 
   const handleToggleTagFilter = (tag) => {
@@ -3154,6 +3245,25 @@ export default function App() {
                       }
                     >
                       {isBulkTagging ? "Dodawanie..." : "Dodaj tag"}
+                    </button>
+                  </div>
+                  <div className="d-flex gap-2 mb-2">
+                    <select
+                      className="form-select form-select-sm"
+                      value={exportFormat}
+                      onChange={(event) => setExportFormat(event.target.value)}
+                      disabled={selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging}
+                    >
+                      <option value="json">JSON</option>
+                      <option value="csv">CSV</option>
+                    </select>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-secondary"
+                      onClick={handleExportSelectedDetections}
+                      disabled={selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging}
+                    >
+                      Export
                     </button>
                   </div>
                   <button
