@@ -103,12 +103,14 @@ class DetectionDeleteResponse(BaseModel):
     deleted_image_id: str | None = None
     deleted_image_path: str | None = None
     related_image_missing: bool = False
+    related_image_in_use: bool = False
 
 
 class DetectionBulkDeleteRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     detection_ids: list[str] = Field(..., min_length=1, alias="detectionIds")
+    delete_images: bool = Field(default=False, alias="deleteImages")
 
 
 class DetectionBulkDeleteResponse(BaseModel):
@@ -117,6 +119,9 @@ class DetectionBulkDeleteResponse(BaseModel):
     deleted_detection_ids: list[str]
     missing_detection_ids: list[str]
     related_image_missing: bool = False
+    related_image_in_use: bool = False
+    related_image_missing_count: int = 0
+    related_image_in_use_count: int = 0
 
 
 class DetectionBulkTagsUpdateRequest(BaseModel):
@@ -143,6 +148,7 @@ class AnalysisImageBulkDeleteRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     image_ids: list[str] = Field(..., min_length=1, alias="imageIds")
+    delete_files: bool = Field(default=False, alias="deleteFiles")
 
 
 class AnalysisImageBulkDeleteResponse(BaseModel):

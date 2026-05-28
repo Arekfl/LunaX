@@ -781,6 +781,7 @@ export default function App() {
   const [deleteModal, setDeleteModal] = useState({
     targetType: null,
     targetIds: [],
+    deleteImages: false,
     isDeleting: false,
     missingImageWarning: false,
   });
@@ -2253,6 +2254,7 @@ export default function App() {
     setDeleteModal({
       targetType: "detection",
       targetIds: [detection.detection_id],
+      deleteImages: false,
       isDeleting: false,
       missingImageWarning: false,
     });
@@ -2267,6 +2269,7 @@ export default function App() {
     setDeleteModal({
       targetType: "detection",
       targetIds: [...selectedIds],
+      deleteImages: false,
       isDeleting: false,
       missingImageWarning: false,
     });
@@ -2281,6 +2284,7 @@ export default function App() {
     setDeleteModal({
       targetType: "analysis_image",
       targetIds: [normalizedImageId],
+      deleteImages: false,
       isDeleting: false,
       missingImageWarning: false,
     });
@@ -2299,6 +2303,7 @@ export default function App() {
     setDeleteModal({
       targetType: "analysis_image",
       targetIds: [...new Set(normalizedSelectedIds)],
+      deleteImages: false,
       isDeleting: false,
       missingImageWarning: false,
     });
@@ -2312,6 +2317,7 @@ export default function App() {
     setDeleteModal({
       targetType: null,
       targetIds: [],
+      deleteImages: false,
       isDeleting: false,
       missingImageWarning: false,
     });
@@ -2323,17 +2329,13 @@ export default function App() {
     }
 
     const targetType = deleteModal.targetType;
-    if (targetType === "detection" && deleteModal.missingImageWarning) {
-      handleCancelDeleteDetection();
-      return;
-    }
-
     if (targetType !== "detection" && targetType !== "analysis_image") {
       return;
     }
 
     const targetIds = [...deleteModal.targetIds];
     const isBulkDelete = targetIds.length > 1;
+    const deleteImages = targetType === "detection" ? Boolean(deleteModal.deleteImages) : false;
     setDeleteModal((prev) => ({ ...prev, isDeleting: true }));
 
     let timeoutId = null;
@@ -2348,10 +2350,14 @@ export default function App() {
         targetType === "detection"
           ? isBulkDelete
             ? `${API_BASE_URL}/detections/bulk`
-            : `${API_BASE_URL}/detections/${encodeURIComponent(targetIds[0])}`
+            : `${API_BASE_URL}/detections/${encodeURIComponent(targetIds[0])}?deleteImages=${
+                deleteImages ? "true" : "false"
+              }`
           : isBulkDelete
             ? `${API_BASE_URL}/analysis-images/bulk`
-            : `${API_BASE_URL}/analysis-images/${encodeURIComponent(targetIds[0])}`;
+            : `${API_BASE_URL}/analysis-images/${encodeURIComponent(targetIds[0])}?deleteFiles=${
+                deleteImages ? "true" : "false"
+              }`;
 
       const requestInit =
         isBulkDelete && targetType === "detection"
@@ -2360,7 +2366,10 @@ export default function App() {
               headers: {
                 "Content-Type": "application/json",
               },
-              body: JSON.stringify({ detectionIds: targetIds }),
+              body: JSON.stringify({
+                detectionIds: targetIds,
+                deleteImages,
+              }),
             }
           : isBulkDelete
             ? {
@@ -2368,7 +2377,10 @@ export default function App() {
                 headers: {
                   "Content-Type": "application/json",
                 },
-                body: JSON.stringify({ imageIds: targetIds }),
+                body: JSON.stringify({
+                  imageIds: targetIds,
+                  deleteFiles: deleteImages,
+                }),
               }
             : {
                 method: "DELETE",
@@ -2413,12 +2425,28 @@ export default function App() {
           : [];
 
         const relatedImageMissing =
-          typeof payload?.related_image_missing === "boolean"
+          deleteImages && typeof payload?.related_image_missing === "boolean"
             ? payload.related_image_missing
-            : Boolean(
+            : deleteImages && Boolean(
                 !isBulkDelete &&
                   (!payload?.deleted_image_id || String(payload.deleted_image_id).length === 0)
               );
+        const relatedImageInUse =
+          deleteImages && typeof payload?.related_image_in_use === "boolean"
+            ? payload.related_image_in_use
+            : false;
+        const relatedImageMissingCount =
+          deleteImages && isBulkDelete
+            ? Number(payload?.related_image_missing_count || 0)
+            : relatedImageMissing
+              ? 1
+              : 0;
+        const relatedImageInUseCount =
+          deleteImages && isBulkDelete
+            ? Number(payload?.related_image_in_use_count || 0)
+            : relatedImageInUse
+              ? 1
+              : 0;
 
         const deletedIdsSet = new Set(deletedDetectionIds);
 
@@ -2472,38 +2500,50 @@ export default function App() {
           console.warn("Nie udalo sie odswiezyc obrazow po usunieciu detekcji:", refreshError);
         }
 
-        if (relatedImageMissing) {
-          setDeleteModal((prev) => ({
-            ...prev,
-            isDeleting: false,
-            missingImageWarning: true,
-          }));
-        } else {
-          setDeleteModal({
-            targetType: null,
-            targetIds: [],
-            isDeleting: false,
-            missingImageWarning: false,
-          });
-        }
+        setDeleteModal({
+          targetType: null,
+          targetIds: [],
+          deleteImages: false,
+          isDeleting: false,
+          missingImageWarning: false,
+        });
 
         if (isBulkDelete) {
           const deletedCount = deletedDetectionIds.length;
           const missingCount = missingDetectionIds.length;
-          const imageWarningMessage = relatedImageMissing
-            ? " Czesc powiazanych obrazow nie byla dostepna."
-            : "";
           const missingMessage =
             missingCount > 0 ? ` Nie znaleziono ${missingCount} detekcji.` : "";
-          setChosenMessage(
-            `Usunieto ${deletedCount} zaznaczonych detekcji.${missingMessage}${imageWarningMessage}`
-          );
+          if (!deleteImages) {
+            setChosenMessage(
+              `Usunieto ${deletedCount} zaznaczonych detekcji. Obrazy pozostawiono.${missingMessage}`
+            );
+          } else {
+            const imageMissingMessage =
+              relatedImageMissingCount > 0
+                ? ` Brak pliku obrazu dla ${relatedImageMissingCount} detekcji.`
+                : "";
+            const imageInUseMessage =
+              relatedImageInUseCount > 0
+                ? ` Obraz uzywany przez inne detekcje dla ${relatedImageInUseCount} pozycji - plik pozostawiono.`
+                : "";
+            setChosenMessage(
+              `Usunieto ${deletedCount} zaznaczonych detekcji.${missingMessage}${imageMissingMessage}${imageInUseMessage}`
+            );
+          }
         } else {
-          setChosenMessage(
-            relatedImageMissing
-              ? "Detekcja usunieta. Powiazany obraz nie byl dostepny."
-              : "Detekcja i powiazany obraz zostaly usuniete."
-          );
+          if (!deleteImages) {
+            setChosenMessage("Detekcja usunieta. Powiazany obraz pozostawiono.");
+          } else if (relatedImageInUse) {
+            setChosenMessage(
+              "Detekcja usunieta. Obraz jest uzywany przez inne detekcje, wiec nie zostal usuniety."
+            );
+          } else {
+            setChosenMessage(
+              relatedImageMissing
+                ? "Detekcja usunieta. Powiazany obraz nie byl dostepny."
+                : "Detekcja i powiazany obraz zostaly usuniete."
+            );
+          }
         }
       } else {
         const deletedImageIds = isBulkDelete
@@ -2545,6 +2585,7 @@ export default function App() {
         setDeleteModal({
           targetType: null,
           targetIds: [],
+          deleteImages: false,
           isDeleting: false,
           missingImageWarning: false,
         });
@@ -2553,9 +2594,19 @@ export default function App() {
           const deletedCount = deletedImageIds.length;
           const missingCount = missingImageIds.length;
           const missingMessage = missingCount > 0 ? ` Nie znaleziono ${missingCount} obrazow.` : "";
-          setChosenMessage(`Usunieto ${deletedCount} zaznaczonych obrazow.${missingMessage}`);
+          if (deleteImages) {
+            setChosenMessage(`Usunieto ${deletedCount} zaznaczonych obrazow.${missingMessage}`);
+          } else {
+            setChosenMessage(
+              `Usunieto ${deletedCount} zaznaczonych wpisow obrazow. Pliki pozostawiono.${missingMessage}`
+            );
+          }
         } else {
-          setChosenMessage("Obraz zostal usuniety.");
+          setChosenMessage(
+            deleteImages
+              ? "Obraz zostal usuniety."
+              : "Wpis obrazu zostal usuniety. Plik pozostawiono."
+          );
         }
       }
     } catch (error) {
@@ -4053,30 +4104,75 @@ export default function App() {
             <p className="small text-muted mb-3">
               {deleteModal.targetType === "analysis_image" ? (
                 deleteModal.targetIds.length === 1 ? (
+                  deleteModal.deleteImages ? (
+                    <>
+                      Ta operacja usunie obraz <strong>{deleteModal.targetIds[0]}</strong> oraz jego plik z backendu.
+                    </>
+                  ) : (
+                    <>
+                      Ta operacja usunie wpis obrazu <strong>{deleteModal.targetIds[0]}</strong>.
+                      Plik pozostanie na dysku backendu.
+                    </>
+                  )
+                ) : (
+                  deleteModal.deleteImages ? (
+                    <>
+                      Ta operacja usunie <strong>{deleteModal.targetIds.length}</strong> zaznaczonych obrazow oraz ich pliki z backendu.
+                    </>
+                  ) : (
+                    <>
+                      Ta operacja usunie <strong>{deleteModal.targetIds.length}</strong> wpisow obrazow.
+                      Pliki pozostana na dysku backendu.
+                    </>
+                  )
+                )
+              ) : deleteModal.targetIds.length === 1 ? (
+                deleteModal.deleteImages ? (
                   <>
-                    Ta operacja usunie obraz <strong>{deleteModal.targetIds[0]}</strong> oraz jego plik z backendu.
+                    Ta operacja usunie detekcje <strong>{deleteModal.targetIds[0]}</strong> oraz
+                    sprobuje usunac powiazany plik obrazu z backendu.
                   </>
                 ) : (
                   <>
-                    Ta operacja usunie <strong>{deleteModal.targetIds.length}</strong> zaznaczonych obrazow oraz ich pliki z backendu.
+                    Ta operacja usunie detekcje <strong>{deleteModal.targetIds[0]}</strong>.
+                    Powiazany obraz pozostanie bez zmian.
                   </>
                 )
-              ) : deleteModal.targetIds.length === 1 ? (
-                <>
-                  Ta operacja usunie detekcje <strong>{deleteModal.targetIds[0]}</strong> oraz
-                  powiazany plik obrazu z backendu.
-                </>
               ) : (
-                <>
-                  Ta operacja usunie <strong>{deleteModal.targetIds.length}</strong> zaznaczonych
-                  detekcji oraz powiazane pliki obrazow z backendu.
-                </>
+                deleteModal.deleteImages ? (
+                  <>
+                    Ta operacja usunie <strong>{deleteModal.targetIds.length}</strong> zaznaczonych
+                    detekcji oraz sprobuje usunac powiazane pliki obrazow z backendu.
+                  </>
+                ) : (
+                  <>
+                    Ta operacja usunie <strong>{deleteModal.targetIds.length}</strong> zaznaczonych
+                    detekcji. Powiazane obrazy pozostana bez zmian.
+                  </>
+                )
               )}
             </p>
 
-            {deleteModal.targetType === "detection" && deleteModal.missingImageWarning && (
-              <div className="mb-3">
-                <span className="badge text-bg-warning">Brak pliku obrazu</span>
+            {(deleteModal.targetType === "detection" || deleteModal.targetType === "analysis_image") && (
+              <div className="form-check mb-3">
+                <input
+                  className="form-check-input"
+                  type="checkbox"
+                  id="delete-with-images"
+                  checked={Boolean(deleteModal.deleteImages)}
+                  onChange={(event) =>
+                    setDeleteModal((prev) => ({
+                      ...prev,
+                      deleteImages: event.target.checked,
+                    }))
+                  }
+                  disabled={deleteModal.isDeleting}
+                />
+                <label className="form-check-label small" htmlFor="delete-with-images">
+                  {deleteModal.targetType === "analysis_image"
+                    ? "Usun takze pliki obrazow"
+                    : "Usun takze powiazane obrazy"}
+                </label>
               </div>
             )}
 

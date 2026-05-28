@@ -524,7 +524,11 @@ def _delete_related_analysis_image(
     }
 
 
-def delete_detection_and_related_assets(detection_id: str) -> dict[str, str | bool | None]:
+def delete_detection_and_related_assets(
+    detection_id: str,
+    *,
+    delete_images: bool = False,
+) -> dict[str, str | bool | None]:
     detections_file = _get_detections_parquet_path()
     if not detections_file.exists():
         return {
@@ -532,6 +536,7 @@ def delete_detection_and_related_assets(detection_id: str) -> dict[str, str | bo
             "deleted_image_id": None,
             "deleted_image_path": None,
             "related_image_missing": False,
+            "related_image_in_use": False,
         }
 
     detections_frame = pd.read_parquet(detections_file)
@@ -541,6 +546,7 @@ def delete_detection_and_related_assets(detection_id: str) -> dict[str, str | bo
             "deleted_image_id": None,
             "deleted_image_path": None,
             "related_image_missing": False,
+            "related_image_in_use": False,
         }
 
     matched_rows = detections_frame[
@@ -552,6 +558,7 @@ def delete_detection_and_related_assets(detection_id: str) -> dict[str, str | bo
             "deleted_image_id": None,
             "deleted_image_path": None,
             "related_image_missing": False,
+            "related_image_in_use": False,
         }
 
     if "timestamp" in matched_rows.columns:
@@ -568,6 +575,52 @@ def delete_detection_and_related_assets(detection_id: str) -> dict[str, str | bo
         updated_detections_frame = _build_empty_parquet_like(detections_frame)
     updated_detections_frame.to_parquet(detections_file, index=False)
 
+    if not delete_images:
+        return {
+            "detection_deleted": True,
+            "analysis_id": analysis_id,
+            "deleted_image_id": None,
+            "deleted_image_path": None,
+            "related_image_missing": False,
+            "related_image_in_use": False,
+        }
+
+    analysis_image_rows = _filter_image_rows(updated_detections_frame)
+    has_related_analysis_images = False
+    if analysis_id and "analysis_id" in analysis_image_rows.columns:
+        has_related_analysis_images = not analysis_image_rows[
+            analysis_image_rows["analysis_id"].fillna("").astype(str) == analysis_id
+        ].empty
+
+    if not has_related_analysis_images:
+        return {
+            "detection_deleted": True,
+            "analysis_id": analysis_id,
+            "deleted_image_id": None,
+            "deleted_image_path": None,
+            "related_image_missing": True,
+            "related_image_in_use": False,
+        }
+
+    if analysis_id and "analysis_id" in updated_detections_frame.columns:
+        same_analysis_rows = updated_detections_frame[
+            updated_detections_frame["analysis_id"].fillna("").astype(str) == analysis_id
+        ]
+        if "detection_id" in same_analysis_rows.columns:
+            same_analysis_rows = same_analysis_rows[
+                same_analysis_rows["detection_id"].fillna("").astype(str).str.strip() != ""
+            ]
+
+        if not same_analysis_rows.empty:
+            return {
+                "detection_deleted": True,
+                "analysis_id": analysis_id,
+                "deleted_image_id": None,
+                "deleted_image_path": None,
+                "related_image_missing": False,
+                "related_image_in_use": True,
+            }
+
     removed_image = _delete_related_analysis_image(
         analysis_id=analysis_id,
         detection_center=detection_center,
@@ -579,14 +632,18 @@ def delete_detection_and_related_assets(detection_id: str) -> dict[str, str | bo
 
     return {
         "detection_deleted": True,
+        "analysis_id": analysis_id,
         "deleted_image_id": None if removed_image is None else removed_image.get("image_id") or None,
         "deleted_image_path": None if removed_image is None else removed_image.get("path") or None,
         "related_image_missing": related_image_missing,
+        "related_image_in_use": False,
     }
 
 
 def delete_detections_bulk_and_related_assets(
     detection_ids: Sequence[str],
+    *,
+    delete_images: bool = False,
 ) -> dict[str, int | bool | list[str]]:
     unique_detection_ids: list[str] = []
     seen_ids: set[str] = set()
@@ -602,17 +659,102 @@ def delete_detections_bulk_and_related_assets(
     deleted_detection_ids: list[str] = []
     missing_detection_ids: list[str] = []
     related_image_missing = False
+    related_image_in_use = False
+    related_image_missing_count = 0
+    related_image_in_use_count = 0
+    touched_analysis_ids: set[str] = set()
+    in_use_analysis_ids: set[str] = set()
 
     for detection_id in unique_detection_ids:
-        delete_payload = delete_detection_and_related_assets(detection_id=detection_id)
+        delete_payload = delete_detection_and_related_assets(
+            detection_id=detection_id,
+            delete_images=delete_images,
+        )
         if bool(delete_payload.get("detection_deleted")):
             deleted_detection_ids.append(detection_id)
+            analysis_id = str(delete_payload.get("analysis_id") or "").strip()
+            if analysis_id:
+                touched_analysis_ids.add(analysis_id)
             related_image_missing = related_image_missing or bool(
                 delete_payload.get("related_image_missing")
             )
+            related_image_in_use = related_image_in_use or bool(
+                delete_payload.get("related_image_in_use")
+            )
+            if bool(delete_payload.get("related_image_missing")):
+                related_image_missing_count += 1
+            if bool(delete_payload.get("related_image_in_use")):
+                related_image_in_use_count += 1
+                if analysis_id:
+                    in_use_analysis_ids.add(analysis_id)
             continue
 
         missing_detection_ids.append(detection_id)
+
+    if delete_images and touched_analysis_ids:
+        metadata_file = _get_detections_parquet_path()
+        if metadata_file.exists():
+            metadata_frame = pd.read_parquet(metadata_file)
+            has_analysis_id_column = "analysis_id" in metadata_frame.columns
+            has_detection_id_column = "detection_id" in metadata_frame.columns
+            for analysis_id in touched_analysis_ids:
+                if not has_analysis_id_column:
+                    continue
+
+                analysis_rows = metadata_frame[
+                    metadata_frame["analysis_id"].fillna("").astype(str) == analysis_id
+                ]
+                if analysis_rows.empty:
+                    continue
+
+                if has_detection_id_column:
+                    remaining_detection_rows = analysis_rows[
+                        analysis_rows["detection_id"].fillna("").astype(str).str.strip() != ""
+                    ]
+                else:
+                    remaining_detection_rows = analysis_rows.iloc[0:0].copy()
+                if not remaining_detection_rows.empty:
+                    continue
+
+                analysis_image_rows = _filter_image_rows(analysis_rows)
+                if "image_id" not in analysis_image_rows.columns:
+                    continue
+                image_ids_to_delete = [
+                    image_id
+                    for image_id in analysis_image_rows["image_id"].fillna("").astype(str).str.strip().tolist()
+                    if image_id
+                ]
+                if not image_ids_to_delete:
+                    continue
+
+                image_delete_summary = delete_analysis_images_by_ids(image_ids_to_delete)
+                missing_image_ids = [
+                    str(image_id)
+                    for image_id in image_delete_summary.get("missing_image_ids", [])
+                    if str(image_id).strip()
+                ]
+                if missing_image_ids:
+                    related_image_missing = True
+                    related_image_missing_count += len(missing_image_ids)
+
+            if in_use_analysis_ids:
+                refreshed_frame = pd.read_parquet(metadata_file)
+                if "analysis_id" not in refreshed_frame.columns or "detection_id" not in refreshed_frame.columns:
+                    unresolved_in_use_analyses = set()
+                else:
+                    unresolved_in_use_analyses = {
+                        analysis_id
+                        for analysis_id in in_use_analysis_ids
+                        if not refreshed_frame[
+                            (refreshed_frame["analysis_id"].fillna("").astype(str) == analysis_id)
+                            & (
+                                refreshed_frame["detection_id"].fillna("").astype(str).str.strip()
+                                != ""
+                            )
+                        ].empty
+                    }
+                related_image_in_use = bool(unresolved_in_use_analyses)
+                related_image_in_use_count = len(unresolved_in_use_analyses)
 
     return {
         "requested_count": len(unique_detection_ids),
@@ -620,6 +762,9 @@ def delete_detections_bulk_and_related_assets(
         "deleted_detection_ids": deleted_detection_ids,
         "missing_detection_ids": missing_detection_ids,
         "related_image_missing": related_image_missing,
+        "related_image_in_use": related_image_in_use,
+        "related_image_missing_count": related_image_missing_count,
+        "related_image_in_use_count": related_image_in_use_count,
     }
 
 
@@ -710,6 +855,8 @@ def get_existing_analysis_image_ids(
 
 def delete_analysis_images_by_ids(
     image_ids: Sequence[str],
+    *,
+    delete_files: bool = False,
 ) -> dict[str, int | list[str]]:
     unique_image_ids: list[str] = []
     seen_ids: set[str] = set()
@@ -768,6 +915,14 @@ def delete_analysis_images_by_ids(
         updated_frame = _build_empty_parquet_like(metadata_frame)
     updated_frame.to_parquet(metadata_file, index=False)
 
+    if not delete_files:
+        return {
+            "requested_count": len(unique_image_ids),
+            "deleted_count": len(deleted_image_ids),
+            "deleted_image_ids": deleted_image_ids,
+            "missing_image_ids": missing_image_ids,
+        }
+
     if "path" in selected_rows.columns:
         removed_paths = {
             str(path_value)
@@ -808,8 +963,8 @@ def delete_analysis_images_by_ids(
     }
 
 
-def delete_analysis_image_by_id(image_id: str) -> bool:
-    summary = delete_analysis_images_by_ids([image_id])
+def delete_analysis_image_by_id(image_id: str, *, delete_files: bool = False) -> bool:
+    summary = delete_analysis_images_by_ids([image_id], delete_files=delete_files)
     return int(summary.get("deleted_count", 0)) > 0
 
 

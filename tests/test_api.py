@@ -1378,7 +1378,19 @@ def test_delete_detection_removes_detection_related_image_and_overrides(
     monkeypatch.setenv("DETECTION_COMMENT_FILE", str(comment_file))
     monkeypatch.setenv("DETECTION_TAG_FILE", str(tags_file))
     monkeypatch.setattr("app.main.download_tile", _mock_tile)
-    monkeypatch.setattr("app.main.run_inference", _mock_inference)
+    monkeypatch.setattr(
+        "app.main.run_inference",
+        Mock(
+            return_value=[
+                {
+                    "detection_id": "det-single-delete",
+                    "bbox": {"x": 10.0, "y": 20.0, "width": 30.0, "height": 40.0},
+                    "confidence": 0.95,
+                    "class": "cave_candidate",
+                }
+            ]
+        ),
+    )
 
     run_response = client.post(
         "/analysis/run",
@@ -1417,7 +1429,10 @@ def test_delete_detection_removes_detection_related_image_and_overrides(
     removed_image_path = Path(images_before[0]["path"])
     assert removed_image_path.exists()
 
-    delete_response = client.delete(f"/detections/{detection_id}")
+    delete_response = client.delete(
+        f"/detections/{detection_id}",
+        params={"deleteImages": True},
+    )
 
     assert delete_response.status_code == 200
     delete_payload = delete_response.json()
@@ -1425,6 +1440,7 @@ def test_delete_detection_removes_detection_related_image_and_overrides(
     assert delete_payload["detection_deleted"] is True
     assert delete_payload["deleted_image_id"] == removed_image_id
     assert delete_payload["related_image_missing"] is False
+    assert delete_payload["related_image_in_use"] is False
 
     detections_response = client.get("/detections/query")
     assert detections_response.status_code == 200
@@ -1522,7 +1538,7 @@ def test_delete_detections_bulk_removes_detections_related_images_and_overrides(
     delete_response = client.request(
         "DELETE",
         "/detections/bulk",
-        json={"detectionIds": detection_ids},
+        json={"detectionIds": detection_ids, "deleteImages": True},
     )
 
     assert delete_response.status_code == 200
@@ -1532,6 +1548,7 @@ def test_delete_detections_bulk_removes_detections_related_images_and_overrides(
     assert sorted(delete_payload["deleted_detection_ids"]) == detection_ids
     assert delete_payload["missing_detection_ids"] == []
     assert delete_payload["related_image_missing"] is False
+    assert delete_payload["related_image_in_use"] is False
 
     detections_response = client.get("/detections/query")
     assert detections_response.status_code == 200
@@ -1557,6 +1574,197 @@ def test_delete_detections_bulk_removes_detections_related_images_and_overrides(
     images_after_response = client.get("/analysis-images/query")
     assert images_after_response.status_code == 200
     assert images_after_response.json() == []
+
+
+def test_delete_detection_keeps_related_image_when_delete_images_flag_is_not_set(
+    tmp_path, monkeypatch
+) -> None:
+    no_detections_image_dir = tmp_path / "images" / "no_detections"
+    no_detections_parquet_file = tmp_path / "detections.parquet"
+    detections_parquet_file = tmp_path / "detections.parquet"
+
+    monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
+    monkeypatch.setenv("NO_DETECTIONS_PARQUET_FILE", str(no_detections_parquet_file))
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+    monkeypatch.setattr("app.main.download_tile", _mock_tile)
+    monkeypatch.setattr("app.main.run_inference", _mock_inference)
+
+    run_response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "detail",
+            "numSamples": 1,
+            "confidenceThreshold": 0.5,
+            "bbox": [-20.0, -10.0, 20.0, 10.0],
+        },
+    )
+    assert run_response.status_code == 200
+    detection_id = run_response.json()["detections"][0]["detection_id"]
+
+    images_before_response = client.get("/analysis-images/query")
+    assert images_before_response.status_code == 200
+    images_before = images_before_response.json()
+    assert len(images_before) == 1
+    image_path = Path(images_before[0]["path"])
+    assert image_path.exists()
+
+    delete_response = client.delete(f"/detections/{detection_id}")
+
+    assert delete_response.status_code == 200
+    delete_payload = delete_response.json()
+    assert delete_payload["detection_deleted"] is True
+    assert delete_payload["deleted_image_id"] is None
+    assert delete_payload["related_image_missing"] is False
+    assert delete_payload["related_image_in_use"] is False
+
+    images_after_response = client.get("/analysis-images/query")
+    assert images_after_response.status_code == 200
+    assert len(images_after_response.json()) == 1
+    assert image_path.exists()
+
+
+def test_delete_detections_bulk_keeps_images_when_delete_images_flag_is_false(
+    tmp_path, monkeypatch
+) -> None:
+    no_detections_image_dir = tmp_path / "images" / "no_detections"
+    no_detections_parquet_file = tmp_path / "detections.parquet"
+    detections_parquet_file = tmp_path / "detections.parquet"
+
+    monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
+    monkeypatch.setenv("NO_DETECTIONS_PARQUET_FILE", str(no_detections_parquet_file))
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+    monkeypatch.setattr("app.main.download_tile", _mock_tile)
+
+    inference_call_index = {"value": 0}
+
+    def _bulk_mock_inference(*_args, **_kwargs):
+        inference_call_index["value"] += 1
+        idx = inference_call_index["value"]
+        return [
+            {
+                "detection_id": f"det-keep-image-{idx}",
+                "bbox": {"x": 10.0 + idx, "y": 20.0 + idx, "width": 30.0, "height": 40.0},
+                "confidence": 0.95,
+                "class": "cave_candidate",
+            }
+        ]
+
+    monkeypatch.setattr("app.main.run_inference", _bulk_mock_inference)
+
+    run_response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "detail",
+            "numSamples": 2,
+            "confidenceThreshold": 0.5,
+            "bbox": [-20.0, -10.0, 20.0, 10.0],
+        },
+    )
+    assert run_response.status_code == 200
+    detection_ids = sorted(
+        {detection["detection_id"] for detection in run_response.json()["detections"]}
+    )
+    assert len(detection_ids) == 2
+
+    images_before_response = client.get("/analysis-images/query")
+    assert images_before_response.status_code == 200
+    images_before = images_before_response.json()
+    assert len(images_before) == 2
+    image_paths = [Path(item["path"]) for item in images_before]
+    assert all(path.exists() for path in image_paths)
+
+    delete_response = client.request(
+        "DELETE",
+        "/detections/bulk",
+        json={"detectionIds": detection_ids, "deleteImages": False},
+    )
+
+    assert delete_response.status_code == 200
+    delete_payload = delete_response.json()
+    assert delete_payload["deleted_count"] == 2
+    assert delete_payload["related_image_missing"] is False
+    assert delete_payload["related_image_in_use"] is False
+
+    images_after_response = client.get("/analysis-images/query")
+    assert images_after_response.status_code == 200
+    assert len(images_after_response.json()) == 2
+    assert all(path.exists() for path in image_paths)
+
+
+def test_delete_detection_with_delete_images_true_reports_image_in_use(
+    tmp_path, monkeypatch
+) -> None:
+    no_detections_image_dir = tmp_path / "images" / "no_detections"
+    no_detections_parquet_file = tmp_path / "detections.parquet"
+    detections_parquet_file = tmp_path / "detections.parquet"
+
+    monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
+    monkeypatch.setenv("NO_DETECTIONS_PARQUET_FILE", str(no_detections_parquet_file))
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+    monkeypatch.setattr("app.main.download_tile", _mock_tile)
+
+    monkeypatch.setattr(
+        "app.main.run_inference",
+        Mock(
+            return_value=[
+                {
+                    "detection_id": "det-in-use-a",
+                    "bbox": {"x": 10.0, "y": 20.0, "width": 30.0, "height": 40.0},
+                    "confidence": 0.95,
+                    "class": "cave_candidate",
+                },
+                {
+                    "detection_id": "det-in-use-b",
+                    "bbox": {"x": 50.0, "y": 60.0, "width": 30.0, "height": 40.0},
+                    "confidence": 0.91,
+                    "class": "cave_candidate",
+                },
+            ]
+        ),
+    )
+
+    run_response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "detail",
+            "numSamples": 1,
+            "confidenceThreshold": 0.5,
+            "bbox": [-20.0, -10.0, 20.0, 10.0],
+        },
+    )
+    assert run_response.status_code == 200
+    detection_ids = [item["detection_id"] for item in run_response.json()["detections"]]
+    assert sorted(detection_ids) == ["det-in-use-a", "det-in-use-b"]
+
+    images_before_response = client.get("/analysis-images/query")
+    assert images_before_response.status_code == 200
+    images_before = images_before_response.json()
+    assert len(images_before) == 1
+    image_path = Path(images_before[0]["path"])
+    assert image_path.exists()
+
+    delete_response = client.delete(
+        "/detections/det-in-use-a",
+        params={"deleteImages": True},
+    )
+
+    assert delete_response.status_code == 200
+    delete_payload = delete_response.json()
+    assert delete_payload["detection_deleted"] is True
+    assert delete_payload["deleted_image_id"] is None
+    assert delete_payload["related_image_missing"] is False
+    assert delete_payload["related_image_in_use"] is True
+
+    detections_after_response = client.get("/detections/query")
+    assert detections_after_response.status_code == 200
+    remaining_ids = [item["detection_id"] for item in detections_after_response.json()]
+    assert "det-in-use-a" not in remaining_ids
+    assert "det-in-use-b" in remaining_ids
+
+    images_after_response = client.get("/analysis-images/query")
+    assert images_after_response.status_code == 200
+    assert len(images_after_response.json()) == 1
+    assert image_path.exists()
 
 
 def test_delete_detections_bulk_reports_missing_detection_ids(tmp_path, monkeypatch) -> None:
@@ -1648,13 +1856,17 @@ def test_delete_detection_marks_missing_related_image_when_metadata_absent(
     ]
     stored.to_parquet(detections_parquet_file, index=False)
 
-    delete_response = client.delete(f"/detections/{detection_id}")
+    delete_response = client.delete(
+        f"/detections/{detection_id}",
+        params={"deleteImages": True},
+    )
 
     assert delete_response.status_code == 200
     delete_payload = delete_response.json()
     assert delete_payload["detection_deleted"] is True
     assert delete_payload["deleted_image_id"] is None
     assert delete_payload["related_image_missing"] is True
+    assert delete_payload["related_image_in_use"] is False
 
 
 def test_delete_analysis_image_removes_metadata_and_file(tmp_path, monkeypatch) -> None:
@@ -1688,7 +1900,10 @@ def test_delete_analysis_image_removes_metadata_and_file(tmp_path, monkeypatch) 
     image_path = Path(images_payload[0]["path"])
     assert image_path.exists()
 
-    delete_response = client.delete(f"/analysis-images/{image_id}")
+    delete_response = client.delete(
+        f"/analysis-images/{image_id}",
+        params={"deleteFiles": True},
+    )
 
     assert delete_response.status_code == 200
     assert delete_response.json() == {
@@ -1737,7 +1952,10 @@ def test_delete_analysis_image_matches_trimmed_image_id(tmp_path, monkeypatch) -
     stored.loc[stored["image_id"].astype(str) == image_id, "image_id"] = f"  {image_id}  "
     stored.to_parquet(detections_parquet_file, index=False)
 
-    delete_response = client.delete(f"/analysis-images/{image_id}")
+    delete_response = client.delete(
+        f"/analysis-images/{image_id}",
+        params={"deleteFiles": True},
+    )
 
     assert delete_response.status_code == 200
     assert delete_response.json() == {
@@ -1802,3 +2020,99 @@ def test_delete_analysis_images_bulk_reports_missing_ids(tmp_path, monkeypatch) 
     assert len(remaining_payload) == 1
     assert remaining_payload[0]["image_id"] == other_id
     assert Path(remaining_payload[0]["path"]).exists()
+
+
+def test_delete_analysis_image_keeps_file_when_delete_files_flag_is_false(
+    tmp_path, monkeypatch
+) -> None:
+    no_detections_image_dir = tmp_path / "images" / "no_detections"
+    detections_parquet_file = tmp_path / "detections.parquet"
+
+    monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
+    monkeypatch.setenv("NO_DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+    monkeypatch.setattr("app.main.download_tile", Mock(return_value=Image.new("L", (64, 64), color=128)))
+    monkeypatch.setattr("app.main.run_inference", Mock(return_value=[]))
+
+    run_response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "preview",
+            "numSamples": 1,
+            "confidenceThreshold": 0.5,
+            "bbox": [-20.0, -10.0, 20.0, 10.0],
+        },
+    )
+    assert run_response.status_code == 200
+
+    images_response = client.get("/analysis-images/query", params={"status": "no_detections"})
+    assert images_response.status_code == 200
+    payload = images_response.json()
+    assert len(payload) == 1
+
+    image_id = payload[0]["image_id"]
+    image_path = Path(payload[0]["path"])
+    assert image_path.exists()
+
+    delete_response = client.delete(f"/analysis-images/{image_id}")
+
+    assert delete_response.status_code == 200
+    assert delete_response.json() == {
+        "image_id": image_id,
+        "image_deleted": True,
+    }
+
+    images_after_response = client.get("/analysis-images/query", params={"status": "no_detections"})
+    assert images_after_response.status_code == 200
+    assert images_after_response.json() == []
+    assert image_path.exists()
+
+
+def test_delete_analysis_images_bulk_removes_files_when_delete_files_true(
+    tmp_path, monkeypatch
+) -> None:
+    no_detections_image_dir = tmp_path / "images" / "no_detections"
+    detections_parquet_file = tmp_path / "detections.parquet"
+
+    monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
+    monkeypatch.setenv("NO_DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+    monkeypatch.setattr("app.main.download_tile", Mock(return_value=Image.new("L", (64, 64), color=128)))
+    monkeypatch.setattr("app.main.run_inference", Mock(return_value=[]))
+
+    run_response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "preview",
+            "numSamples": 2,
+            "confidenceThreshold": 0.5,
+            "bbox": [-20.0, -10.0, 20.0, 10.0],
+        },
+    )
+    assert run_response.status_code == 200
+
+    images_response = client.get("/analysis-images/query", params={"status": "no_detections"})
+    assert images_response.status_code == 200
+    payload = images_response.json()
+    assert len(payload) == 2
+    image_ids = [item["image_id"] for item in payload]
+    image_paths = [Path(item["path"]) for item in payload]
+    assert all(path.exists() for path in image_paths)
+
+    delete_response = client.request(
+        "DELETE",
+        "/analysis-images/bulk",
+        json={"imageIds": image_ids, "deleteFiles": True},
+    )
+
+    assert delete_response.status_code == 200
+    delete_payload = delete_response.json()
+    assert delete_payload["requested_count"] == 2
+    assert delete_payload["deleted_count"] == 2
+    assert sorted(delete_payload["deleted_image_ids"]) == sorted(image_ids)
+    assert delete_payload["missing_image_ids"] == []
+
+    images_after_response = client.get("/analysis-images/query", params={"status": "no_detections"})
+    assert images_after_response.status_code == 200
+    assert images_after_response.json() == []
+    assert all(not path.exists() for path in image_paths)

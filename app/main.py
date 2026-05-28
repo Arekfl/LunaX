@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Annotated
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
@@ -483,7 +483,8 @@ def update_analysis_images_bulk_tags(
 @app.delete("/detections/bulk", response_model=DetectionBulkDeleteResponse)
 def delete_detections_bulk(payload: DetectionBulkDeleteRequest) -> DetectionBulkDeleteResponse:
     delete_summary = delete_detections_bulk_and_related_assets(
-        detection_ids=payload.detection_ids
+        detection_ids=payload.detection_ids,
+        delete_images=payload.delete_images,
     )
 
     deleted_detection_ids = [
@@ -505,12 +506,21 @@ def delete_detections_bulk(payload: DetectionBulkDeleteRequest) -> DetectionBulk
             for detection_id in delete_summary.get("missing_detection_ids", [])
         ],
         related_image_missing=bool(delete_summary.get("related_image_missing")),
+        related_image_in_use=bool(delete_summary.get("related_image_in_use")),
+        related_image_missing_count=int(delete_summary.get("related_image_missing_count", 0)),
+        related_image_in_use_count=int(delete_summary.get("related_image_in_use_count", 0)),
     )
 
 
 @app.delete("/detections/{id}", response_model=DetectionDeleteResponse)
-def delete_detection(id: str) -> DetectionDeleteResponse:
-    deleted_payload = delete_detection_and_related_assets(detection_id=id)
+def delete_detection(
+    id: str,
+    delete_images: Annotated[bool, Query(alias="deleteImages")] = False,
+) -> DetectionDeleteResponse:
+    deleted_payload = delete_detection_and_related_assets(
+        detection_id=id,
+        delete_images=delete_images,
+    )
     if not bool(deleted_payload.get("detection_deleted")):
         raise HTTPException(status_code=404, detail="Detection not found")
 
@@ -532,6 +542,7 @@ def delete_detection(id: str) -> DetectionDeleteResponse:
             else str(deleted_payload["deleted_image_path"])
         ),
         related_image_missing=bool(deleted_payload.get("related_image_missing")),
+        related_image_in_use=bool(deleted_payload.get("related_image_in_use")),
     )
 
 
@@ -539,7 +550,10 @@ def delete_detection(id: str) -> DetectionDeleteResponse:
 def delete_analysis_images_bulk(
     payload: AnalysisImageBulkDeleteRequest,
 ) -> AnalysisImageBulkDeleteResponse:
-    delete_summary = delete_analysis_images_by_ids(payload.image_ids)
+    delete_summary = delete_analysis_images_by_ids(
+        payload.image_ids,
+        delete_files=payload.delete_files,
+    )
 
     return AnalysisImageBulkDeleteResponse(
         requested_count=int(delete_summary.get("requested_count", 0)),
@@ -554,8 +568,14 @@ def delete_analysis_images_bulk(
 
 
 @app.delete("/analysis-images/{image_id}", response_model=AnalysisImageDeleteResponse)
-def delete_analysis_image(image_id: str) -> AnalysisImageDeleteResponse:
-    image_deleted = delete_analysis_image_by_id(image_id=image_id)
+def delete_analysis_image(
+    image_id: str,
+    delete_files: Annotated[bool, Query(alias="deleteFiles")] = False,
+) -> AnalysisImageDeleteResponse:
+    image_deleted = delete_analysis_image_by_id(
+        image_id=image_id,
+        delete_files=delete_files,
+    )
     if not image_deleted:
         raise HTTPException(status_code=404, detail="Analysis image not found")
 
