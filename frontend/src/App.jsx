@@ -42,56 +42,6 @@ const RESOLUTION_IMAGE_SIZE_MAP = {
   detail: 1536,
   ultra: 2048,
 };
-const SORT_OPTION_DEFINITIONS = [
-  {
-    value: "confidence_desc",
-    label: "confidence (malejaco)",
-    sortBy: "confidence",
-    sortOrder: "desc",
-    modes: ["detections"],
-    requires: "confidence",
-  },
-  {
-    value: "confidence_asc",
-    label: "confidence (rosnaco)",
-    sortBy: "confidence",
-    sortOrder: "asc",
-    modes: ["detections"],
-    requires: "confidence",
-  },
-  {
-    value: "data_desc",
-    label: "date (najnowsze)",
-    sortBy: "data",
-    sortOrder: "desc",
-    modes: ["detections", "no_detections"],
-    requires: "date",
-  },
-  {
-    value: "data_asc",
-    label: "date (najstarsze)",
-    sortBy: "data",
-    sortOrder: "asc",
-    modes: ["detections", "no_detections"],
-    requires: "date",
-  },
-  {
-    value: "resolution_asc",
-    label: "resolution (A-Z)",
-    sortBy: "resolution",
-    sortOrder: "asc",
-    modes: ["no_detections"],
-    requires: "resolution",
-  },
-  {
-    value: "resolution_desc",
-    label: "resolution (Z-A)",
-    sortBy: "resolution",
-    sortOrder: "desc",
-    modes: ["no_detections"],
-    requires: "resolution",
-  },
-];
 
 const GRID_SIZE = 4;
 const GRID_ROWS = GRID_SIZE;
@@ -473,11 +423,6 @@ function getDetectionTimestampValue(detection) {
   return Number.isFinite(parsedTimestamp) ? parsedTimestamp : null;
 }
 
-function getResolutionSortValue(detection) {
-  const rawResolution = String(detection?.resolution ?? "").trim();
-  return rawResolution.length > 0 ? rawResolution.toLowerCase() : null;
-}
-
 function compareNullableNumbers(leftValue, rightValue, sortOrder) {
   const leftIsValid = Number.isFinite(leftValue);
   const rightIsValid = Number.isFinite(rightValue);
@@ -497,36 +442,8 @@ function compareNullableNumbers(leftValue, rightValue, sortOrder) {
   return sortOrder === "asc" ? leftValue - rightValue : rightValue - leftValue;
 }
 
-function compareNullableStrings(leftValue, rightValue, sortOrder) {
-  const leftText = typeof leftValue === "string" ? leftValue : "";
-  const rightText = typeof rightValue === "string" ? rightValue : "";
-
-  const leftHasValue = leftText.length > 0;
-  const rightHasValue = rightText.length > 0;
-
-  if (!leftHasValue && !rightHasValue) {
-    return 0;
-  }
-
-  if (!leftHasValue) {
-    return 1;
-  }
-
-  if (!rightHasValue) {
-    return -1;
-  }
-
-  const textDelta = leftText.localeCompare(rightText, undefined, {
-    numeric: true,
-    sensitivity: "base",
-  });
-
-  return sortOrder === "asc" ? textDelta : -textDelta;
-}
-
 function sortDetectionList(detectionList, sortBy, sortOrder) {
-  const normalizedSortBy =
-    sortBy === "confidence" || sortBy === "resolution" ? sortBy : "data";
+  const normalizedSortBy = sortBy === "confidence" ? "confidence" : "data";
   const normalizedSortOrder = sortOrder === "asc" ? "asc" : "desc";
   const indexedDetections = detectionList.map((detection, index) => ({ detection, index }));
 
@@ -539,24 +456,6 @@ function sortDetectionList(detectionList, sortBy, sortOrder) {
       );
       if (confidenceDelta !== 0) {
         return confidenceDelta;
-      }
-
-      const timestampDelta = compareNullableNumbers(
-        getDetectionTimestampValue(leftItem.detection),
-        getDetectionTimestampValue(rightItem.detection),
-        "desc"
-      );
-      if (timestampDelta !== 0) {
-        return timestampDelta;
-      }
-    } else if (normalizedSortBy === "resolution") {
-      const resolutionDelta = compareNullableStrings(
-        getResolutionSortValue(leftItem.detection),
-        getResolutionSortValue(rightItem.detection),
-        normalizedSortOrder
-      );
-      if (resolutionDelta !== 0) {
-        return resolutionDelta;
       }
 
       const timestampDelta = compareNullableNumbers(
@@ -988,54 +887,33 @@ export default function App() {
     [visibleAnalysisImages]
   );
 
-  const hasResolutionSortDataInNoDetections = useMemo(
-    () => visibleAnalysisImages.some((image) => String(image?.resolution ?? "").trim().length > 0),
-    [visibleAnalysisImages]
-  );
+  const availableQuickSortFields = useMemo(() => {
+    const fields = [];
 
-  const availableSortOptions = useMemo(() => {
-    const currentMode = isNoDetectionsFilterSelected ? "no_detections" : "detections";
+    if (!isNoDetectionsFilterSelected && hasConfidenceSortData) {
+      fields.push({ key: "confidence", label: "confidence" });
+    }
 
-    return SORT_OPTION_DEFINITIONS.filter((sortOption) => {
-      if (!sortOption.modes.includes(currentMode)) {
-        return false;
-      }
+    const hasDateData = isNoDetectionsFilterSelected
+      ? hasDateSortDataInNoDetections
+      : hasDateSortDataInDetections;
+    if (hasDateData) {
+      fields.push({ key: "data", label: "date" });
+    }
 
-      if (sortOption.requires === "confidence") {
-        return hasConfidenceSortData;
-      }
-
-      if (sortOption.requires === "date") {
-        return currentMode === "detections"
-          ? hasDateSortDataInDetections
-          : hasDateSortDataInNoDetections;
-      }
-
-      if (sortOption.requires === "resolution") {
-        return hasResolutionSortDataInNoDetections;
-      }
-
-      return true;
-    });
+    return fields;
   }, [
     isNoDetectionsFilterSelected,
     hasConfidenceSortData,
     hasDateSortDataInDetections,
     hasDateSortDataInNoDetections,
-    hasResolutionSortDataInNoDetections,
   ]);
 
-  const selectedSortValue = `${detectionSortBy}_${detectionSortOrder}`;
-  const activeSortOption = useMemo(
-    () =>
-      availableSortOptions.find((sortOption) => sortOption.value === selectedSortValue) ??
-      availableSortOptions[0] ??
-      null,
-    [availableSortOptions, selectedSortValue]
-  );
-
-  const effectiveSortBy = activeSortOption?.sortBy ?? "data";
-  const effectiveSortOrder = activeSortOption?.sortOrder ?? "desc";
+  const effectiveSortBy =
+    availableQuickSortFields.some((field) => field.key === detectionSortBy)
+      ? detectionSortBy
+      : availableQuickSortFields[0]?.key ?? "data";
+  const effectiveSortOrder = detectionSortOrder === "asc" ? "asc" : "desc";
 
   const filteredDetections = useMemo(
     () => sortDetectionList(detectionsForCurrentView, effectiveSortBy, effectiveSortOrder),
@@ -1049,6 +927,18 @@ export default function App() {
 
   const backendSortBy = effectiveSortBy === "confidence" ? "confidence" : "data";
   const backendSortOrder = effectiveSortOrder === "asc" ? "asc" : "desc";
+
+  const handleSortFieldClick = useCallback((fieldKey) => {
+    if (detectionSortBy === fieldKey) {
+      setDetectionSortOrder((previousSortOrder) =>
+        previousSortOrder === "asc" ? "desc" : "asc"
+      );
+      return;
+    }
+
+    setDetectionSortBy(fieldKey);
+    setDetectionSortOrder("desc");
+  }, [detectionSortBy]);
 
   const detectionSectionCount = isNoDetectionsFilterSelected
     ? sortedNoDetectionImages.length
@@ -1096,17 +986,20 @@ export default function App() {
   }, [fetchDetectionStatuses, backendSortBy, backendSortOrder]);
 
   useEffect(() => {
-    if (!activeSortOption) {
+    if (availableQuickSortFields.length === 0) {
       return;
     }
 
-    if (activeSortOption.value === selectedSortValue) {
+    const isCurrentFieldAvailable = availableQuickSortFields.some(
+      (field) => field.key === detectionSortBy
+    );
+    if (isCurrentFieldAvailable) {
       return;
     }
 
-    setDetectionSortBy(activeSortOption.sortBy);
-    setDetectionSortOrder(activeSortOption.sortOrder);
-  }, [activeSortOption, selectedSortValue]);
+    setDetectionSortBy(availableQuickSortFields[0].key);
+    setDetectionSortOrder("desc");
+  }, [availableQuickSortFields, detectionSortBy]);
 
   const fetchAnalysisImages = useCallback(async () => {
     const response = await fetch(`${API_BASE_URL}/analysis-images/query`);
@@ -2858,49 +2751,34 @@ export default function App() {
                 </button>
               </div>
 
-              <div className="mb-3 detection-sort-select-wrap">
-                <label htmlFor="detection-sort-select" className="form-label small text-muted mb-1">
-                  Sortowanie listy detekcji
-                </label>
-                <select
-                  id="detection-sort-select"
-                  className="form-select form-select-sm"
-                  value={activeSortOption?.value ?? ""}
-                  onClick={() => {
-                    console.log("[sort-dropdown] click", {
-                      mode: isNoDetectionsFilterSelected ? "no_detections" : "detections",
-                      statusFilter,
-                      value: activeSortOption?.value ?? "",
-                      availableOptions: availableSortOptions.map((option) => option.value),
-                    });
-                  }}
-                  onChange={(event) => {
-                    const nextValue = String(event.target.value);
-                    const nextSortOption = availableSortOptions.find(
-                      (option) => option.value === nextValue
-                    );
-                    console.log("[sort-dropdown] change", {
-                      mode: isNoDetectionsFilterSelected ? "no_detections" : "detections",
-                      statusFilter,
-                      nextValue,
-                    });
-                    if (nextSortOption) {
-                      setDetectionSortBy(nextSortOption.sortBy);
-                      setDetectionSortOrder(nextSortOption.sortOrder);
-                    }
-                  }}
-                  disabled={availableSortOptions.length === 0}
-                >
-                  {availableSortOptions.length === 0 ? (
-                    <option value="">Brak danych do sortowania</option>
-                  ) : (
-                    availableSortOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))
-                  )}
-                </select>
+              <div className="mb-3">
+                <div className="small text-muted mb-1">Sortowanie listy detekcji</div>
+                {availableQuickSortFields.length === 0 ? (
+                  <div className="small text-muted">Brak danych do sortowania.</div>
+                ) : (
+                  <div className="detection-sort-quick-list">
+                    {availableQuickSortFields.map((field) => {
+                      const isActive = effectiveSortBy === field.key;
+                      const directionIcon = effectiveSortOrder === "asc" ? "▲" : "▼";
+
+                      return (
+                        <button
+                          type="button"
+                          key={`quick-sort-${field.key}`}
+                          className={`btn btn-sm ${
+                            isActive ? "btn-secondary" : "btn-outline-secondary"
+                          } detection-sort-quick-btn`}
+                          onClick={() => handleSortFieldClick(field.key)}
+                          aria-pressed={isActive}
+                          title={isActive ? `Kierunek: ${effectiveSortOrder}` : "Ustaw sortowanie"}
+                        >
+                          <span>{field.label}</span>
+                          {isActive && <span className="detection-sort-quick-icon">{directionIcon}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {!isNoDetectionsFilterSelected && (

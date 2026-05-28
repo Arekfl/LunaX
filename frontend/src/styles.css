@@ -175,9 +175,23 @@ body {
   position: relative;
 }
 
-.detection-sort-select-wrap {
-  position: relative;
-  z-index: 60;
+.detection-sort-quick-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.detection-sort-quick-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding-top: 0.15rem;
+  padding-bottom: 0.15rem;
+}
+
+.detection-sort-quick-icon {
+  font-size: 0.72rem;
+  line-height: 1;
 }
 
 .tag-filter-dropdown-menu {
