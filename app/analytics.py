@@ -3,7 +3,7 @@ import hashlib
 import math
 from io import BytesIO
 from pathlib import Path
-from typing import Sequence
+from typing import Literal, Sequence
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -270,6 +270,25 @@ def query_analysis_images(status: str | None = None) -> list[dict]:
         "resolution",
         "timestamp",
     ]
+
+    if "resolution" not in analysis_images_frame.columns:
+        if "resolutionMode" in analysis_images_frame.columns:
+            analysis_images_frame["resolution"] = (
+                analysis_images_frame["resolutionMode"].fillna("").astype(str)
+            )
+        else:
+            analysis_images_frame["resolution"] = ""
+    elif "resolutionMode" in analysis_images_frame.columns:
+        empty_resolution_mask = (
+            analysis_images_frame["resolution"].fillna("").astype(str).str.strip() == ""
+        )
+        if empty_resolution_mask.any():
+            analysis_images_frame.loc[empty_resolution_mask, "resolution"] = (
+                analysis_images_frame.loc[empty_resolution_mask, "resolutionMode"]
+                .fillna("")
+                .astype(str)
+            )
+
     for column_name in expected_columns:
         if column_name not in analysis_images_frame.columns:
             analysis_images_frame[column_name] = "no_detection" if column_name == "status" else None
@@ -756,6 +775,8 @@ def query_detections(
     min_confidence: float | None = None,
     resolution_mode: str | None = None,
     analysis_id: str | None = None,
+    sort_by: Literal["confidence", "data"] = "confidence",
+    sort_order: Literal["asc", "desc"] = "desc",
 ) -> list[dict]:
     parquet_file = _get_detections_parquet_path()
     if not parquet_file.exists():
@@ -767,6 +788,25 @@ def query_detections(
 
     connection = duckdb.connect(database=":memory:")
     try:
+        parquet_columns = {
+            str(row[0])
+            for row in connection.execute(
+                "DESCRIBE SELECT * FROM read_parquet(?)",
+                [str(parquet_file)],
+            ).fetchall()
+        }
+        has_resolution_column = "resolution" in parquet_columns
+        has_resolution_mode_column = "resolutionMode" in parquet_columns
+
+        if has_resolution_column and has_resolution_mode_column:
+            resolution_expr = "COALESCE(d.resolution, d.resolutionMode, '')"
+        elif has_resolution_column:
+            resolution_expr = "COALESCE(d.resolution, '')"
+        elif has_resolution_mode_column:
+            resolution_expr = "COALESCE(d.resolutionMode, '')"
+        else:
+            resolution_expr = "''"
+
         connection.execute(
             "CREATE TEMP TABLE status_overrides (detection_id VARCHAR, status VARCHAR)"
         )
@@ -785,7 +825,21 @@ def query_detections(
                 list(stored_comments.items()),
             )
 
-        query = """
+        normalized_sort_order = "asc" if sort_order == "asc" else "desc"
+        if sort_by == "data":
+            timestamp_direction = "ASC" if normalized_sort_order == "asc" else "DESC"
+            order_by_clause = (
+                f"d.timestamp {timestamp_direction} NULLS LAST, "
+                "d.confidence DESC NULLS LAST, d.detection_id ASC"
+            )
+        else:
+            confidence_direction = "ASC" if normalized_sort_order == "asc" else "DESC"
+            order_by_clause = (
+                f"d.confidence {confidence_direction} NULLS LAST, "
+                "d.timestamp DESC NULLS LAST, d.detection_id ASC"
+            )
+
+        query = f"""
             SELECT
                 d.detection_id,
                 d.analysis_id,
@@ -796,7 +850,9 @@ def query_detections(
                 d.bbox_width,
                 d.bbox_height,
                 COALESCE(s.status, d.status, 'to_verify') AS status,
-                COALESCE(c.comment, '') AS comment
+                COALESCE(c.comment, '') AS comment,
+                d.timestamp,
+                {resolution_expr} AS resolution
             FROM read_parquet(?) AS d
             LEFT JOIN status_overrides AS s USING (detection_id)
             LEFT JOIN comment_overrides AS c USING (detection_id)
@@ -810,9 +866,9 @@ def query_detections(
                             AND d.bbox_height IS NOT NULL
               AND (? IS NULL OR d.class_name = ?)
               AND (? IS NULL OR d.confidence >= ?)
-                            AND (? IS NULL OR d.resolutionMode = ?)
+                            AND (? IS NULL OR {resolution_expr} = ?)
                             AND (? IS NULL OR d.analysis_id = ?)
-            ORDER BY d.confidence DESC
+            ORDER BY {order_by_clause}
         """
 
         rows = connection.execute(
@@ -846,6 +902,8 @@ def query_detections(
                 },
                 "status": row[8],
                 "comment": row[9],
+                "timestamp": str(row[10]) if row[10] is not None else "",
+                "resolution": str(row[11]) if row[11] is not None else "",
                 "tags": [str(tag) for tag in stored_tags.get(str(row[0]), []) if str(tag).strip()],
             }
             for row in rows

@@ -42,6 +42,56 @@ const RESOLUTION_IMAGE_SIZE_MAP = {
   detail: 1536,
   ultra: 2048,
 };
+const SORT_OPTION_DEFINITIONS = [
+  {
+    value: "confidence_desc",
+    label: "confidence (malejaco)",
+    sortBy: "confidence",
+    sortOrder: "desc",
+    modes: ["detections"],
+    requires: "confidence",
+  },
+  {
+    value: "confidence_asc",
+    label: "confidence (rosnaco)",
+    sortBy: "confidence",
+    sortOrder: "asc",
+    modes: ["detections"],
+    requires: "confidence",
+  },
+  {
+    value: "data_desc",
+    label: "date (najnowsze)",
+    sortBy: "data",
+    sortOrder: "desc",
+    modes: ["detections", "no_detections"],
+    requires: "date",
+  },
+  {
+    value: "data_asc",
+    label: "date (najstarsze)",
+    sortBy: "data",
+    sortOrder: "asc",
+    modes: ["detections", "no_detections"],
+    requires: "date",
+  },
+  {
+    value: "resolution_asc",
+    label: "resolution (A-Z)",
+    sortBy: "resolution",
+    sortOrder: "asc",
+    modes: ["no_detections"],
+    requires: "resolution",
+  },
+  {
+    value: "resolution_desc",
+    label: "resolution (Z-A)",
+    sortBy: "resolution",
+    sortOrder: "desc",
+    modes: ["no_detections"],
+    requires: "resolution",
+  },
+];
 
 const GRID_SIZE = 4;
 const GRID_ROWS = GRID_SIZE;
@@ -273,7 +323,7 @@ function getDetectionOverlayRect(detection, image, imageMetrics) {
   const naturalWidth = Number(imageMetrics?.naturalWidth);
   const naturalHeight = Number(imageMetrics?.naturalHeight);
 
-  const resolution = String(image?.resolution || "").trim();
+  const resolution = String(image?.resolution || detection?.resolution || "").trim();
   const fallbackSize = Number(RESOLUTION_IMAGE_SIZE_MAP[resolution] || 0);
 
   const originalWidth = naturalWidth > 0 ? naturalWidth : fallbackSize;
@@ -406,6 +456,141 @@ function getDisplayDetectionsForStatus(detectionList, status, options = {}) {
     : tagsMatched;
 
   return deduplicateDetectionsByProximity(scopeMatched, DETECTION_BBOX_PROXIMITY_THRESHOLD);
+}
+
+function getDetectionConfidenceValue(detection) {
+  const numericConfidence = Number(detection?.confidence);
+  return Number.isFinite(numericConfidence) ? numericConfidence : null;
+}
+
+function getDetectionTimestampValue(detection) {
+  const timestampRaw = typeof detection?.timestamp === "string" ? detection.timestamp.trim() : "";
+  if (!timestampRaw) {
+    return null;
+  }
+
+  const parsedTimestamp = Date.parse(timestampRaw);
+  return Number.isFinite(parsedTimestamp) ? parsedTimestamp : null;
+}
+
+function getResolutionSortValue(detection) {
+  const rawResolution = String(detection?.resolution ?? "").trim();
+  return rawResolution.length > 0 ? rawResolution.toLowerCase() : null;
+}
+
+function compareNullableNumbers(leftValue, rightValue, sortOrder) {
+  const leftIsValid = Number.isFinite(leftValue);
+  const rightIsValid = Number.isFinite(rightValue);
+
+  if (!leftIsValid && !rightIsValid) {
+    return 0;
+  }
+
+  if (!leftIsValid) {
+    return 1;
+  }
+
+  if (!rightIsValid) {
+    return -1;
+  }
+
+  return sortOrder === "asc" ? leftValue - rightValue : rightValue - leftValue;
+}
+
+function compareNullableStrings(leftValue, rightValue, sortOrder) {
+  const leftText = typeof leftValue === "string" ? leftValue : "";
+  const rightText = typeof rightValue === "string" ? rightValue : "";
+
+  const leftHasValue = leftText.length > 0;
+  const rightHasValue = rightText.length > 0;
+
+  if (!leftHasValue && !rightHasValue) {
+    return 0;
+  }
+
+  if (!leftHasValue) {
+    return 1;
+  }
+
+  if (!rightHasValue) {
+    return -1;
+  }
+
+  const textDelta = leftText.localeCompare(rightText, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+
+  return sortOrder === "asc" ? textDelta : -textDelta;
+}
+
+function sortDetectionList(detectionList, sortBy, sortOrder) {
+  const normalizedSortBy =
+    sortBy === "confidence" || sortBy === "resolution" ? sortBy : "data";
+  const normalizedSortOrder = sortOrder === "asc" ? "asc" : "desc";
+  const indexedDetections = detectionList.map((detection, index) => ({ detection, index }));
+
+  indexedDetections.sort((leftItem, rightItem) => {
+    if (normalizedSortBy === "confidence") {
+      const confidenceDelta = compareNullableNumbers(
+        getDetectionConfidenceValue(leftItem.detection),
+        getDetectionConfidenceValue(rightItem.detection),
+        normalizedSortOrder
+      );
+      if (confidenceDelta !== 0) {
+        return confidenceDelta;
+      }
+
+      const timestampDelta = compareNullableNumbers(
+        getDetectionTimestampValue(leftItem.detection),
+        getDetectionTimestampValue(rightItem.detection),
+        "desc"
+      );
+      if (timestampDelta !== 0) {
+        return timestampDelta;
+      }
+    } else if (normalizedSortBy === "resolution") {
+      const resolutionDelta = compareNullableStrings(
+        getResolutionSortValue(leftItem.detection),
+        getResolutionSortValue(rightItem.detection),
+        normalizedSortOrder
+      );
+      if (resolutionDelta !== 0) {
+        return resolutionDelta;
+      }
+
+      const timestampDelta = compareNullableNumbers(
+        getDetectionTimestampValue(leftItem.detection),
+        getDetectionTimestampValue(rightItem.detection),
+        "desc"
+      );
+      if (timestampDelta !== 0) {
+        return timestampDelta;
+      }
+    } else {
+      const timestampDelta = compareNullableNumbers(
+        getDetectionTimestampValue(leftItem.detection),
+        getDetectionTimestampValue(rightItem.detection),
+        normalizedSortOrder
+      );
+      if (timestampDelta !== 0) {
+        return timestampDelta;
+      }
+
+      const confidenceDelta = compareNullableNumbers(
+        getDetectionConfidenceValue(leftItem.detection),
+        getDetectionConfidenceValue(rightItem.detection),
+        "desc"
+      );
+      if (confidenceDelta !== 0) {
+        return confidenceDelta;
+      }
+    }
+
+    return leftItem.index - rightItem.index;
+  });
+
+  return indexedDetections.map((item) => item.detection);
 }
 
 function isNoCoverageErrorMessage(message) {
@@ -655,6 +840,8 @@ export default function App() {
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
   const [storedStatuses, setStoredStatuses] = useState({});
   const [statusFilter, setStatusFilter] = useState("to_verify");
+  const [detectionSortBy, setDetectionSortBy] = useState("confidence");
+  const [detectionSortOrder, setDetectionSortOrder] = useState("desc");
   const [selectedTagFilters, setSelectedTagFilters] = useState([]);
   const [tagFilterMode, setTagFilterMode] = useState("or");
   const [isTagFilterDropdownOpen, setIsTagFilterDropdownOpen] = useState(false);
@@ -738,7 +925,7 @@ export default function App() {
     [detections, storedStatuses]
   );
 
-  const filteredDetections = useMemo(
+  const detectionsForCurrentView = useMemo(
     () =>
       getDisplayDetectionsForStatus(statusResolvedDetections, statusFilter, {
         requireValidBounds: false,
@@ -786,8 +973,85 @@ export default function App() {
     [analysisImages]
   );
 
+  const hasConfidenceSortData = useMemo(
+    () => detectionsForCurrentView.some((detection) => Number.isFinite(Number(detection?.confidence))),
+    [detectionsForCurrentView]
+  );
+
+  const hasDateSortDataInDetections = useMemo(
+    () => detectionsForCurrentView.some((detection) => Number.isFinite(getDetectionTimestampValue(detection))),
+    [detectionsForCurrentView]
+  );
+
+  const hasDateSortDataInNoDetections = useMemo(
+    () => visibleAnalysisImages.some((image) => Number.isFinite(getDetectionTimestampValue(image))),
+    [visibleAnalysisImages]
+  );
+
+  const hasResolutionSortDataInNoDetections = useMemo(
+    () => visibleAnalysisImages.some((image) => String(image?.resolution ?? "").trim().length > 0),
+    [visibleAnalysisImages]
+  );
+
+  const availableSortOptions = useMemo(() => {
+    const currentMode = isNoDetectionsFilterSelected ? "no_detections" : "detections";
+
+    return SORT_OPTION_DEFINITIONS.filter((sortOption) => {
+      if (!sortOption.modes.includes(currentMode)) {
+        return false;
+      }
+
+      if (sortOption.requires === "confidence") {
+        return hasConfidenceSortData;
+      }
+
+      if (sortOption.requires === "date") {
+        return currentMode === "detections"
+          ? hasDateSortDataInDetections
+          : hasDateSortDataInNoDetections;
+      }
+
+      if (sortOption.requires === "resolution") {
+        return hasResolutionSortDataInNoDetections;
+      }
+
+      return true;
+    });
+  }, [
+    isNoDetectionsFilterSelected,
+    hasConfidenceSortData,
+    hasDateSortDataInDetections,
+    hasDateSortDataInNoDetections,
+    hasResolutionSortDataInNoDetections,
+  ]);
+
+  const selectedSortValue = `${detectionSortBy}_${detectionSortOrder}`;
+  const activeSortOption = useMemo(
+    () =>
+      availableSortOptions.find((sortOption) => sortOption.value === selectedSortValue) ??
+      availableSortOptions[0] ??
+      null,
+    [availableSortOptions, selectedSortValue]
+  );
+
+  const effectiveSortBy = activeSortOption?.sortBy ?? "data";
+  const effectiveSortOrder = activeSortOption?.sortOrder ?? "desc";
+
+  const filteredDetections = useMemo(
+    () => sortDetectionList(detectionsForCurrentView, effectiveSortBy, effectiveSortOrder),
+    [detectionsForCurrentView, effectiveSortBy, effectiveSortOrder]
+  );
+
+  const sortedNoDetectionImages = useMemo(
+    () => sortDetectionList(visibleAnalysisImages, effectiveSortBy, effectiveSortOrder),
+    [visibleAnalysisImages, effectiveSortBy, effectiveSortOrder]
+  );
+
+  const backendSortBy = effectiveSortBy === "confidence" ? "confidence" : "data";
+  const backendSortOrder = effectiveSortOrder === "asc" ? "asc" : "desc";
+
   const detectionSectionCount = isNoDetectionsFilterSelected
-    ? visibleAnalysisImages.length
+    ? sortedNoDetectionImages.length
     : filteredDetections.length;
 
   const fetchDetectionStatuses = useCallback(async () => {
@@ -808,8 +1072,12 @@ export default function App() {
   }, []);
 
   const fetchDetectionsAndStatuses = useCallback(async () => {
+    const queryParams = new URLSearchParams({
+      sortBy: backendSortBy,
+      sortOrder: backendSortOrder,
+    });
     const [detectionsResponse, statusMap] = await Promise.all([
-      fetch(`${API_BASE_URL}/detections/query`),
+      fetch(`${API_BASE_URL}/detections/query?${queryParams.toString()}`),
       fetchDetectionStatuses(),
     ]);
 
@@ -825,7 +1093,20 @@ export default function App() {
     setDetections(mergedDetections);
 
     return mergedDetections;
-  }, [fetchDetectionStatuses]);
+  }, [fetchDetectionStatuses, backendSortBy, backendSortOrder]);
+
+  useEffect(() => {
+    if (!activeSortOption) {
+      return;
+    }
+
+    if (activeSortOption.value === selectedSortValue) {
+      return;
+    }
+
+    setDetectionSortBy(activeSortOption.sortBy);
+    setDetectionSortOrder(activeSortOption.sortOrder);
+  }, [activeSortOption, selectedSortValue]);
 
   const fetchAnalysisImages = useCallback(async () => {
     const response = await fetch(`${API_BASE_URL}/analysis-images/query`);
@@ -1060,18 +1341,18 @@ export default function App() {
       return;
     }
 
-    const stillExists = visibleAnalysisImages.some(
+    const stillExists = sortedNoDetectionImages.some(
       (image) => image.image_id === selectedNoDetectionImage.image_id
     );
 
     if (!stillExists) {
       setSelectedNoDetectionImage(null);
     }
-  }, [visibleAnalysisImages, selectedNoDetectionImage]);
+  }, [sortedNoDetectionImages, selectedNoDetectionImage]);
 
   useEffect(() => {
     const availableImageIds = new Set(
-      visibleAnalysisImages.map((image) => String(image.image_id || "")).filter(Boolean)
+      sortedNoDetectionImages.map((image) => String(image.image_id || "")).filter(Boolean)
     );
 
     setSelectedNoDetectionImageIds((previousSelectedIds) =>
@@ -1081,7 +1362,7 @@ export default function App() {
     if (expandedNoDetectionImageId && !availableImageIds.has(expandedNoDetectionImageId)) {
       setExpandedNoDetectionImageId(null);
     }
-  }, [visibleAnalysisImages, expandedNoDetectionImageId]);
+  }, [sortedNoDetectionImages, expandedNoDetectionImageId]);
 
   const handleResetHomeView = useCallback(() => {
     setCurrentLevel(0);
@@ -2201,11 +2482,11 @@ export default function App() {
               )}
 
               {selectedNoDetectionImage ? null : isNoDetectionsFilterSelected ? (
-                visibleAnalysisImages.length === 0 ? (
+                sortedNoDetectionImages.length === 0 ? (
                   <div className="small text-muted">Brak zapisanych obrazow z wynikiem no_detections.</div>
                 ) : (
                   <div className="row g-3">
-                    {visibleAnalysisImages.map((image, imageIndex) => {
+                    {sortedNoDetectionImages.map((image, imageIndex) => {
                       const itemKey = `${image.image_id || "no-id"}|${image.timestamp || "no-ts"}|${imageIndex}`;
                       const isNoDetectionsStatus =
                         (typeof image.status === "string" ? image.status : NO_DETECTIONS_FILTER) ===
@@ -2577,6 +2858,51 @@ export default function App() {
                 </button>
               </div>
 
+              <div className="mb-3 detection-sort-select-wrap">
+                <label htmlFor="detection-sort-select" className="form-label small text-muted mb-1">
+                  Sortowanie listy detekcji
+                </label>
+                <select
+                  id="detection-sort-select"
+                  className="form-select form-select-sm"
+                  value={activeSortOption?.value ?? ""}
+                  onClick={() => {
+                    console.log("[sort-dropdown] click", {
+                      mode: isNoDetectionsFilterSelected ? "no_detections" : "detections",
+                      statusFilter,
+                      value: activeSortOption?.value ?? "",
+                      availableOptions: availableSortOptions.map((option) => option.value),
+                    });
+                  }}
+                  onChange={(event) => {
+                    const nextValue = String(event.target.value);
+                    const nextSortOption = availableSortOptions.find(
+                      (option) => option.value === nextValue
+                    );
+                    console.log("[sort-dropdown] change", {
+                      mode: isNoDetectionsFilterSelected ? "no_detections" : "detections",
+                      statusFilter,
+                      nextValue,
+                    });
+                    if (nextSortOption) {
+                      setDetectionSortBy(nextSortOption.sortBy);
+                      setDetectionSortOrder(nextSortOption.sortOrder);
+                    }
+                  }}
+                  disabled={availableSortOptions.length === 0}
+                >
+                  {availableSortOptions.length === 0 ? (
+                    <option value="">Brak danych do sortowania</option>
+                  ) : (
+                    availableSortOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
               {!isNoDetectionsFilterSelected && (
                 <div className="mb-3">
                   <div className="d-flex justify-content-between align-items-center mb-2">
@@ -2726,11 +3052,11 @@ export default function App() {
               <div className="detection-list-scroll" ref={detectionListRef}>
                 {isNoDetectionsFilterSelected ? (
                   <>
-                    {visibleAnalysisImages.length === 0 ? (
+                    {sortedNoDetectionImages.length === 0 ? (
                       <div className="small text-muted">Brak przeanalizowanych zdjec z wynikiem no_detections.</div>
                     ) : (
                       <div className="list-group dense-detection-list">
-                        {visibleAnalysisImages.map((image, imageIndex) => {
+                        {sortedNoDetectionImages.map((image, imageIndex) => {
                           const imageId = String(image.image_id || "");
                           const itemKey = `${imageId || "no-id"}|${image.timestamp || "no-ts"}|${imageIndex}`;
                           const isSelectedForGallery =

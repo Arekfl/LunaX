@@ -66,6 +66,8 @@ class LocalValidationRunRequest(BaseModel):
 
 
 DetectionStatus = Literal["confirmed", "to_verify", "rejected"]
+DetectionSortBy = Literal["confidence", "data"]
+DetectionSortOrder = Literal["asc", "desc"]
 
 
 class DetectionStatusUpdateRequest(BaseModel):
@@ -145,3 +147,5 @@ class DetectionsQueryParams(BaseModel):
         default=None, alias="resolutionMode"
     )
     analysis_id: str | None = None
+    sort_by: DetectionSortBy = Field(default="confidence", alias="sortBy")
+    sort_order: DetectionSortOrder = Field(default="desc", alias="sortOrder")

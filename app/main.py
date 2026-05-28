@@ -481,6 +481,8 @@ def get_detections_query(
         min_confidence=params.confidence,
         resolution_mode=params.resolution_mode,
         analysis_id=params.analysis_id,
+        sort_by=params.sort_by,
+        sort_order=params.sort_order,
     )
 
 

@@ -42,6 +42,7 @@ def test_query_detections_filters_by_status_class_and_confidence(tmp_path, monke
 
     all_rows = query_detections()
     assert len(all_rows) == 3
+    assert all(row["resolution"] == "detail" for row in all_rows)
 
     cave_rows = query_detections(class_name="cave_candidate")
     assert len(cave_rows) == 2
@@ -78,5 +79,6 @@ def test_save_detections_to_parquet_persists_requested_fields(tmp_path, monkeypa
     assert set(row["bbox"].keys()) == {"x", "y", "width", "height"}
     assert row["confidence"] == 0.92
     assert row["class"] == "cave_candidate"
+    assert row["resolution"] == "ultra"
     assert row["resolutionMode"] == "ultra"
     assert row["timestamp"] == "2026-05-24T12:00:00+00:00"

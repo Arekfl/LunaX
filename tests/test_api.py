@@ -955,9 +955,143 @@ def test_get_detections_query_returns_rows_without_filters(tmp_path, monkeypatch
         "bbox",
         "status",
         "comment",
+        "resolution",
         "tags",
     }.issubset(payload[0].keys())
     assert isinstance(payload[0]["tags"], list)
+
+
+def test_analysis_run_persists_detection_resolution_in_parquet_and_query(
+    tmp_path, monkeypatch
+) -> None:
+    parquet_file = tmp_path / "detections.parquet"
+    status_file = tmp_path / "detection_statuses.json"
+    comment_file = tmp_path / "detection_comments.json"
+    tags_file = tmp_path / "detection_tags.json"
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(parquet_file))
+    monkeypatch.setenv("DETECTION_STATUS_FILE", str(status_file))
+    monkeypatch.setenv("DETECTION_COMMENT_FILE", str(comment_file))
+    monkeypatch.setenv("DETECTION_TAG_FILE", str(tags_file))
+    monkeypatch.setattr("app.main.download_tile", _mock_tile)
+    monkeypatch.setattr("app.main.run_inference", _mock_inference)
+
+    run_response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "preview",
+            "numSamples": 1,
+            "confidenceThreshold": 0.0,
+            "bbox": [-10.0, -5.0, 10.0, 5.0],
+        },
+    )
+    assert run_response.status_code == 200
+    run_payload = run_response.json()
+
+    parquet_rows = pd.read_parquet(parquet_file)
+    detection_rows = parquet_rows[
+        parquet_rows["detection_id"].fillna("").astype(str).str.strip() != ""
+    ]
+    assert len(detection_rows) > 0
+    assert set(detection_rows["resolution"].astype(str)) == {"preview"}
+    assert set(detection_rows["resolutionMode"].astype(str)) == {"preview"}
+
+    query_response = client.get(
+        "/detections/query",
+        params={"analysis_id": run_payload["analysis_id"]},
+    )
+    assert query_response.status_code == 200
+    query_payload = query_response.json()
+    assert len(query_payload) > 0
+    assert all(item["resolution"] == "preview" for item in query_payload)
+
+
+def test_get_detections_query_supports_sorting_options(tmp_path, monkeypatch) -> None:
+    parquet_file = tmp_path / "detections.parquet"
+    status_file = tmp_path / "detection_statuses.json"
+    comment_file = tmp_path / "detection_comments.json"
+    tags_file = tmp_path / "detection_tags.json"
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(parquet_file))
+    monkeypatch.setenv("DETECTION_STATUS_FILE", str(status_file))
+    monkeypatch.setenv("DETECTION_COMMENT_FILE", str(comment_file))
+    monkeypatch.setenv("DETECTION_TAG_FILE", str(tags_file))
+
+    frame = pd.DataFrame(
+        [
+            {
+                "detection_id": "det-old",
+                "analysis_id": "analysis-1",
+                "class_name": "cave_candidate",
+                "confidence": 0.99,
+                "bbox_x": 1.0,
+                "bbox_y": 1.0,
+                "bbox_width": 2.0,
+                "bbox_height": 2.0,
+                "status": "rejected",
+                "resolutionMode": "detail",
+                "timestamp": "2026-05-24T10:00:00+00:00",
+            },
+            {
+                "detection_id": "det-mid",
+                "analysis_id": "analysis-1",
+                "class_name": "cave_candidate",
+                "confidence": 0.91,
+                "bbox_x": 2.0,
+                "bbox_y": 2.0,
+                "bbox_width": 2.0,
+                "bbox_height": 2.0,
+                "status": "confirmed",
+                "resolutionMode": "detail",
+                "timestamp": "2026-05-24T11:00:00+00:00",
+            },
+            {
+                "detection_id": "det-new",
+                "analysis_id": "analysis-1",
+                "class_name": "cave_candidate",
+                "confidence": 0.82,
+                "bbox_x": 3.0,
+                "bbox_y": 3.0,
+                "bbox_width": 2.0,
+                "bbox_height": 2.0,
+                "status": "to_verify",
+                "resolutionMode": "detail",
+                "timestamp": "2026-05-24T12:00:00+00:00",
+            },
+        ]
+    )
+    frame.to_parquet(parquet_file, index=False)
+
+    confidence_desc_response = client.get(
+        "/detections/query",
+        params={"sortBy": "confidence", "sortOrder": "desc"},
+    )
+    assert confidence_desc_response.status_code == 200
+    confidence_desc_ids = [row["detection_id"] for row in confidence_desc_response.json()]
+    assert confidence_desc_ids == ["det-old", "det-mid", "det-new"]
+    assert all(row["resolution"] == "detail" for row in confidence_desc_response.json())
+
+    confidence_asc_response = client.get(
+        "/detections/query",
+        params={"sortBy": "confidence", "sortOrder": "asc"},
+    )
+    assert confidence_asc_response.status_code == 200
+    confidence_asc_ids = [row["detection_id"] for row in confidence_asc_response.json()]
+    assert confidence_asc_ids == ["det-new", "det-mid", "det-old"]
+
+    data_desc_response = client.get(
+        "/detections/query",
+        params={"sortBy": "data", "sortOrder": "desc"},
+    )
+    assert data_desc_response.status_code == 200
+    data_desc_ids = [row["detection_id"] for row in data_desc_response.json()]
+    assert data_desc_ids == ["det-new", "det-mid", "det-old"]
+
+    data_asc_response = client.get(
+        "/detections/query",
+        params={"sortBy": "data", "sortOrder": "asc"},
+    )
+    assert data_asc_response.status_code == 200
+    data_asc_ids = [row["detection_id"] for row in data_asc_response.json()]
+    assert data_asc_ids == ["det-old", "det-mid", "det-new"]
 
 
 def test_patch_detection_status_rejects_invalid_status_value() -> None:
@@ -968,6 +1102,65 @@ def test_patch_detection_status_rejects_invalid_status_value() -> None:
 
 def test_get_detections_query_rejects_invalid_confidence_param() -> None:
     response = client.get("/detections/query", params={"confidence": 1.5})
+
+    assert response.status_code == 422
+
+
+def test_get_detections_query_rejects_invalid_sort_by_param() -> None:
+    response = client.get("/detections/query", params={"sortBy": "invalid"})
+
+    assert response.status_code == 422
+
+
+def test_get_detections_query_reads_resolution_from_legacy_resolution_mode(
+    tmp_path, monkeypatch
+) -> None:
+    parquet_file = tmp_path / "detections.parquet"
+    status_file = tmp_path / "detection_statuses.json"
+    comment_file = tmp_path / "detection_comments.json"
+    tags_file = tmp_path / "detection_tags.json"
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(parquet_file))
+    monkeypatch.setenv("DETECTION_STATUS_FILE", str(status_file))
+    monkeypatch.setenv("DETECTION_COMMENT_FILE", str(comment_file))
+    monkeypatch.setenv("DETECTION_TAG_FILE", str(tags_file))
+
+    pd.DataFrame(
+        [
+            {
+                "detection_id": "det-legacy-1",
+                "analysis_id": "analysis-legacy",
+                "class_name": "cave_candidate",
+                "confidence": 0.9,
+                "bbox_x": 1.0,
+                "bbox_y": 1.0,
+                "bbox_width": 2.0,
+                "bbox_height": 2.0,
+                "status": "to_verify",
+                "resolutionMode": "ultra",
+                "timestamp": "2026-05-24T10:00:00+00:00",
+            }
+        ]
+    ).to_parquet(parquet_file, index=False)
+
+    response = client.get("/detections/query")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["resolution"] == "ultra"
+
+
+def test_get_detections_query_rejects_removed_status_sorting() -> None:
+    response = client.get("/detections/query", params={"sortBy": "status"})
+
+    assert response.status_code == 422
+
+
+def test_get_detections_query_rejects_invalid_sort_order_param() -> None:
+    response = client.get(
+        "/detections/query",
+        params={"sortBy": "confidence", "sortOrder": "invalid"},
+    )
 
     assert response.status_code == 422
 

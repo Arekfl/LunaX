@@ -175,6 +175,11 @@ body {
   position: relative;
 }
 
+.detection-sort-select-wrap {
+  position: relative;
+  z-index: 60;
+}
+
 .tag-filter-dropdown-menu {
   max-height: 13rem;
   overflow-y: auto;
