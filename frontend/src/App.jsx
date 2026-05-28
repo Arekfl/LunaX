@@ -1792,8 +1792,6 @@ export default function App() {
 
   const handleToggleDetectionExpand = (detection) => {
     const detectionId = detection.detection_id;
-    handleOpenDetectionPreviewModal(detection);
-    handleSelectDetection(detection);
 
     if (expandedDetectionId === detectionId) {
       setExpandedDetectionId(null);
@@ -2966,6 +2964,9 @@ export default function App() {
                                     className="form-check-input detection-select-checkbox"
                                     type="checkbox"
                                     checked={selectedNoDetectionImageIds.includes(imageId)}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                    }}
                                     onChange={(event) => {
                                       event.stopPropagation();
                                       handleToggleNoDetectionSelection(imageId);
@@ -3105,6 +3106,9 @@ export default function App() {
                       const isEditingThis = editingDetectionId === detection.detection_id;
                       const commentInputValue = isEditingThis ? inputComment : commentText;
                       const hasComment = commentText.length > 0;
+                      const resolutionLabel = String(detection?.resolution ?? "").trim();
+                      const timestampLabel = String(detection?.timestamp ?? "").trim();
+                      const bbox = detection?.bbox ?? {};
 
                       return (
                         <div
@@ -3147,6 +3151,9 @@ export default function App() {
                                 className="form-check-input detection-select-checkbox"
                                 type="checkbox"
                                 checked={selectedIds.includes(detection.detection_id)}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                }}
                                 onChange={(event) => {
                                   event.stopPropagation();
                                   handleToggleDetectionSelection(detection.detection_id);
@@ -3200,16 +3207,20 @@ export default function App() {
                                 className="btn btn-sm btn-outline-secondary detection-icon-btn"
                                 onClick={(event) => {
                                   event.stopPropagation();
-                                  handleStartEditComment(detection);
+                                  handleOpenDetectionPreviewModal(detection);
                                 }}
-                                title="Komentarz"
-                                aria-label={`Komentarz dla ${detection.detection_id}`}
+                                title="Podglad"
+                                aria-label={`Podglad detekcji ${detection.detection_id}`}
                                 disabled={deleteModal.isDeleting}
                               >
                                 <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
                                   <path
                                     fill="currentColor"
-                                    d="M2 2.5A1.5 1.5 0 0 1 3.5 1h9A1.5 1.5 0 0 1 14 2.5v7A1.5 1.5 0 0 1 12.5 11H6l-3.5 3v-3H3.5A1.5 1.5 0 0 1 2 9.5v-7z"
+                                    d="M16 8s-3-5.5-8-5.5S0 8 0 8s3 5.5 8 5.5S16 8 16 8zM1.173 8a13.133 13.133 0 0 1 1.66-2.043C4.12 4.668 5.88 3.5 8 3.5s3.879 1.168 5.168 2.457A13.133 13.133 0 0 1 14.828 8c-.058.087-.122.183-.195.288-.335.48-.83 1.12-1.465 1.755C11.879 11.332 10.119 12.5 8 12.5s-3.879-1.168-5.168-2.457A13.134 13.134 0 0 1 1.172 8z"
+                                  />
+                                  <path
+                                    fill="currentColor"
+                                    d="M8 5.5A2.5 2.5 0 1 0 8 10.5 2.5 2.5 0 0 0 8 5.5zM4.5 8a3.5 3.5 0 1 1 7 0 3.5 3.5 0 0 1-7 0z"
                                   />
                                 </svg>
                               </button>
@@ -3237,6 +3248,20 @@ export default function App() {
 
                           {isExpanded && (
                             <div className="detection-expand-panel">
+                              <div className="small text-muted mb-1">Metadane</div>
+                              <div className="small mb-2">
+                                <div><strong>status:</strong> {detection.status || "-"}</div>
+                                <div><strong>class:</strong> {detection.class || "-"}</div>
+                                <div><strong>confidence:</strong> {Number(detection.confidence).toFixed(2)}</div>
+                                <div><strong>resolution:</strong> {resolutionLabel || "-"}</div>
+                                <div><strong>analysis_id:</strong> {detection.analysis_id || "-"}</div>
+                                <div><strong>timestamp:</strong> {timestampLabel || "-"}</div>
+                                <div>
+                                  <strong>bbox:</strong>{" "}
+                                  x={formatCoordinate(bbox.x, 2)}, y={formatCoordinate(bbox.y, 2)}, w={formatCoordinate(bbox.width, 2)}, h={formatCoordinate(bbox.height, 2)}
+                                </div>
+                              </div>
+
                               <div className="small text-muted mb-1">Tagi</div>
                               {detectionTags.length > 0 ? (
                                 <div className="d-flex flex-wrap gap-1 mb-2">
