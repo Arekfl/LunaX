@@ -733,6 +733,8 @@ export default function App() {
   const mapRef = useRef(null);
   const detectionListRef = useRef(null);
   const detectionItemRefs = useRef(new Map());
+  const masterDetectionsCheckboxRef = useRef(null);
+  const masterNoDetectionsCheckboxRef = useRef(null);
   const tagFilterDropdownRef = useRef(null);
   const detectionPreviewImageRef = useRef(null);
   const suppressZoomOutRef = useRef(0);
@@ -966,6 +968,58 @@ export default function App() {
   const detectionSectionCount = isNoDetectionsFilterSelected
     ? sortedNoDetectionImages.length
     : filteredDetections.length;
+
+  const selectableDetectionIds = useMemo(
+    () =>
+      filteredDetections
+        .map((detection) => String(detection?.detection_id || "").trim())
+        .filter(Boolean),
+    [filteredDetections]
+  );
+
+  const selectableNoDetectionImageIds = useMemo(
+    () =>
+      sortedNoDetectionImages
+        .map((image) => String(image?.image_id || "").trim())
+        .filter(Boolean),
+    [sortedNoDetectionImages]
+  );
+
+  const selectedVisibleDetectionsCount = useMemo(() => {
+    if (selectableDetectionIds.length === 0) {
+      return 0;
+    }
+
+    const selectedSet = new Set(
+      selectedIds.map((detectionId) => String(detectionId || "").trim()).filter(Boolean)
+    );
+    return selectableDetectionIds.filter((detectionId) => selectedSet.has(detectionId)).length;
+  }, [selectedIds, selectableDetectionIds]);
+
+  const selectedVisibleNoDetectionsCount = useMemo(() => {
+    if (selectableNoDetectionImageIds.length === 0) {
+      return 0;
+    }
+
+    const selectedSet = new Set(
+      selectedNoDetectionImageIds
+        .map((imageId) => String(imageId || "").trim())
+        .filter(Boolean)
+    );
+    return selectableNoDetectionImageIds.filter((imageId) => selectedSet.has(imageId)).length;
+  }, [selectedNoDetectionImageIds, selectableNoDetectionImageIds]);
+
+  const areAllVisibleDetectionsSelected =
+    selectableDetectionIds.length > 0 &&
+    selectedVisibleDetectionsCount === selectableDetectionIds.length;
+  const areSomeVisibleDetectionsSelected =
+    selectedVisibleDetectionsCount > 0 && !areAllVisibleDetectionsSelected;
+
+  const areAllVisibleNoDetectionsSelected =
+    selectableNoDetectionImageIds.length > 0 &&
+    selectedVisibleNoDetectionsCount === selectableNoDetectionImageIds.length;
+  const areSomeVisibleNoDetectionsSelected =
+    selectedVisibleNoDetectionsCount > 0 && !areAllVisibleNoDetectionsSelected;
 
   const fetchDetectionStatuses = useCallback(async () => {
     const statusesResponse = await fetch(`${API_BASE_URL}/detections/statuses`);
@@ -1265,6 +1319,22 @@ export default function App() {
       setSelectedNoDetectionImage(null);
     }
   }, [sortedNoDetectionImages, selectedNoDetectionImage]);
+
+  useEffect(() => {
+    if (!masterDetectionsCheckboxRef.current) {
+      return;
+    }
+
+    masterDetectionsCheckboxRef.current.indeterminate = areSomeVisibleDetectionsSelected;
+  }, [areSomeVisibleDetectionsSelected]);
+
+  useEffect(() => {
+    if (!masterNoDetectionsCheckboxRef.current) {
+      return;
+    }
+
+    masterNoDetectionsCheckboxRef.current.indeterminate = areSomeVisibleNoDetectionsSelected;
+  }, [areSomeVisibleNoDetectionsSelected]);
 
   useEffect(() => {
     const availableImageIds = new Set(
@@ -1840,6 +1910,34 @@ export default function App() {
     });
   };
 
+  const handleToggleSelectAllDetections = () => {
+    if (selectableDetectionIds.length === 0) {
+      return;
+    }
+
+    const selectableSet = new Set(selectableDetectionIds);
+    setSelectedIds((previousSelectedIds) => {
+      const normalizedPrevious = [
+        ...new Set(
+          previousSelectedIds
+            .map((detectionId) => String(detectionId || "").trim())
+            .filter(Boolean)
+        ),
+      ];
+
+      if (areAllVisibleDetectionsSelected) {
+        return normalizedPrevious.filter((detectionId) => !selectableSet.has(detectionId));
+      }
+
+      const nextSet = new Set(normalizedPrevious);
+      for (const detectionId of selectableDetectionIds) {
+        nextSet.add(detectionId);
+      }
+
+      return Array.from(nextSet);
+    });
+  };
+
   const handleApplyBulkTag = async () => {
     const normalizedTag = String(bulkTagDraft || "").trim();
     if (!normalizedTag) {
@@ -2024,6 +2122,34 @@ export default function App() {
       }
 
       return [...prevSelectedIds, normalizedImageId];
+    });
+  };
+
+  const handleToggleSelectAllNoDetections = () => {
+    if (selectableNoDetectionImageIds.length === 0) {
+      return;
+    }
+
+    const selectableSet = new Set(selectableNoDetectionImageIds);
+    setSelectedNoDetectionImageIds((previousSelectedIds) => {
+      const normalizedPrevious = [
+        ...new Set(
+          previousSelectedIds
+            .map((imageId) => String(imageId || "").trim())
+            .filter(Boolean)
+        ),
+      ];
+
+      if (areAllVisibleNoDetectionsSelected) {
+        return normalizedPrevious.filter((imageId) => !selectableSet.has(imageId));
+      }
+
+      const nextSet = new Set(normalizedPrevious);
+      for (const imageId of selectableNoDetectionImageIds) {
+        nextSet.add(imageId);
+      }
+
+      return Array.from(nextSet);
     });
   };
 
@@ -3165,6 +3291,29 @@ export default function App() {
 
               {isNoDetectionsFilterSelected ? (
                 <>
+                  <div className="form-check mb-2">
+                    <input
+                      ref={masterNoDetectionsCheckboxRef}
+                      className="form-check-input detection-select-checkbox"
+                      type="checkbox"
+                      checked={areAllVisibleNoDetectionsSelected}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                      }}
+                      onChange={(event) => {
+                        event.stopPropagation();
+                        handleToggleSelectAllNoDetections();
+                      }}
+                      disabled={
+                        selectableNoDetectionImageIds.length === 0 ||
+                        deleteModal.isDeleting ||
+                        isNoDetectionBulkTagging
+                      }
+                      aria-label="Zaznacz lub odznacz wszystkie obrazy no_detections"
+                    />
+                    <label className="form-check-label small ms-1">Select / Deselect All</label>
+                  </div>
+
                   <div className="d-flex gap-2 mb-2">
                     <input
                       className="form-control form-control-sm"
@@ -3216,6 +3365,29 @@ export default function App() {
                 </>
               ) : (
                 <>
+                  <div className="form-check mb-2">
+                    <input
+                      ref={masterDetectionsCheckboxRef}
+                      className="form-check-input detection-select-checkbox"
+                      type="checkbox"
+                      checked={areAllVisibleDetectionsSelected}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                      }}
+                      onChange={(event) => {
+                        event.stopPropagation();
+                        handleToggleSelectAllDetections();
+                      }}
+                      disabled={
+                        selectableDetectionIds.length === 0 ||
+                        deleteModal.isDeleting ||
+                        isBulkTagging
+                      }
+                      aria-label="Zaznacz lub odznacz wszystkie detekcje"
+                    />
+                    <label className="form-check-label small ms-1">Select / Deselect All</label>
+                  </div>
+
                   <div className="d-flex gap-2 mb-2">
                     <input
                       className="form-control form-control-sm"
