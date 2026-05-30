@@ -2820,20 +2820,67 @@ export default function App() {
                       const isNoDetectionsStatus =
                         (typeof image.status === "string" ? image.status : NO_DETECTIONS_FILTER) ===
                         NO_DETECTIONS_FILTER;
+                      const isSelected = selectedNoDetectionImageIds.includes(image.image_id);
+                      const isHovered = hoveredDetectionId === image.image_id;
 
                       return (
-                        <div className="col-sm-6 col-xl-4" key={`gallery-image-${itemKey}`}>
-                          <button
-                            type="button"
-                            className="card h-100 shadow-sm border-0 text-start w-100 p-0"
-                            onClick={() => handleOpenAnalysisImage(image)}
+                        <div className="col-sm-6 col-xl-4" key={`gallery-image-${itemKey}`}
+                          onMouseEnter={() => setHoveredDetectionId(image.image_id)}
+                          onMouseLeave={() => setHoveredDetectionId(null)}
+                        >
+                          <div
+                            className={`gallery-card card h-100 shadow-sm border-0 position-relative${isSelected ? " gallery-card-selected" : ""}`}
+                            tabIndex={0}
+                            onClick={() => handleToggleNoDetectionSelection(image.image_id)}
+                            onKeyDown={e => {
+                              if (e.key === "Enter" || e.key === " ") handleToggleNoDetectionSelection(image.image_id);
+                            }}
+                            style={{ cursor: "pointer" }}
                           >
-                            <img
-                              src={getAnalysisImageUrl(image.image_id)}
-                              alt={`Zapis analizy ${image.image_id}`}
-                              loading="lazy"
-                              className="gallery-preview card-img-top"
-                            />
+                            <div className="gallery-img-wrap position-relative">
+                              <img
+                                src={getAnalysisImageUrl(image.image_id)}
+                                alt={`Zapis analizy ${image.image_id}`}
+                                loading="lazy"
+                                className="gallery-preview card-img-top"
+                              />
+                              {isSelected && (
+                                <div className="gallery-selected-overlay">
+                                  <span className="gallery-checkmark">✔</span>
+                                </div>
+                              )}
+                              {(isHovered || isSelected) && (
+                                <div className="gallery-hover-icons">
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm btn-outline-secondary gallery-icon-btn"
+                                    title="Podglad"
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      handleOpenAnalysisImage(image);
+                                    }}
+                                  >
+                                    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                                      <path fill="currentColor" d="M16 8s-3-5.5-8-5.5S0 8 0 8s3 5.5 8 5.5S16 8 16 8zM1.173 8a13.133 13.133 0 0 1 1.66-2.043C4.12 4.668 5.88 3.5 8 3.5s3.879 1.168 5.168 2.457A13.133 13.133 0 0 1 14.828 8c-.058.087-.122.183-.195.288-.335.48-.83 1.12-1.465 1.755C11.879 11.332 10.119 12.5 8 12.5s-3.879-1.168-5.168-2.457A13.134 13.134 0 0 1 1.172 8z" />
+                                      <path fill="currentColor" d="M8 5.5A2.5 2.5 0 1 0 8 10.5 2.5 2.5 0 0 0 8 5.5zM4.5 8a3.5 3.5 0 1 1 7 0 3.5 3.5 0 0 1-7 0z" />
+                                    </svg>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm btn-outline-danger gallery-icon-btn"
+                                    title="Usuń"
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      handleRequestDeleteNoDetectionImage(image.image_id);
+                                    }}
+                                  >
+                                    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                                      <path fill="currentColor" d="M5.5 5.5a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm5 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6zM1 3.5A.5.5 0 0 1 1.5 3H4V2a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v1h2.5a.5.5 0 0 1 0 1h-.538l-.853 10.66A1 1 0 0 1 12.112 15H3.888a1 1 0 0 1-.997-.84L2.038 4.5H1.5a.5.5 0 0 1-.5-.5zM5 2v1h6V2H5z" />
+                                    </svg>
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                             <div className="card-body py-2">
                               <div className="fw-semibold small">{image.image_id || "analysis_image"}</div>
                               <div className="small mt-1">
@@ -2847,7 +2894,7 @@ export default function App() {
                                 rozdzielczosc: {image.resolution || "-"}
                               </div>
                             </div>
-                          </button>
+                          </div>
                         </div>
                       );
                     })}
