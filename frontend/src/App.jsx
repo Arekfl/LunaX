@@ -2633,7 +2633,7 @@ export default function App() {
   return (
     <div className="container-fluid py-3 app-shell">
       <div className="row g-3 app-main-row">
-        <div className="col-lg-9">
+        <div className="col-lg-6 col-xl-8">
           <div className={viewMode === "map" ? "" : "d-none"}>
             <div className="map-shell border rounded shadow-sm">
               <MapContainer
@@ -2824,7 +2824,7 @@ export default function App() {
                       const isHovered = hoveredDetectionId === image.image_id;
 
                       return (
-                        <div className="col-sm-6 col-xl-4" key={`gallery-image-${itemKey}`}
+                        <div className="col-12 col-sm-6 col-lg-4 col-xl-3" key={`gallery-image-${itemKey}`}
                           onMouseEnter={() => setHoveredDetectionId(image.image_id)}
                           onMouseLeave={() => setHoveredDetectionId(null)}
                         >
@@ -3004,7 +3004,7 @@ export default function App() {
           )}
         </div>
 
-        <div className="col-lg-3 app-sidebar-column">
+        <div className="col-lg-6 col-xl-4 app-sidebar-column">
           <div className="card shadow-sm sidebar-card">
             <div className="card-body sidebar-card-body">
               <h5 className="card-title">Panel obszaru</h5>
