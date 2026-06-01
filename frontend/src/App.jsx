@@ -1909,6 +1909,16 @@ export default function App() {
     }
 
     if (marker.type === "detection" && marker.detection) {
+      const detectionStatus = String(marker.detection.status || DEFAULT_DETECTION_STATUS)
+        .trim()
+        .toLowerCase();
+
+      setActiveSidebarTab(SIDEBAR_TAB_DETECTIONS);
+      setStatusFilter(
+        detectionStatus === "confirmed" || detectionStatus === "rejected" || detectionStatus === "to_verify"
+          ? detectionStatus
+          : DEFAULT_DETECTION_STATUS
+      );
       setSelectedDetection(marker.detection);
       setExpandedDetectionId(marker.detection.detection_id);
       setSelectedNoDetectionListItemId(null);
@@ -3733,6 +3743,7 @@ export default function App() {
                   className={`sidebar-section sidebar-tab-pane sidebar-detections-section ${
                     activeSidebarTab === SIDEBAR_TAB_DETECTIONS ? "is-active" : ""
                   }`}
+                  ref={detectionListRef}
                 >
                   <h6 className="sidebar-section-title">Detekcje ({detectionSectionCount})</h6>
 
@@ -4110,7 +4121,7 @@ export default function App() {
                     </>
                   )}
 
-              <div className="detection-list-scroll sidebar-detection-list-wrap" ref={detectionListRef}>
+              <div className="sidebar-detection-list-wrap">
                 {isNoDetectionsFilterSelected ? (
                   <>
                     {sortedNoDetectionImages.length === 0 ? (

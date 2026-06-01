@@ -447,14 +447,14 @@ body {
 .sidebar-detections-section {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .sidebar-detection-list-wrap {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   min-height: 0;
   max-height: none;
-  overflow-y: auto;
 }
 
 .sidebar-settings-section > summary {
