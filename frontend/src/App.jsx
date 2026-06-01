@@ -4151,10 +4151,10 @@ export default function App() {
                                 isSelectedForGallery || selectedNoDetectionListItemId === imageId
                                   ? "bg-primary-subtle border-primary"
                                   : ""
-                              }`}
+                              } no-detection-dense-item`}
                             >
                               <div
-                                className={`detection-dense-row ${isExpanded ? "is-expanded" : ""}`}
+                                className={`detection-dense-row no-detection-dense-row ${isExpanded ? "is-expanded" : ""}`}
                                 role="button"
                                 tabIndex={0}
                                 onClick={() => handleToggleNoDetectionExpand(image)}

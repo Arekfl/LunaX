@@ -266,6 +266,37 @@ body {
   padding-top: 0.45rem;
 }
 
+@media (max-width: 1750px) {
+  .no-detection-dense-item {
+    padding: 0.28rem 0.4rem;
+  }
+
+  .no-detection-dense-item .no-detection-dense-row {
+    gap: 0.3rem;
+    min-height: 1.65rem;
+    flex-wrap: nowrap;
+  }
+
+  .no-detection-dense-item .detection-dense-id {
+    min-width: 4.9rem;
+    max-width: 6.4rem;
+    font-size: 0.78rem;
+  }
+
+  .no-detection-dense-item .detection-dense-meta.text-muted,
+  .no-detection-dense-item .detection-dense-tags {
+    display: none;
+  }
+
+  .no-detection-dense-item .detection-dense-actions {
+    gap: 0.18rem;
+  }
+
+  .no-detection-dense-item .detection-icon-btn {
+    padding: 0.16rem 0.28rem;
+  }
+}
+
 .detection-delete-btn {
   flex: 0 0 auto;
   line-height: 1;
