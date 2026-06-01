@@ -370,6 +370,29 @@ function getDetectionOverlayRect(detection, image, imageMetrics) {
   };
 }
 
+function getGalleryBBoxOverlayStyle(detection, image) {
+  const resolutionKey = String(image?.resolution || detection?.resolution || "")
+    .trim()
+    .toLowerCase();
+  const imageSize = Number(RESOLUTION_IMAGE_SIZE_MAP[resolutionKey]);
+  if (!Number.isFinite(imageSize) || imageSize <= 0) {
+    return null;
+  }
+
+  const pixelBBox = normalizeBBoxToPixelMinMax(detection?.bbox, imageSize, imageSize);
+  if (!pixelBBox) {
+    return null;
+  }
+
+  const [xMin, yMin, xMax, yMax] = pixelBBox;
+  return {
+    left: `${(xMin / imageSize) * 100}%`,
+    top: `${(yMin / imageSize) * 100}%`,
+    width: `${((xMax - xMin) / imageSize) * 100}%`,
+    height: `${((yMax - yMin) / imageSize) * 100}%`,
+  };
+}
+
 function areBBoxesClose(leftBBox, rightBBox, threshold) {
   const left = parseBBoxToMinMax(leftBBox);
   const right = parseBBoxToMinMax(rightBBox);
@@ -931,6 +954,7 @@ export default function App() {
   const [isLoadingDetections, setIsLoadingDetections] = useState(false);
   const [analysisStatus, setAnalysisStatus] = useState(null);
   const [showAnalysisPoints, setShowAnalysisPoints] = useState(true);
+  const [showGalleryBbox, setShowGalleryBbox] = useState(false);
   const [viewMode, setViewMode] = useState("map");
   const [resolutionMode, setResolutionMode] = useState("detail");
   const [numSamples, setNumSamples] = useState(5);
@@ -1137,6 +1161,27 @@ export default function App() {
       (detection) => normalizeAnalysisId(detection?.analysis_id) === resolvedAnalysisFilterId
     );
   }, [statusResolvedDetections, resolvedAnalysisFilterId]);
+
+  const analysisSummaryCounts = useMemo(() => {
+    const counts = {
+      confirmed: 0,
+      to_verify: 0,
+      rejected: 0,
+    };
+
+    for (const detection of analysisFilteredDetections) {
+      const normalizedStatus = String(detection?.status || "").trim().toLowerCase();
+      if (normalizedStatus === "confirmed") {
+        counts.confirmed += 1;
+      } else if (normalizedStatus === "to_verify") {
+        counts.to_verify += 1;
+      } else if (normalizedStatus === "rejected") {
+        counts.rejected += 1;
+      }
+    }
+
+    return counts;
+  }, [analysisFilteredDetections]);
 
   const analysisFilteredImages = useMemo(() => {
     if (!resolvedAnalysisFilterId) {
@@ -3188,6 +3233,18 @@ export default function App() {
           {viewMode === "gallery" && (
             <div className="gallery-shell border rounded shadow-sm p-3">
               <h5 className="mb-1">Przegladarka zdjec</h5>
+              <div className="form-check form-switch mb-3 mt-2">
+                <input
+                  id="toggle-gallery-bbox"
+                  className="form-check-input"
+                  type="checkbox"
+                  checked={showGalleryBbox}
+                  onChange={(event) => setShowGalleryBbox(event.target.checked)}
+                />
+                <label className="form-check-label" htmlFor="toggle-gallery-bbox">
+                  Pokaz bboxy w galerii
+                </label>
+              </div>
               {selectedNoDetectionImage ? (
                 <div className="mb-3">
                   <div className="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
@@ -3344,6 +3401,10 @@ export default function App() {
                     const statusBadgeClass = getStatusBadgeClass(detection.status);
                     const previewImage = resolveAnalysisImageForDetection(detection, analysisImages);
                     const previewUrl = previewImage ? getAnalysisImageUrl(previewImage.image_id) : getDetectionPreviewUrl(detection);
+                    const galleryBBoxStyle =
+                      showGalleryBbox && previewImage
+                        ? getGalleryBBoxOverlayStyle(detection, previewImage)
+                        : null;
                     const isSelected = selectedIds.includes(detection.detection_id);
                     const isHovered = hoveredDetectionId === detectionUniqueId;
 
@@ -3378,6 +3439,9 @@ export default function App() {
                               <div className="gallery-selected-overlay">
                                 <span className="gallery-checkmark">✔</span>
                               </div>
+                            )}
+                            {showGalleryBbox && galleryBBoxStyle && (
+                              <div className="gallery-bbox-overlay" style={galleryBBoxStyle} />
                             )}
                             {(isHovered || isSelected) && (
                               <div className="gallery-hover-icons">
@@ -3432,137 +3496,87 @@ export default function App() {
 
         <div className="col-lg-6 col-xl-4 app-sidebar-column">
           <div className="card shadow-sm sidebar-card">
-            <div className="card-body sidebar-card-body">
-              <h5 className="card-title">Panel obszaru</h5>
+            <div className="card-body sidebar-card-body sidebar-layout">
+              <h5 className="card-title mb-3">Panel obszaru</h5>
 
-              <div className="small text-muted mb-2">Widok aplikacji</div>
-              <div className="btn-group btn-group-sm w-100 mb-3" role="group" aria-label="Tryb widoku aplikacji">
-                <button
-                  type="button"
-                  className={`btn ${viewMode === "map" ? "btn-primary" : "btn-outline-primary"}`}
-                  onClick={() => setViewMode("map")}
-                >
-                  Mapa
-                </button>
-                <button
-                  type="button"
-                  className={`btn ${viewMode === "gallery" ? "btn-primary" : "btn-outline-primary"}`}
-                  onClick={() => setViewMode("gallery")}
-                >
-                  Przegladarka zdjec
-                </button>
-              </div>
+              <section className="sidebar-section">
+                <h6 className="sidebar-section-title">Widok i nawigacja</h6>
 
-              <div className="small text-muted mb-2">Wybrany segment</div>
-              {selectedSegment ? (
-                <div className="mb-3">
-                  <div><strong>ID:</strong> {selectedSegment.id}</div>
-                  {selectedCoords && (
-                    <div className="mt-2">
-                      <div>xMin: {selectedCoords.xMin}</div>
-                      <div>yMin: {selectedCoords.yMin}</div>
-                      <div>xMax: {selectedCoords.xMax}</div>
-                      <div>yMax: {selectedCoords.yMax}</div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="mb-3 text-muted">Brak wybranego segmentu.</div>
-              )}
-
-              <button
-                className="btn btn-primary w-100 mb-2 d-flex align-items-center justify-content-center gap-2"
-                onClick={handleChooseArea}
-                disabled={isLoadingDetections}
-              >
-                {isLoadingDetections && (
-                  <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                )}
-                <span>{isLoadingDetections ? "Analizowanie..." : "Uruchom analize"}</span>
-              </button>
-
-              <button
-                className="btn btn-outline-primary w-100 mb-2 d-flex align-items-center justify-content-center gap-2"
-                onClick={handleLocalAnalysis}
-                disabled={isLoadingDetections}
-              >
-                {isLoadingDetections && (
-                  <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                )}
-                <span>{isLoadingDetections ? "Analizowanie..." : "Analiza lokalna"}</span>
-              </button>
-
-              <button className="btn btn-outline-secondary w-100 mb-2" onClick={handleResetHomeView}>
-                Reset widoku
-              </button>
-
-              <div className="form-check form-switch mb-2">
-                <input
-                  className="form-check-input"
-                  type="checkbox"
-                  id="toggle-lock-level"
-                  checked={isLevelLocked}
-                  onChange={(event) => setIsLevelLocked(event.target.checked)}
-                />
-                <label className="form-check-label" htmlFor="toggle-lock-level">
-                  Lock level
-                </label>
-              </div>
-
-              <div className="small text-muted mb-2">
-                {isLevelLocked ? "Klik tylko zaznacza segment." : "Klik schodzi poziom nizej."}
-              </div>
-
-              <div className="small text-muted mb-3">Poziom siatki: {currentLevel}</div>
-
-              {analysisStatus && (
-                <div className="small mb-3">
-                  Status analizy:{" "}
-                  <span
-                    className={`badge ${
-                      analysisStatus === "loading"
-                        ? "text-bg-info"
-                        : analysisStatus === "success"
-                          ? "text-bg-success"
-                          : "text-bg-danger"
-                    }`}
+                <div className="btn-group btn-group-sm w-100 mb-3" role="group" aria-label="Tryb widoku aplikacji">
+                  <button
+                    type="button"
+                    className={`btn ${viewMode === "map" ? "btn-primary" : "btn-outline-primary"}`}
+                    onClick={() => setViewMode("map")}
                   >
-                    {analysisStatus}
-                  </span>
+                    Mapa
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn ${viewMode === "gallery" ? "btn-primary" : "btn-outline-primary"}`}
+                    onClick={() => setViewMode("gallery")}
+                  >
+                    Galeria
+                  </button>
                 </div>
-              )}
 
-              {currentAnalysisId && (
-                <div className="small text-muted mb-3">analysis_id: {currentAnalysisId}</div>
-              )}
+                <div className="mb-2">
+                  <label className="form-label form-label-sm mb-1" htmlFor="analysis-filter-select">
+                    Analiza
+                  </label>
+                  <select
+                    id="analysis-filter-select"
+                    className="form-select form-select-sm"
+                    value={selectedAnalysisFilter}
+                    onChange={(event) => setSelectedAnalysisFilter(event.target.value)}
+                  >
+                    <option value={ANALYSIS_FILTER_LATEST}>Ostatnia</option>
+                    <option value={ANALYSIS_FILTER_ALL}>Wszystkie</option>
+                    {analysisFilterOptions.map((option) => (
+                      <option
+                        key={`analysis-filter-${option.analysisId}`}
+                        value={buildAnalysisFilterValue(option.analysisId)}
+                      >
+                        {option.analysisId}
+                        {option.timestampLabel ? ` (${option.timestampLabel})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-              <div className="mb-3">
-                <label className="form-label form-label-sm mb-1" htmlFor="analysis-filter-select">
-                  Analiza
-                </label>
-                <select
-                  id="analysis-filter-select"
-                  className="form-select form-select-sm"
-                  value={selectedAnalysisFilter}
-                  onChange={(event) => setSelectedAnalysisFilter(event.target.value)}
-                >
-                  <option value={ANALYSIS_FILTER_LATEST}>Ostatnia</option>
-                  <option value={ANALYSIS_FILTER_ALL}>Wszystkie</option>
-                  {analysisFilterOptions.map((option) => (
-                    <option
-                      key={`analysis-filter-${option.analysisId}`}
-                      value={buildAnalysisFilterValue(option.analysisId)}
-                    >
-                      {option.analysisId}
-                      {option.timestampLabel ? ` (${option.timestampLabel})` : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                <div className="form-check form-switch mt-2">
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    id="toggle-analysis-points"
+                    checked={showAnalysisPoints}
+                    onChange={(event) => setShowAnalysisPoints(event.target.checked)}
+                  />
+                  <label className="form-check-label" htmlFor="toggle-analysis-points">
+                    Pokaz punkty analiz
+                  </label>
+                </div>
+              </section>
 
-              {resolvedAnalysisFilterId && (
-                <div className="d-flex justify-content-between align-items-start gap-2 mb-3">
-                  <div className="small text-muted">
+              <section className="sidebar-section">
+                <h6 className="sidebar-section-title">Status analizy</h6>
+                <div className="small mb-2">
+                  {analysisStatus === "success"
+                    ? "Analiza zakonczona"
+                    : analysisStatus === "loading"
+                      ? "Analiza w toku"
+                      : analysisStatus === "error"
+                        ? "Blad analizy"
+                        : "Brak aktywnej analizy"}
+                </div>
+
+                <div className="d-flex flex-wrap gap-2 small mb-2">
+                  <span className="badge text-bg-success">confirmed: {analysisSummaryCounts.confirmed}</span>
+                  <span className="badge text-bg-warning">to_verify: {analysisSummaryCounts.to_verify}</span>
+                  <span className="badge text-bg-danger">rejected: {analysisSummaryCounts.rejected}</span>
+                </div>
+
+                {resolvedAnalysisFilterId && (
+                  <div className="small text-muted mb-2">
                     <div>
                       Analiza: <strong>{resolvedAnalysisFilterId}</strong>
                       {selectedAnalysisFilter === ANALYSIS_FILTER_LATEST ? " (ostatnia)" : ""}
@@ -3571,162 +3585,19 @@ export default function App() {
                       <div>Timestamp: {activeAnalysisFilterOption.timestampLabel}</div>
                     )}
                   </div>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-outline-secondary"
-                    onClick={() => setSelectedAnalysisFilter(ANALYSIS_FILTER_ALL)}
+                )}
+
+                {chosenMessage && (
+                  <div
+                    className={`alert ${isNoCoverageChosenMessage ? "alert-warning" : "alert-info"} py-2 mb-0`}
                   >
-                    Wylacz
-                  </button>
-                </div>
-              )}
+                    {chosenMessage}
+                  </div>
+                )}
+              </section>
 
-              <div className="small text-muted mb-2">Rozdzielczosc analizy</div>
-              <div className="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Tryb rozdzielczosci analizy">
-                <button
-                  type="button"
-                  className={`btn ${resolutionMode === "preview" ? "btn-primary" : "btn-outline-primary"}`}
-                  onClick={() => setResolutionMode("preview")}
-                >
-                  preview
-                </button>
-                <button
-                  type="button"
-                  className={`btn ${resolutionMode === "detail" ? "btn-primary" : "btn-outline-primary"}`}
-                  onClick={() => setResolutionMode("detail")}
-                >
-                  detail
-                </button>
-                <button
-                  type="button"
-                  className={`btn ${resolutionMode === "ultra" ? "btn-primary" : "btn-outline-primary"}`}
-                  onClick={() => setResolutionMode("ultra")}
-                >
-                  ultra
-                </button>
-              </div>
-              <div className="small text-muted mb-3">
-                {RESOLUTION_DESCRIPTION_MAP[resolutionMode]} (ok. {RESOLUTION_MPP_MAP[resolutionMode].toFixed(2)} mpp)
-              </div>
-
-              <div className="small text-muted mb-3">Zrodlo i warstwa WMS: USGS / KaguyaTC_Ortho</div>
-
-              <div className="small text-muted mb-2">Liczba probek</div>
-              <div className="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Liczba probek analizy">
-                <button
-                  type="button"
-                  className={`btn ${numSamples === 1 ? "btn-primary" : "btn-outline-primary"}`}
-                  onClick={() => setNumSamples(1)}
-                >
-                  1
-                </button>
-                <button
-                  type="button"
-                  className={`btn ${numSamples === 5 ? "btn-primary" : "btn-outline-primary"}`}
-                  onClick={() => setNumSamples(5)}
-                >
-                  5
-                </button>
-                <button
-                  type="button"
-                  className={`btn ${numSamples === 10 ? "btn-primary" : "btn-outline-primary"}`}
-                  onClick={() => setNumSamples(10)}
-                >
-                  10
-                </button>
-              </div>
-              <div className="small text-muted mb-3">Wiecej probek = dluzsza analiza</div>
-
-              <div className="small text-muted mb-2">Confidence threshold ({confidenceThreshold.toFixed(2)})</div>
-              <input
-                className="form-range mb-3"
-                type="range"
-                min="0.01"
-                max="1.0"
-                step="0.01"
-                value={confidenceThreshold}
-                onChange={(event) => setConfidenceThreshold(Number(event.target.value))}
-              />
-
-              <div className="small text-muted mb-2">Przejdz do wspolrzednych</div>
-              <div className="row g-2">
-                <div className="col-6">
-                  <input
-                    className="form-control form-control-sm"
-                    type="number"
-                    step="any"
-                    value={manualCoords.xMin}
-                    onChange={(event) =>
-                      setManualCoords((prev) => ({ ...prev, xMin: event.target.value }))
-                    }
-                    placeholder="xMin"
-                  />
-                </div>
-                <div className="col-6">
-                  <input
-                    className="form-control form-control-sm"
-                    type="number"
-                    step="any"
-                    value={manualCoords.yMin}
-                    onChange={(event) =>
-                      setManualCoords((prev) => ({ ...prev, yMin: event.target.value }))
-                    }
-                    placeholder="yMin"
-                  />
-                </div>
-                <div className="col-6">
-                  <input
-                    className="form-control form-control-sm"
-                    type="number"
-                    step="any"
-                    value={manualCoords.xMax}
-                    onChange={(event) =>
-                      setManualCoords((prev) => ({ ...prev, xMax: event.target.value }))
-                    }
-                    placeholder="xMax"
-                  />
-                </div>
-                <div className="col-6">
-                  <input
-                    className="form-control form-control-sm"
-                    type="number"
-                    step="any"
-                    value={manualCoords.yMax}
-                    onChange={(event) =>
-                      setManualCoords((prev) => ({ ...prev, yMax: event.target.value }))
-                    }
-                    placeholder="yMax"
-                  />
-                </div>
-              </div>
-
-              <button className="btn btn-outline-secondary w-100 mt-3" onClick={handleGoToManual}>
-                Przejdz
-              </button>
-
-              <div className="form-check form-switch mt-3">
-                <input
-                  className="form-check-input"
-                  type="checkbox"
-                  id="toggle-analysis-points"
-                  checked={showAnalysisPoints}
-                  onChange={(event) => setShowAnalysisPoints(event.target.checked)}
-                />
-                <label className="form-check-label" htmlFor="toggle-analysis-points">
-                  Pokaz punkty analiz
-                </label>
-              </div>
-
-              {chosenMessage && (
-                <div
-                  className={`alert ${isNoCoverageChosenMessage ? "alert-warning" : "alert-info"} py-2 mt-3 mb-0`}
-                >
-                  {chosenMessage}
-                </div>
-              )}
-
-              <hr className="my-4" />
-              <h6 className="mb-3">Detekcje ({detectionSectionCount})</h6>
+              <section className="sidebar-section sidebar-detections-section">
+                <h6 className="mb-3">Detekcje ({detectionSectionCount})</h6>
 
               <div className="btn-group btn-group-sm w-100 mb-3" role="group" aria-label="Filtr statusu detekcji">
                 <button
@@ -4072,7 +3943,7 @@ export default function App() {
                 </>
               )}
 
-              <div className="detection-list-scroll" ref={detectionListRef}>
+              <div className="detection-list-scroll sidebar-detection-list-wrap" ref={detectionListRef}>
                 {isNoDetectionsFilterSelected ? (
                   <>
                     {sortedNoDetectionImages.length === 0 ? (
@@ -4553,6 +4424,194 @@ export default function App() {
                   </div>
                 )}
               </div>
+
+              </section>
+
+              <details className="sidebar-section sidebar-settings-section">
+                <summary className="sidebar-section-title">Ustawienia analizy</summary>
+
+                <button
+                  className="btn btn-primary w-100 mb-2 d-flex align-items-center justify-content-center gap-2"
+                  onClick={handleChooseArea}
+                  disabled={isLoadingDetections}
+                >
+                  {isLoadingDetections && (
+                    <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                  )}
+                  <span>{isLoadingDetections ? "Analizowanie..." : "Uruchom analize"}</span>
+                </button>
+
+                <button
+                  className="btn btn-outline-primary w-100 mb-2 d-flex align-items-center justify-content-center gap-2"
+                  onClick={handleLocalAnalysis}
+                  disabled={isLoadingDetections}
+                >
+                  {isLoadingDetections && (
+                    <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                  )}
+                  <span>{isLoadingDetections ? "Analizowanie..." : "Analiza lokalna"}</span>
+                </button>
+
+                <button className="btn btn-outline-secondary w-100 mb-3" onClick={handleResetHomeView}>
+                  Reset widoku
+                </button>
+
+                <div className="small text-muted mb-2">Rozdzielczosc analizy</div>
+                <div className="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Tryb rozdzielczosci analizy">
+                  <button
+                    type="button"
+                    className={`btn ${resolutionMode === "preview" ? "btn-primary" : "btn-outline-primary"}`}
+                    onClick={() => setResolutionMode("preview")}
+                  >
+                    preview
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn ${resolutionMode === "detail" ? "btn-primary" : "btn-outline-primary"}`}
+                    onClick={() => setResolutionMode("detail")}
+                  >
+                    detail
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn ${resolutionMode === "ultra" ? "btn-primary" : "btn-outline-primary"}`}
+                    onClick={() => setResolutionMode("ultra")}
+                  >
+                    ultra
+                  </button>
+                </div>
+                <div className="small text-muted mb-3">
+                  {RESOLUTION_DESCRIPTION_MAP[resolutionMode]} (ok. {RESOLUTION_MPP_MAP[resolutionMode].toFixed(2)} mpp)
+                </div>
+
+                <div className="small text-muted mb-2">Liczba probek</div>
+                <div className="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Liczba probek analizy">
+                  <button
+                    type="button"
+                    className={`btn ${numSamples === 1 ? "btn-primary" : "btn-outline-primary"}`}
+                    onClick={() => setNumSamples(1)}
+                  >
+                    1
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn ${numSamples === 5 ? "btn-primary" : "btn-outline-primary"}`}
+                    onClick={() => setNumSamples(5)}
+                  >
+                    5
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn ${numSamples === 10 ? "btn-primary" : "btn-outline-primary"}`}
+                    onClick={() => setNumSamples(10)}
+                  >
+                    10
+                  </button>
+                </div>
+                <div className="small text-muted mb-3">Wiecej probek = dluzsza analiza</div>
+
+                <div className="small text-muted mb-2">Confidence threshold ({confidenceThreshold.toFixed(2)})</div>
+                <input
+                  className="form-range mb-3"
+                  type="range"
+                  min="0.01"
+                  max="1.0"
+                  step="0.01"
+                  value={confidenceThreshold}
+                  onChange={(event) => setConfidenceThreshold(Number(event.target.value))}
+                />
+
+                <div className="small text-muted mb-2">Wybrany segment i poziom</div>
+                {selectedSegment ? (
+                  <div className="small mb-2">
+                    <div><strong>ID:</strong> {selectedSegment.id}</div>
+                    {selectedCoords && (
+                      <div className="mt-1">
+                        <div>xMin: {selectedCoords.xMin}</div>
+                        <div>yMin: {selectedCoords.yMin}</div>
+                        <div>xMax: {selectedCoords.xMax}</div>
+                        <div>yMax: {selectedCoords.yMax}</div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="small text-muted mb-2">Brak wybranego segmentu.</div>
+                )}
+
+                <div className="form-check form-switch mb-2">
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    id="toggle-lock-level"
+                    checked={isLevelLocked}
+                    onChange={(event) => setIsLevelLocked(event.target.checked)}
+                  />
+                  <label className="form-check-label" htmlFor="toggle-lock-level">
+                    Lock level
+                  </label>
+                </div>
+
+                <div className="small text-muted mb-2">
+                  {isLevelLocked ? "Klik tylko zaznacza segment." : "Klik schodzi poziom nizej."}
+                </div>
+                <div className="small text-muted mb-3">Poziom siatki: {currentLevel}</div>
+
+                <div className="small text-muted mb-2">Przejdz do wspolrzednych</div>
+                <div className="row g-2">
+                  <div className="col-6">
+                    <input
+                      className="form-control form-control-sm"
+                      type="number"
+                      step="any"
+                      value={manualCoords.xMin}
+                      onChange={(event) =>
+                        setManualCoords((prev) => ({ ...prev, xMin: event.target.value }))
+                      }
+                      placeholder="xMin"
+                    />
+                  </div>
+                  <div className="col-6">
+                    <input
+                      className="form-control form-control-sm"
+                      type="number"
+                      step="any"
+                      value={manualCoords.yMin}
+                      onChange={(event) =>
+                        setManualCoords((prev) => ({ ...prev, yMin: event.target.value }))
+                      }
+                      placeholder="yMin"
+                    />
+                  </div>
+                  <div className="col-6">
+                    <input
+                      className="form-control form-control-sm"
+                      type="number"
+                      step="any"
+                      value={manualCoords.xMax}
+                      onChange={(event) =>
+                        setManualCoords((prev) => ({ ...prev, xMax: event.target.value }))
+                      }
+                      placeholder="xMax"
+                    />
+                  </div>
+                  <div className="col-6">
+                    <input
+                      className="form-control form-control-sm"
+                      type="number"
+                      step="any"
+                      value={manualCoords.yMax}
+                      onChange={(event) =>
+                        setManualCoords((prev) => ({ ...prev, yMax: event.target.value }))
+                      }
+                      placeholder="yMax"
+                    />
+                  </div>
+                </div>
+
+                <button className="btn btn-outline-secondary w-100 mt-3" onClick={handleGoToManual}>
+                  Przejdz
+                </button>
+              </details>
             </div>
           </div>
         </div>

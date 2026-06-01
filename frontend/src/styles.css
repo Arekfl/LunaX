@@ -39,6 +39,13 @@
   display: flex;
   gap: 0.3em;
 }
+.gallery-bbox-overlay {
+  position: absolute;
+  border: 1.5px solid #ff4d4f;
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 2;
+}
 .gallery-icon-btn {
   padding: 0.15em 0.3em;
   font-size: 1em;
@@ -395,6 +402,64 @@ body {
   gap: 0.25rem;
 }
 
+.sidebar-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+}
+
+.sidebar-section {
+  border: 1px solid #e9ecef;
+  border-radius: 0.5rem;
+  background: #ffffff;
+  padding: 0.65rem;
+}
+
+.sidebar-section-title {
+  margin: 0 0 0.6rem 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.sidebar-detections-section {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.sidebar-detection-list-wrap {
+  flex: 0 0 auto;
+  min-height: 11rem;
+  max-height: clamp(220px, 38vh, 460px);
+  overflow-y: auto;
+}
+
+.sidebar-settings-section > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.sidebar-settings-section {
+  flex: 0 0 auto;
+}
+
+.sidebar-settings-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.sidebar-settings-section[open] > summary {
+  margin-bottom: 0.65rem;
+}
+
+.sidebar-settings-section[open] {
+  max-height: 38vh;
+  overflow-y: auto;
+}
+
 @media (min-width: 992px) {
   .app-shell {
     height: 100vh;
@@ -420,6 +485,11 @@ body {
   .sidebar-card-body {
     min-height: 0;
     overflow-y: auto;
+    overflow-x: hidden;
     overscroll-behavior: contain;
+  }
+
+  .sidebar-layout {
+    height: 100%;
   }
 }
