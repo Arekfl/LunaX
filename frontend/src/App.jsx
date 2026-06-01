@@ -812,6 +812,15 @@ export default function App() {
   const isNoCoverageChosenMessage =
     typeof chosenMessage === "string" &&
     chosenMessage.startsWith("Brak pokrycia danych dla tej warstwy i obszaru.");
+  const showDetectedResultsInGallery = useCallback(
+    (analysisLabel, analysisId, detectionCount, statusSummary) => {
+      setViewMode("gallery");
+      setChosenMessage(
+        `${analysisLabel} ${analysisId} zakonczona. Znaleziono ${detectionCount} detekcji – pokazuję wyniki w galerii. ${statusSummary}`
+      );
+    },
+    []
+  );
   const updateDetectionPreviewImageMetrics = useCallback(() => {
     const imageNode = detectionPreviewImageRef.current;
     if (!imageNode) {
@@ -1534,8 +1543,11 @@ export default function App() {
         return;
       }
 
-      setChosenMessage(
-        `Analiza ${analysisId} zakonczona. Pobrano ${detectionsWithStatus.length} detekcji. ${statusSummary}`
+      showDetectedResultsInGallery(
+        "Analiza",
+        analysisId,
+        detectionsWithStatus.length,
+        statusSummary
       );
     } catch (error) {
       console.error("Blad podczas pobierania detekcji:", error);
@@ -1642,8 +1654,11 @@ export default function App() {
         return;
       }
 
-      setChosenMessage(
-        `Analiza lokalna ${analysisId} zakonczona. Pobrano ${detectionsWithStatus.length} detekcji. ${statusSummary}`
+      showDetectedResultsInGallery(
+        "Analiza lokalna",
+        analysisId,
+        detectionsWithStatus.length,
+        statusSummary
       );
     } catch (error) {
       console.error("Blad podczas analizy lokalnej:", error);
