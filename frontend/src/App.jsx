@@ -25,6 +25,8 @@ const STATUS_BADGE_CLASS_MAP = {
   to_verify: "text-bg-warning",
   rejected: "text-bg-danger",
 };
+const ANALYSIS_FILTER_ALL = "__all__";
+const ANALYSIS_FILTER_LATEST = "__latest__";
 const DETECTION_BBOX_PROXIMITY_THRESHOLD = 12;
 const NO_DETECTIONS_FILTER = "no_detections";
 const RESOLUTION_DESCRIPTION_MAP = {
@@ -423,6 +425,24 @@ function getDetectionTimestampValue(detection) {
   return Number.isFinite(parsedTimestamp) ? parsedTimestamp : null;
 }
 
+function normalizeAnalysisId(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function buildAnalysisFilterValue(analysisId) {
+  return `analysis:${analysisId}`;
+}
+
+function parseAnalysisFilterValue(filterValue) {
+  return typeof filterValue === "string" && filterValue.startsWith("analysis:")
+    ? filterValue.slice("analysis:".length)
+    : null;
+}
+
+function getItemTimestampLabel(item) {
+  return typeof item?.timestamp === "string" ? item.timestamp.trim() : "";
+}
+
 function compareNullableNumbers(leftValue, rightValue, sortOrder) {
   const leftIsValid = Number.isFinite(leftValue);
   const rightIsValid = Number.isFinite(rightValue);
@@ -785,6 +805,7 @@ export default function App() {
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
   const [storedStatuses, setStoredStatuses] = useState({});
   const [statusFilter, setStatusFilter] = useState("to_verify");
+  const [selectedAnalysisFilter, setSelectedAnalysisFilter] = useState(ANALYSIS_FILTER_ALL);
   const [detectionSortBy, setDetectionSortBy] = useState("confidence");
   const [detectionSortOrder, setDetectionSortOrder] = useState("desc");
   const [selectedTagFilters, setSelectedTagFilters] = useState([]);
@@ -888,23 +909,107 @@ export default function App() {
     [detections, storedStatuses]
   );
 
+  const analysisFilterOptions = useMemo(() => {
+    const analysisMap = new Map();
+
+    const registerAnalysisItem = (item) => {
+      const analysisId = normalizeAnalysisId(item?.analysis_id);
+      if (!analysisId) {
+        return;
+      }
+
+      const timestampValue = getDetectionTimestampValue(item);
+      const timestampLabel = getItemTimestampLabel(item);
+      const existingOption = analysisMap.get(analysisId);
+
+      if (!existingOption) {
+        analysisMap.set(analysisId, { analysisId, timestampValue, timestampLabel });
+        return;
+      }
+
+      const existingTimestampValue = Number.isFinite(existingOption.timestampValue)
+        ? existingOption.timestampValue
+        : Number.NEGATIVE_INFINITY;
+      const nextTimestampValue = Number.isFinite(timestampValue)
+        ? timestampValue
+        : Number.NEGATIVE_INFINITY;
+
+      if (
+        nextTimestampValue > existingTimestampValue ||
+        (nextTimestampValue === existingTimestampValue && timestampLabel && !existingOption.timestampLabel)
+      ) {
+        analysisMap.set(analysisId, { analysisId, timestampValue, timestampLabel });
+      }
+    };
+
+    statusResolvedDetections.forEach(registerAnalysisItem);
+    analysisImages.forEach(registerAnalysisItem);
+
+    return Array.from(analysisMap.values()).sort((leftOption, rightOption) => {
+      const timestampDelta = compareNullableNumbers(
+        leftOption.timestampValue,
+        rightOption.timestampValue,
+        "desc"
+      );
+      if (timestampDelta !== 0) {
+        return timestampDelta;
+      }
+
+      return rightOption.analysisId.localeCompare(leftOption.analysisId);
+    });
+  }, [statusResolvedDetections, analysisImages]);
+
+  const latestAnalysisOption = analysisFilterOptions[0] ?? null;
+
+  const resolvedAnalysisFilterId = useMemo(() => {
+    if (selectedAnalysisFilter === ANALYSIS_FILTER_ALL) {
+      return null;
+    }
+
+    if (selectedAnalysisFilter === ANALYSIS_FILTER_LATEST) {
+      return latestAnalysisOption?.analysisId ?? null;
+    }
+
+    return parseAnalysisFilterValue(selectedAnalysisFilter);
+  }, [selectedAnalysisFilter, latestAnalysisOption]);
+
+  const analysisFilteredDetections = useMemo(() => {
+    if (!resolvedAnalysisFilterId) {
+      return statusResolvedDetections;
+    }
+
+    return statusResolvedDetections.filter(
+      (detection) => normalizeAnalysisId(detection?.analysis_id) === resolvedAnalysisFilterId
+    );
+  }, [statusResolvedDetections, resolvedAnalysisFilterId]);
+
+  const analysisFilteredImages = useMemo(() => {
+    if (!resolvedAnalysisFilterId) {
+      return analysisImages;
+    }
+
+    return analysisImages.filter(
+      (image) => normalizeAnalysisId(image?.analysis_id) === resolvedAnalysisFilterId
+    );
+  }, [analysisImages, resolvedAnalysisFilterId]);
+
   const detectionsForCurrentView = useMemo(
     () =>
-      getDisplayDetectionsForStatus(statusResolvedDetections, statusFilter, {
+      getDisplayDetectionsForStatus(analysisFilteredDetections, statusFilter, {
         requireValidBounds: false,
         selectedTags: selectedTagFilters,
         tagMatchMode: tagFilterMode,
       }),
-    [statusResolvedDetections, statusFilter, selectedTagFilters, tagFilterMode]
+    [analysisFilteredDetections, statusFilter, selectedTagFilters, tagFilterMode]
   );
 
   const mapDetections = useMemo(
     () =>
-      getDisplayDetectionsForStatus(statusResolvedDetections, statusFilter, {
+      getDisplayDetectionsForStatus(analysisFilteredDetections, statusFilter, {
         selectedTags: selectedTagFilters,
         tagMatchMode: tagFilterMode,
       }),
-    [statusResolvedDetections, statusFilter, selectedTagFilters, tagFilterMode]
+    [analysisFilteredDetections, statusFilter, selectedTagFilters, tagFilterMode]
   );
 
   const availableDetectionTags = useMemo(() => {
@@ -913,7 +1018,7 @@ export default function App() {
     }
 
     const tagsSet = new Set();
-    for (const detection of statusResolvedDetections) {
+    for (const detection of analysisFilteredDetections) {
       if (detection.status !== statusFilter) {
         continue;
       }
@@ -924,17 +1029,39 @@ export default function App() {
     }
 
     return Array.from(tagsSet).sort((leftTag, rightTag) => leftTag.localeCompare(rightTag));
-  }, [statusResolvedDetections, statusFilter, isNoDetectionsFilterSelected]);
+  }, [analysisFilteredDetections, statusFilter, isNoDetectionsFilterSelected]);
 
   const visibleAnalysisImages = useMemo(
     () =>
-      analysisImages.filter(
+      analysisFilteredImages.filter(
         (image) =>
           (typeof image.status === "string" ? image.status : NO_DETECTIONS_FILTER) ===
           NO_DETECTIONS_FILTER
       ),
-    [analysisImages]
+    [analysisFilteredImages]
   );
+
+  const activeAnalysisFilterOption = useMemo(() => {
+    if (!resolvedAnalysisFilterId) {
+      return null;
+    }
+
+    return (
+      analysisFilterOptions.find((option) => option.analysisId === resolvedAnalysisFilterId) ?? null
+    );
+  }, [analysisFilterOptions, resolvedAnalysisFilterId]);
+
+  useEffect(() => {
+    const specificAnalysisId = parseAnalysisFilterValue(selectedAnalysisFilter);
+    if (!specificAnalysisId) {
+      return;
+    }
+
+    const stillExists = analysisFilterOptions.some((option) => option.analysisId === specificAnalysisId);
+    if (!stillExists) {
+      setSelectedAnalysisFilter(ANALYSIS_FILTER_ALL);
+    }
+  }, [selectedAnalysisFilter, analysisFilterOptions]);
 
   const hasConfidenceSortData = useMemo(
     () => detectionsForCurrentView.some((detection) => Number.isFinite(Number(detection?.confidence))),
@@ -1556,6 +1683,7 @@ export default function App() {
       }
 
       setCurrentAnalysisId(analysisId);
+      setSelectedAnalysisFilter(buildAnalysisFilterValue(analysisId));
       setDetections(detectionsWithStatus);
       try {
         await fetchAnalysisImages();
@@ -1677,6 +1805,7 @@ export default function App() {
       }
 
       setCurrentAnalysisId(analysisId);
+      setSelectedAnalysisFilter(buildAnalysisFilterValue(analysisId));
       setDetections(detectionsWithStatus);
       setSelectedDetection(null);
       setAnalysisStatus("success");
@@ -3163,6 +3292,51 @@ export default function App() {
 
               {currentAnalysisId && (
                 <div className="small text-muted mb-3">analysis_id: {currentAnalysisId}</div>
+              )}
+
+              <div className="mb-3">
+                <label className="form-label form-label-sm mb-1" htmlFor="analysis-filter-select">
+                  Analiza
+                </label>
+                <select
+                  id="analysis-filter-select"
+                  className="form-select form-select-sm"
+                  value={selectedAnalysisFilter}
+                  onChange={(event) => setSelectedAnalysisFilter(event.target.value)}
+                >
+                  <option value={ANALYSIS_FILTER_LATEST}>Ostatnia</option>
+                  <option value={ANALYSIS_FILTER_ALL}>Wszystkie</option>
+                  {analysisFilterOptions.map((option) => (
+                    <option
+                      key={`analysis-filter-${option.analysisId}`}
+                      value={buildAnalysisFilterValue(option.analysisId)}
+                    >
+                      {option.analysisId}
+                      {option.timestampLabel ? ` (${option.timestampLabel})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {resolvedAnalysisFilterId && (
+                <div className="d-flex justify-content-between align-items-start gap-2 mb-3">
+                  <div className="small text-muted">
+                    <div>
+                      Analiza: <strong>{resolvedAnalysisFilterId}</strong>
+                      {selectedAnalysisFilter === ANALYSIS_FILTER_LATEST ? " (ostatnia)" : ""}
+                    </div>
+                    {activeAnalysisFilterOption?.timestampLabel && (
+                      <div>Timestamp: {activeAnalysisFilterOption.timestampLabel}</div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-secondary"
+                    onClick={() => setSelectedAnalysisFilter(ANALYSIS_FILTER_ALL)}
+                  >
+                    Wylacz
+                  </button>
+                </div>
               )}
 
               <div className="small text-muted mb-2">Rozdzielczosc analizy</div>
