@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
-import { MapContainer, Rectangle, useMap, useMapEvents, WMSTileLayer } from "react-leaflet";
+import { CircleMarker, MapContainer, Pane, Rectangle, useMap, useMapEvents, WMSTileLayer } from "react-leaflet";
 
 const GEO_BOUNDS = [
   [-90, -180],
@@ -43,6 +43,11 @@ const RESOLUTION_IMAGE_SIZE_MAP = {
   preview: 1024,
   detail: 1536,
   ultra: 2048,
+};
+const RESOLUTION_DELTA_DEG_MAP = {
+  preview: 2.0,
+  detail: 0.8,
+  ultra: 0.028279379,
 };
 
 const GRID_SIZE = 4;
@@ -200,8 +205,40 @@ function resolveAnalysisImageForDetection(detection, analysisImageList) {
   );
   const candidates = withDetectionsImages.length > 0 ? withDetectionsImages : sameAnalysisImages;
 
+  const detectionTimestampValue = getDetectionTimestampValue(detection);
+  if (Number.isFinite(detectionTimestampValue)) {
+    let bestImageByTimestamp = null;
+    let bestTimestampDistance = Number.POSITIVE_INFINITY;
+
+    for (const image of candidates) {
+      const imageTimestampValue = getDetectionTimestampValue(image);
+      if (!Number.isFinite(imageTimestampValue)) {
+        continue;
+      }
+
+      const timestampDistance = Math.abs(imageTimestampValue - detectionTimestampValue);
+      if (timestampDistance < bestTimestampDistance) {
+        bestTimestampDistance = timestampDistance;
+        bestImageByTimestamp = image;
+      }
+    }
+
+    if (bestImageByTimestamp) {
+      return bestImageByTimestamp;
+    }
+  }
+
   const center = getDetectionCenter(detection);
-  if (center) {
+  const hasGeoLikeCenter =
+    center &&
+    Number.isFinite(center.lat) &&
+    Number.isFinite(center.lon) &&
+    center.lat >= -90 &&
+    center.lat <= 90 &&
+    center.lon >= -180 &&
+    center.lon <= 180;
+
+  if (hasGeoLikeCenter) {
     let bestImage = null;
     let bestDistance = Number.POSITIVE_INFINITY;
 
@@ -443,6 +480,129 @@ function getItemTimestampLabel(item) {
   return typeof item?.timestamp === "string" ? item.timestamp.trim() : "";
 }
 
+function extractLatLonFromPath(filePath) {
+  const normalizedPath = typeof filePath === "string" ? filePath.trim() : "";
+  if (!normalizedPath) {
+    return null;
+  }
+
+  const latLonMatch = normalizedPath.match(/lat-(-?\d+(?:\.\d+)?)_lon-(-?\d+(?:\.\d+)?)/i);
+  if (!latLonMatch) {
+    return null;
+  }
+
+  const lat = Number(latLonMatch[1]);
+  const lon = Number(latLonMatch[2]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return null;
+  }
+
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+    return null;
+  }
+
+  return { lat, lon };
+}
+
+function getDetectionGeoPositionFromBBox(detection, relatedImage) {
+  const geoBounds = detectionToBounds(detection);
+  if (geoBounds) {
+    const [[latMin, lonMin], [latMax, lonMax]] = geoBounds;
+    return {
+      lat: (latMin + latMax) / 2,
+      lon: (lonMin + lonMax) / 2,
+    };
+  }
+
+  const bboxMinMax = parseBBoxToMinMax(detection?.bbox);
+  if (!bboxMinMax) {
+    return null;
+  }
+
+  const imageCenterFromPath = extractLatLonFromPath(relatedImage?.path);
+  const imageCenterLat = imageCenterFromPath ? imageCenterFromPath.lat : Number(relatedImage?.lat);
+  const imageCenterLon = imageCenterFromPath ? imageCenterFromPath.lon : Number(relatedImage?.lon);
+  if (!Number.isFinite(imageCenterLat) || !Number.isFinite(imageCenterLon)) {
+    return null;
+  }
+
+  const resolutionKey = String(relatedImage?.resolution || detection?.resolution || "")
+    .trim()
+    .toLowerCase();
+  const imageSize = Number(RESOLUTION_IMAGE_SIZE_MAP[resolutionKey]);
+  const deltaDeg = Number(RESOLUTION_DELTA_DEG_MAP[resolutionKey]);
+  if (!Number.isFinite(imageSize) || imageSize <= 0 || !Number.isFinite(deltaDeg) || deltaDeg <= 0) {
+    return null;
+  }
+
+  const pixelCenterX = (bboxMinMax.xMin + bboxMinMax.xMax) / 2;
+  const pixelCenterY = (bboxMinMax.yMin + bboxMinMax.yMax) / 2;
+  if (!Number.isFinite(pixelCenterX) || !Number.isFinite(pixelCenterY)) {
+    return null;
+  }
+
+  const normalizedX = pixelCenterX / imageSize;
+  const normalizedY = pixelCenterY / imageSize;
+
+  const lon = imageCenterLon + (normalizedX - 0.5) * deltaDeg;
+  const lat = imageCenterLat - (normalizedY - 0.5) * deltaDeg;
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return null;
+  }
+
+  return {
+    lat: clampValue(lat, -90, 90),
+    lon: clampValue(lon, -180, 180),
+  };
+}
+
+function buildAnalysisMarkers(imageList) {
+  const markerMap = new Map();
+
+  for (const image of imageList) {
+    const analysisId = normalizeAnalysisId(image?.analysis_id);
+    const coordsFromPath = extractLatLonFromPath(image?.path);
+    const lat = coordsFromPath ? coordsFromPath.lat : Number(image?.lat);
+    const lon = coordsFromPath ? coordsFromPath.lon : Number(image?.lon);
+    if (!analysisId || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+      continue;
+    }
+
+    const timestampValue = getDetectionTimestampValue(image);
+    const timestampLabel = getItemTimestampLabel(image);
+    const existingMarker = markerMap.get(analysisId);
+    if (!existingMarker) {
+      markerMap.set(analysisId, { analysisId, lat, lon, timestampValue, timestampLabel });
+      continue;
+    }
+
+    const existingTimestampValue = Number.isFinite(existingMarker.timestampValue)
+      ? existingMarker.timestampValue
+      : Number.NEGATIVE_INFINITY;
+    const nextTimestampValue = Number.isFinite(timestampValue)
+      ? timestampValue
+      : Number.NEGATIVE_INFINITY;
+
+    if (nextTimestampValue >= existingTimestampValue) {
+      markerMap.set(analysisId, { analysisId, lat, lon, timestampValue, timestampLabel });
+    }
+  }
+
+  return Array.from(markerMap.values()).sort((leftMarker, rightMarker) => {
+    const timestampDelta = compareNullableNumbers(
+      leftMarker.timestampValue,
+      rightMarker.timestampValue,
+      "desc"
+    );
+    if (timestampDelta !== 0) {
+      return timestampDelta;
+    }
+
+    return rightMarker.analysisId.localeCompare(leftMarker.analysisId);
+  });
+}
+
 function compareNullableNumbers(leftValue, rightValue, sortOrder) {
   const leftIsValid = Number.isFinite(leftValue);
   const rightIsValid = Number.isFinite(rightValue);
@@ -644,49 +804,21 @@ function triggerTextDownload(content, fileName, mimeType) {
   URL.revokeObjectURL(downloadUrl);
 }
 
-function getAnalysisImageUrl(imageId) {
-  if (!imageId) {
-    return null;
-  }
-
-  return `${API_BASE_URL}/analysis-images/image/${encodeURIComponent(imageId)}`;
-}
-
-function getDetectionPreviewUrl(detection) {
-  const bboxMinMax = parseBBoxToMinMax(detection?.bbox);
-  if (!bboxMinMax) {
-    return null;
-  }
-
-  const { xMin, yMin, xMax, yMax } = bboxMinMax;
-  const params = new URLSearchParams({
-    map: "/maps/earth/moon_simp_cyl.map",
-    SERVICE: "WMS",
-    VERSION: "1.1.1",
-    REQUEST: "GetMap",
-    LAYERS: "KaguyaTC_Ortho",
-    STYLES: "",
-    FORMAT: "image/png",
-    SRS: "EPSG:4326",
-    BBOX: `${xMin},${yMin},${xMax},${yMax}`,
-    WIDTH: "512",
-    HEIGHT: "512",
-  });
-
-  return `https://planetarymaps.usgs.gov/cgi-bin/mapserv?${params.toString()}`;
-}
-
 function NotificationToast({ notification, onClose }) {
-  if (!notification) {
+  if (!notification?.message) {
     return null;
   }
+
+  const tone = String(notification?.tone || "info").trim().toLowerCase();
+  const toneClass =
+    tone === "success"
+      ? "notification-toast-success"
+      : tone === "warning"
+        ? "notification-toast-warning"
+        : "notification-toast-info";
 
   return (
-    <div
-      className={`notification-toast notification-toast-${notification.type}`}
-      role="status"
-      aria-live="polite"
-    >
+    <div className={`notification-toast ${toneClass}`} role="status" aria-live="polite">
       <div className="notification-toast-message">{notification.message}</div>
       <button
         type="button"
@@ -694,7 +826,7 @@ function NotificationToast({ notification, onClose }) {
         onClick={onClose}
         aria-label="Zamknij powiadomienie"
       >
-        &times;
+        {"\u00d7"}
       </button>
     </div>
   );
@@ -774,9 +906,9 @@ function ZoomOutLevelControl({ currentLevel, onStepOut, suppressZoomOutRef }) {
 }
 
 export default function App() {
-  const mapRef = useRef(null);
   const detectionListRef = useRef(null);
   const detectionItemRefs = useRef(new Map());
+  const noDetectionItemRefs = useRef(new Map());
   const masterDetectionsCheckboxRef = useRef(null);
   const masterNoDetectionsCheckboxRef = useRef(null);
   const tagFilterDropdownRef = useRef(null);
@@ -791,14 +923,14 @@ export default function App() {
   const [analysisImages, setAnalysisImages] = useState([]);
   const [selectedNoDetectionImage, setSelectedNoDetectionImage] = useState(null);
   const [expandedNoDetectionImageId, setExpandedNoDetectionImageId] = useState(null);
+  const [selectedNoDetectionListItemId, setSelectedNoDetectionListItemId] = useState(null);
   const [selectedNoDetectionImageIds, setSelectedNoDetectionImageIds] = useState([]);
   const [noDetectionBulkTagDraft, setNoDetectionBulkTagDraft] = useState("");
   const [isNoDetectionBulkTagging, setIsNoDetectionBulkTagging] = useState(false);
   const [currentAnalysisId, setCurrentAnalysisId] = useState(null);
   const [isLoadingDetections, setIsLoadingDetections] = useState(false);
-  const [analysisOverlayBounds, setAnalysisOverlayBounds] = useState(null);
   const [analysisStatus, setAnalysisStatus] = useState(null);
-  const [showBboxes, setShowBboxes] = useState(true);
+  const [showAnalysisPoints, setShowAnalysisPoints] = useState(true);
   const [viewMode, setViewMode] = useState("map");
   const [resolutionMode, setResolutionMode] = useState("detail");
   const [numSamples, setNumSamples] = useState(5);
@@ -870,6 +1002,29 @@ export default function App() {
       );
     },
     []
+  );
+  const getAnalysisImageUrl = useCallback((imageId) => {
+    const normalizedImageId = String(imageId || "").trim();
+    if (!normalizedImageId) {
+      return "";
+    }
+
+    return `${API_BASE_URL}/analysis-images/image/${encodeURIComponent(normalizedImageId)}`;
+  }, []);
+
+  const getDetectionPreviewUrl = useCallback(
+    (detection) => {
+      if (!detection || typeof detection !== "object") {
+        return "";
+      }
+
+      const detectionImageId = String(
+        detection.image_id || detection.analysis_image_id || detection.no_detection_image_id || ""
+      ).trim();
+
+      return detectionImageId ? getAnalysisImageUrl(detectionImageId) : "";
+    },
+    [getAnalysisImageUrl]
   );
   const updateDetectionPreviewImageMetrics = useCallback(() => {
     const imageNode = detectionPreviewImageRef.current;
@@ -1003,15 +1158,6 @@ export default function App() {
     [analysisFilteredDetections, statusFilter, selectedTagFilters, tagFilterMode]
   );
 
-  const mapDetections = useMemo(
-    () =>
-      getDisplayDetectionsForStatus(analysisFilteredDetections, statusFilter, {
-        selectedTags: selectedTagFilters,
-        tagMatchMode: tagFilterMode,
-      }),
-    [analysisFilteredDetections, statusFilter, selectedTagFilters, tagFilterMode]
-  );
-
   const availableDetectionTags = useMemo(() => {
     if (isNoDetectionsFilterSelected) {
       return [];
@@ -1115,6 +1261,84 @@ export default function App() {
     () => sortDetectionList(visibleAnalysisImages, effectiveSortBy, effectiveSortOrder),
     [visibleAnalysisImages, effectiveSortBy, effectiveSortOrder]
   );
+
+  const mapPointMarkers = useMemo(() => {
+    if (isNoDetectionsFilterSelected) {
+      return sortedNoDetectionImages
+        .map((image) => {
+          const imageId = String(image?.image_id || "").trim();
+          if (!imageId) {
+            return null;
+          }
+
+          const coordsFromPath = extractLatLonFromPath(image?.path);
+          const lat = coordsFromPath ? coordsFromPath.lat : Number(image?.lat);
+          const lon = coordsFromPath ? coordsFromPath.lon : Number(image?.lon);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+            return null;
+          }
+
+          return {
+            markerId: `image:${imageId}`,
+            type: "image",
+            imageId,
+            lat,
+            lon,
+          };
+        })
+        .filter(Boolean);
+    }
+
+    return filteredDetections
+      .map((detection, index) => {
+        const relatedImage = resolveAnalysisImageForDetection(detection, analysisFilteredImages);
+        if (!relatedImage) {
+          return null;
+        }
+
+        const detectionCoords = getDetectionGeoPositionFromBBox(detection, relatedImage);
+        const coordsFromPath = extractLatLonFromPath(relatedImage?.path);
+        const fallbackLat = coordsFromPath ? coordsFromPath.lat : Number(relatedImage?.lat);
+        const fallbackLon = coordsFromPath ? coordsFromPath.lon : Number(relatedImage?.lon);
+        const lat = detectionCoords ? detectionCoords.lat : fallbackLat;
+        const lon = detectionCoords ? detectionCoords.lon : fallbackLon;
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+          return null;
+        }
+
+        const detectionMarkerId = `${getDetectionUniqueId(detection)}|${index}`;
+        return {
+          markerId: `detection:${detectionMarkerId}`,
+          type: "detection",
+          detection,
+          detectionMarkerId,
+          lat,
+          lon,
+        };
+      })
+      .filter(Boolean);
+  }, [
+    isNoDetectionsFilterSelected,
+    sortedNoDetectionImages,
+    filteredDetections,
+    analysisFilteredImages,
+  ]);
+
+  const activeMapMarkerId = useMemo(() => {
+    if (isNoDetectionsFilterSelected) {
+      const selectedImageId = String(selectedNoDetectionListItemId || "").trim();
+      return selectedImageId ? `image:${selectedImageId}` : "";
+    }
+
+    if (!selectedDetection) {
+      return "";
+    }
+
+    const activeMarker = mapPointMarkers.find(
+      (marker) => marker.type === "detection" && isSameDetection(marker.detection, selectedDetection)
+    );
+    return activeMarker?.markerId ?? "";
+  }, [isNoDetectionsFilterSelected, selectedNoDetectionListItemId, selectedDetection, mapPointMarkers]);
 
   const backendSortBy = effectiveSortBy === "confidence" ? "confidence" : "data";
   const backendSortOrder = effectiveSortOrder === "asc" ? "asc" : "desc";
@@ -1487,6 +1711,40 @@ export default function App() {
   }, [sortedNoDetectionImages, selectedNoDetectionImage]);
 
   useEffect(() => {
+    const selectedImageId = String(selectedNoDetectionListItemId || "").trim();
+    if (!selectedImageId) {
+      return;
+    }
+
+    const selectedListItemNode = noDetectionItemRefs.current.get(selectedImageId);
+    if (!selectedListItemNode) {
+      return;
+    }
+
+    selectedListItemNode.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [selectedNoDetectionListItemId]);
+
+  useEffect(() => {
+    if (!selectedNoDetectionListItemId) {
+      return;
+    }
+
+    const stillVisible = sortedNoDetectionImages.some(
+      (image) => String(image?.image_id || "").trim() === selectedNoDetectionListItemId
+    );
+
+    if (!stillVisible) {
+      setSelectedNoDetectionListItemId(null);
+    }
+  }, [selectedNoDetectionListItemId, sortedNoDetectionImages]);
+
+  useEffect(() => {
+    if (!isNoDetectionsFilterSelected && selectedNoDetectionListItemId) {
+      setSelectedNoDetectionListItemId(null);
+    }
+  }, [isNoDetectionsFilterSelected, selectedNoDetectionListItemId]);
+
+  useEffect(() => {
     if (!masterDetectionsCheckboxRef.current) {
       return;
     }
@@ -1583,20 +1841,28 @@ export default function App() {
     });
   };
 
-  const handleSelectDetection = useCallback((detection) => {
-    const bboxBounds = detectionToBounds(detection);
-    if (!bboxBounds) {
+  const handleSelectMapMarker = useCallback((marker) => {
+    if (!marker || typeof marker !== "object") {
       return;
     }
 
-    setSelectedDetection(detection);
+    if (marker.type === "image") {
+      const imageId = String(marker.imageId || "").trim();
+      if (!imageId) {
+        return;
+      }
 
-    const mapInstance = mapRef.current;
-    if (!mapInstance) {
+      setExpandedNoDetectionImageId(imageId);
+      setSelectedNoDetectionListItemId(imageId);
+      setSelectedDetection(null);
       return;
     }
 
-    mapInstance.fitBounds(bboxBounds, { padding: [20, 20], animate: true });
+    if (marker.type === "detection" && marker.detection) {
+      setSelectedDetection(marker.detection);
+      setExpandedDetectionId(marker.detection.detection_id);
+      setSelectedNoDetectionListItemId(null);
+    }
   }, []);
 
   const handleChooseArea = async () => {
@@ -1609,7 +1875,6 @@ export default function App() {
     setNotification(null);
     setIsLoadingDetections(true);
     setAnalysisStatus("loading");
-    setAnalysisOverlayBounds(selectedSegment.bounds);
 
     const [[yMin, xMin], [yMax, xMax]] = selectedSegment.bounds;
     const analysisBbox = [xMin, yMin, xMax, yMax];
@@ -1729,7 +1994,6 @@ export default function App() {
       setSelectedDetection(null);
     } finally {
       setIsLoadingDetections(false);
-      setAnalysisOverlayBounds(null);
     }
   };
 
@@ -1737,7 +2001,6 @@ export default function App() {
     setNotification(null);
     setIsLoadingDetections(true);
     setAnalysisStatus("loading");
-    setAnalysisOverlayBounds(null);
 
     try {
       const response = await fetch(`${API_BASE_URL}/analysis/local-run`, {
@@ -2082,6 +2345,8 @@ export default function App() {
     setExpandedDetectionId(detectionId);
     setEditingDetectionId(detectionId);
     setInputComment(detection.comment ?? "");
+    setSelectedDetection(detection);
+    setSelectedNoDetectionListItemId(null);
   };
 
   const handleToggleDetectionSelection = (detectionId) => {
@@ -2345,10 +2610,13 @@ export default function App() {
 
     if (expandedNoDetectionImageId === imageId) {
       setExpandedNoDetectionImageId(null);
+      setSelectedNoDetectionListItemId(null);
       return;
     }
 
     setExpandedNoDetectionImageId(imageId);
+    setSelectedNoDetectionListItemId(imageId);
+    setSelectedDetection(null);
   };
 
   const handleApplyNoDetectionBulkTag = async () => {
@@ -2829,9 +3097,6 @@ export default function App() {
                 maxZoom={18}
                 zoomSnap={0.1}
                 zoomDelta={0.5}
-                whenCreated={(mapInstance) => {
-                  mapRef.current = mapInstance;
-                }}
               >
                 <WMSTileLayer
                   url="https://planetarymaps.usgs.gov/cgi-bin/mapserv"
@@ -2852,93 +3117,70 @@ export default function App() {
                 <FitBoundsOnChange bounds={focusBounds} />
                 <HomeControl onHomeClick={handleResetHomeView} />
 
-                {gridCells.map((segment) => {
-                  const isHovered = hoveredSegmentId === segment.id;
-                  const isSelected = selectedSegment?.id === segment.id;
+                <Pane name="grid-segments" style={{ zIndex: 410 }}>
+                  {gridCells.map((segment) => {
+                    const isHovered = hoveredSegmentId === segment.id;
+                    const isSelected = selectedSegment?.id === segment.id;
 
-                  let color = "#0d6efd";
-                  if (isSelected) {
-                    color = "#dc3545";
-                  } else if (isHovered) {
-                    color = "#fd7e14";
-                  }
+                    let color = "#0d6efd";
+                    if (isSelected) {
+                      color = "#dc3545";
+                    } else if (isHovered) {
+                      color = "#fd7e14";
+                    }
 
-                  return (
-                    <Rectangle
-                      key={segment.id}
-                      bounds={segment.bounds}
-                      pathOptions={{
-                        color,
-                        weight: isSelected ? 2 : 1,
-                        opacity: isSelected ? 0.8 : isHovered ? 0.55 : 0.32,
-                        fillColor: color,
-                        fillOpacity: isSelected ? 0.14 : isHovered ? 0.08 : 0.04,
-                      }}
-                      eventHandlers={{
-                        mouseover: () => setHoveredSegmentId(segment.id),
-                        mouseout: () => setHoveredSegmentId(null),
-                        click: () => handleSelectSegment(segment),
-                      }}
-                    />
-                  );
-                })}
+                    return (
+                      <Rectangle
+                        key={segment.id}
+                        pane="grid-segments"
+                        bounds={segment.bounds}
+                        pathOptions={{
+                          color,
+                          weight: isSelected ? 2 : 1,
+                          opacity: isSelected ? 0.8 : isHovered ? 0.55 : 0.32,
+                          fillColor: color,
+                          fillOpacity: isSelected ? 0.14 : isHovered ? 0.08 : 0.04,
+                        }}
+                        eventHandlers={{
+                          mouseover: () => setHoveredSegmentId(segment.id),
+                          mouseout: () => setHoveredSegmentId(null),
+                          click: () => handleSelectSegment(segment),
+                        }}
+                      />
+                    );
+                  })}
+                </Pane>
 
-                {isAnalysisLoading && analysisOverlayBounds && (
-                  <Rectangle
-                    bounds={analysisOverlayBounds}
-                    pathOptions={{
-                      color: "#0d6efd",
-                      weight: 1,
-                      opacity: 0.75,
-                      fillColor: "#0d6efd",
-                      fillOpacity: 0.24,
-                      dashArray: "6 4",
-                      interactive: false,
-                    }}
-                  />
+                {showAnalysisPoints && (
+                  <Pane name="analysis-points" style={{ zIndex: 650 }}>
+                    {mapPointMarkers.map((marker) => {
+                      const isActive = activeMapMarkerId === marker.markerId;
+
+                      return (
+                        <CircleMarker
+                          key={marker.markerId}
+                          pane="analysis-points"
+                          center={[marker.lat, marker.lon]}
+                          radius={isActive ? 8 : 6}
+                          pathOptions={{
+                            color: isActive ? "#fd7e14" : "#0d6efd",
+                            weight: isActive ? 2 : 1,
+                            opacity: 1,
+                            fillColor: isActive ? "#fd7e14" : "#0d6efd",
+                            fillOpacity: isActive ? 0.95 : 0.8,
+                            bubblingMouseEvents: false,
+                          }}
+                          eventHandlers={{
+                            click: (event) => {
+                              event.originalEvent?.stopPropagation();
+                              handleSelectMapMarker(marker);
+                            },
+                          }}
+                        />
+                      );
+                    })}
+                  </Pane>
                 )}
-
-                {selectedDetection && (
-                  <Rectangle
-                    key={`overlay-${getDetectionUniqueId(selectedDetection)}`}
-                    bounds={detectionToBounds(selectedDetection)}
-                    pathOptions={{
-                      color: "#fd7e14",
-                      weight: 0,
-                      fillColor: "#fd7e14",
-                      fillOpacity: 0.28,
-                      interactive: false,
-                    }}
-                  />
-                )}
-
-                {showBboxes && mapDetections.map((detection, detectionIndex) => {
-                  const detectionUniqueId = getDetectionUniqueId(detection);
-                  const detectionRenderKey = `${detectionUniqueId}|${detectionIndex}`;
-                  const isSelected = isSameDetection(selectedDetection, detection);
-                  const isHovered = hoveredDetectionId === detectionUniqueId;
-                  const statusColor = getStatusColor(detection.status);
-
-                  return (
-                    <Rectangle
-                      key={detectionRenderKey}
-                      bounds={detectionToBounds(detection)}
-                      pathOptions={{
-                        color: statusColor,
-                        weight: isSelected ? 5 : isHovered ? 4 : 3,
-                        opacity: isSelected ? 0.95 : isHovered ? 0.9 : 0.85,
-                        fillColor: statusColor,
-                        fillOpacity: isSelected ? 0.3 : isHovered ? 0.2 : 0.14,
-                        dashArray: isSelected || isHovered ? null : "5 4",
-                      }}
-                      eventHandlers={{
-                        mouseover: () => setHoveredDetectionId(detectionUniqueId),
-                        mouseout: () => setHoveredDetectionId(null),
-                        click: () => handleSelectDetection(detection),
-                      }}
-                    />
-                  );
-                })}
               </MapContainer>
             </div>
           </div>
@@ -3466,12 +3708,12 @@ export default function App() {
                 <input
                   className="form-check-input"
                   type="checkbox"
-                  id="toggle-bboxes"
-                  checked={showBboxes}
-                  onChange={(event) => setShowBboxes(event.target.checked)}
+                  id="toggle-analysis-points"
+                  checked={showAnalysisPoints}
+                  onChange={(event) => setShowAnalysisPoints(event.target.checked)}
                 />
-                <label className="form-check-label" htmlFor="toggle-bboxes">
-                  Pokaz bounding boxy
+                <label className="form-check-label" htmlFor="toggle-analysis-points">
+                  Pokaz punkty analiz
                 </label>
               </div>
 
@@ -3849,8 +4091,17 @@ export default function App() {
                           return (
                             <div
                               key={itemKey}
+                              ref={(node) => {
+                                if (node) {
+                                  noDetectionItemRefs.current.set(imageId, node);
+                                } else {
+                                  noDetectionItemRefs.current.delete(imageId);
+                                }
+                              }}
                               className={`list-group-item list-group-item-action text-start detection-dense-item ${
-                                isSelectedForGallery ? "bg-primary-subtle border-primary" : ""
+                                isSelectedForGallery || selectedNoDetectionListItemId === imageId
+                                  ? "bg-primary-subtle border-primary"
+                                  : ""
                               }`}
                             >
                               <div
