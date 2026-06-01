@@ -27,6 +27,10 @@ const STATUS_BADGE_CLASS_MAP = {
 };
 const ANALYSIS_FILTER_ALL = "__all__";
 const ANALYSIS_FILTER_LATEST = "__latest__";
+const SIDEBAR_TAB_DETECTIONS = "detections";
+const SIDEBAR_TAB_ANALYSIS = "analysis";
+const SIDEBAR_TAB_NAVIGATION = "navigation";
+const SIDEBAR_TAB_STATUS = "status";
 const DETECTION_BBOX_PROXIMITY_THRESHOLD = 12;
 const NO_DETECTIONS_FILTER = "no_detections";
 const RESOLUTION_DESCRIPTION_MAP = {
@@ -955,6 +959,7 @@ export default function App() {
   const [analysisStatus, setAnalysisStatus] = useState(null);
   const [showAnalysisPoints, setShowAnalysisPoints] = useState(true);
   const [showGalleryBbox, setShowGalleryBbox] = useState(false);
+  const [activeSidebarTab, setActiveSidebarTab] = useState(SIDEBAR_TAB_DETECTIONS);
   const [viewMode, setViewMode] = useState("map");
   const [resolutionMode, setResolutionMode] = useState("detail");
   const [numSamples, setNumSamples] = useState(5);
@@ -3497,9 +3502,62 @@ export default function App() {
         <div className="col-lg-6 col-xl-4 app-sidebar-column">
           <div className="card shadow-sm sidebar-card">
             <div className="card-body sidebar-card-body sidebar-layout">
-              <h5 className="card-title mb-3">Panel obszaru</h5>
+              <h5 className="card-title mb-2">Panel obszaru</h5>
 
-              <section className="sidebar-section">
+              <div className="btn-group btn-group-sm w-100 sidebar-tabs" role="tablist" aria-label="Zakladki panelu bocznego">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeSidebarTab === SIDEBAR_TAB_DETECTIONS}
+                  className={`btn ${
+                    activeSidebarTab === SIDEBAR_TAB_DETECTIONS ? "btn-primary" : "btn-outline-primary"
+                  }`}
+                  onClick={() => setActiveSidebarTab(SIDEBAR_TAB_DETECTIONS)}
+                >
+                  Detekcje
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeSidebarTab === SIDEBAR_TAB_ANALYSIS}
+                  className={`btn ${
+                    activeSidebarTab === SIDEBAR_TAB_ANALYSIS ? "btn-primary" : "btn-outline-primary"
+                  }`}
+                  onClick={() => setActiveSidebarTab(SIDEBAR_TAB_ANALYSIS)}
+                >
+                  Analiza
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeSidebarTab === SIDEBAR_TAB_NAVIGATION}
+                  className={`btn ${
+                    activeSidebarTab === SIDEBAR_TAB_NAVIGATION ? "btn-primary" : "btn-outline-primary"
+                  }`}
+                  onClick={() => setActiveSidebarTab(SIDEBAR_TAB_NAVIGATION)}
+                >
+                  Nawigacja
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeSidebarTab === SIDEBAR_TAB_STATUS}
+                  className={`btn ${
+                    activeSidebarTab === SIDEBAR_TAB_STATUS ? "btn-primary" : "btn-outline-primary"
+                  }`}
+                  onClick={() => setActiveSidebarTab(SIDEBAR_TAB_STATUS)}
+                >
+                  Status
+                </button>
+              </div>
+
+              <div className="sidebar-tab-content">
+
+              <section
+                className={`sidebar-section sidebar-tab-pane ${
+                  activeSidebarTab === SIDEBAR_TAB_NAVIGATION ? "is-active" : ""
+                }`}
+              >
                 <h6 className="sidebar-section-title">Widok i nawigacja</h6>
 
                 <div className="btn-group btn-group-sm w-100 mb-3" role="group" aria-label="Tryb widoku aplikacji">
@@ -3555,9 +3613,69 @@ export default function App() {
                     Pokaz punkty analiz
                   </label>
                 </div>
+
+                <div className="small text-muted mt-3 mb-2">Przejdz do wspolrzednych</div>
+                <div className="row g-2">
+                  <div className="col-6">
+                    <input
+                      className="form-control form-control-sm"
+                      type="number"
+                      step="any"
+                      value={manualCoords.xMin}
+                      onChange={(event) =>
+                        setManualCoords((prev) => ({ ...prev, xMin: event.target.value }))
+                      }
+                      placeholder="xMin"
+                    />
+                  </div>
+                  <div className="col-6">
+                    <input
+                      className="form-control form-control-sm"
+                      type="number"
+                      step="any"
+                      value={manualCoords.yMin}
+                      onChange={(event) =>
+                        setManualCoords((prev) => ({ ...prev, yMin: event.target.value }))
+                      }
+                      placeholder="yMin"
+                    />
+                  </div>
+                  <div className="col-6">
+                    <input
+                      className="form-control form-control-sm"
+                      type="number"
+                      step="any"
+                      value={manualCoords.xMax}
+                      onChange={(event) =>
+                        setManualCoords((prev) => ({ ...prev, xMax: event.target.value }))
+                      }
+                      placeholder="xMax"
+                    />
+                  </div>
+                  <div className="col-6">
+                    <input
+                      className="form-control form-control-sm"
+                      type="number"
+                      step="any"
+                      value={manualCoords.yMax}
+                      onChange={(event) =>
+                        setManualCoords((prev) => ({ ...prev, yMax: event.target.value }))
+                      }
+                      placeholder="yMax"
+                    />
+                  </div>
+                </div>
+
+                <button className="btn btn-outline-secondary w-100 mt-3" onClick={handleGoToManual}>
+                  Przejdz
+                </button>
               </section>
 
-              <section className="sidebar-section">
+              <section
+                className={`sidebar-section sidebar-tab-pane ${
+                  activeSidebarTab === SIDEBAR_TAB_STATUS ? "is-active" : ""
+                }`}
+              >
                 <h6 className="sidebar-section-title">Status analizy</h6>
                 <div className="small mb-2">
                   {analysisStatus === "success"
@@ -3596,7 +3714,11 @@ export default function App() {
                 )}
               </section>
 
-              <section className="sidebar-section sidebar-detections-section">
+              <section
+                className={`sidebar-section sidebar-tab-pane sidebar-detections-section ${
+                  activeSidebarTab === SIDEBAR_TAB_DETECTIONS ? "is-active" : ""
+                }`}
+              >
                 <h6 className="mb-3">Detekcje ({detectionSectionCount})</h6>
 
               <div className="btn-group btn-group-sm w-100 mb-3" role="group" aria-label="Filtr statusu detekcji">
@@ -4427,8 +4549,12 @@ export default function App() {
 
               </section>
 
-              <details className="sidebar-section sidebar-settings-section">
-                <summary className="sidebar-section-title">Ustawienia analizy</summary>
+              <section
+                className={`sidebar-section sidebar-tab-pane sidebar-settings-section ${
+                  activeSidebarTab === SIDEBAR_TAB_ANALYSIS ? "is-active" : ""
+                }`}
+              >
+                <h6 className="sidebar-section-title">Ustawienia analizy</h6>
 
                 <button
                   className="btn btn-primary w-100 mb-2 d-flex align-items-center justify-content-center gap-2"
@@ -4556,62 +4682,8 @@ export default function App() {
                 </div>
                 <div className="small text-muted mb-3">Poziom siatki: {currentLevel}</div>
 
-                <div className="small text-muted mb-2">Przejdz do wspolrzednych</div>
-                <div className="row g-2">
-                  <div className="col-6">
-                    <input
-                      className="form-control form-control-sm"
-                      type="number"
-                      step="any"
-                      value={manualCoords.xMin}
-                      onChange={(event) =>
-                        setManualCoords((prev) => ({ ...prev, xMin: event.target.value }))
-                      }
-                      placeholder="xMin"
-                    />
-                  </div>
-                  <div className="col-6">
-                    <input
-                      className="form-control form-control-sm"
-                      type="number"
-                      step="any"
-                      value={manualCoords.yMin}
-                      onChange={(event) =>
-                        setManualCoords((prev) => ({ ...prev, yMin: event.target.value }))
-                      }
-                      placeholder="yMin"
-                    />
-                  </div>
-                  <div className="col-6">
-                    <input
-                      className="form-control form-control-sm"
-                      type="number"
-                      step="any"
-                      value={manualCoords.xMax}
-                      onChange={(event) =>
-                        setManualCoords((prev) => ({ ...prev, xMax: event.target.value }))
-                      }
-                      placeholder="xMax"
-                    />
-                  </div>
-                  <div className="col-6">
-                    <input
-                      className="form-control form-control-sm"
-                      type="number"
-                      step="any"
-                      value={manualCoords.yMax}
-                      onChange={(event) =>
-                        setManualCoords((prev) => ({ ...prev, yMax: event.target.value }))
-                      }
-                      placeholder="yMax"
-                    />
-                  </div>
-                </div>
-
-                <button className="btn btn-outline-secondary w-100 mt-3" onClick={handleGoToManual}>
-                  Przejdz
-                </button>
-              </details>
+              </section>
+              </div>
             </div>
           </div>
         </div>

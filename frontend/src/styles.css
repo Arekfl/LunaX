@@ -409,6 +409,28 @@ body {
   min-height: 0;
 }
 
+.sidebar-tabs {
+  flex: 0 0 auto;
+}
+
+.sidebar-tab-content {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.sidebar-tab-pane {
+  display: none;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.sidebar-tab-pane.is-active {
+  display: flex;
+}
+
 .sidebar-section {
   border: 1px solid #e9ecef;
   border-radius: 0.5rem;
@@ -423,18 +445,15 @@ body {
 }
 
 .sidebar-detections-section {
-  display: flex;
-  flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 .sidebar-detection-list-wrap {
-  flex: 0 0 auto;
-  min-height: 11rem;
-  max-height: clamp(220px, 38vh, 460px);
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
   overflow-y: auto;
 }
 
@@ -457,6 +476,10 @@ body {
 
 .sidebar-settings-section[open] {
   max-height: 38vh;
+  overflow-y: auto;
+}
+
+.sidebar-settings-section.sidebar-tab-pane {
   overflow-y: auto;
 }
 
@@ -484,7 +507,7 @@ body {
 
   .sidebar-card-body {
     min-height: 0;
-    overflow-y: auto;
+    overflow: hidden;
     overflow-x: hidden;
     overscroll-behavior: contain;
   }
