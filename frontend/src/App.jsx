@@ -30,7 +30,6 @@ const ANALYSIS_FILTER_LATEST = "__latest__";
 const SIDEBAR_TAB_DETECTIONS = "detections";
 const SIDEBAR_TAB_ANALYSIS = "analysis";
 const SIDEBAR_TAB_NAVIGATION = "navigation";
-const SIDEBAR_TAB_STATUS = "status";
 const DETECTION_BBOX_PROXIMITY_THRESHOLD = 12;
 const NO_DETECTIONS_FILTER = "no_detections";
 const RESOLUTION_DESCRIPTION_MAP = {
@@ -439,30 +438,13 @@ function deduplicateDetectionsByProximity(detectionList, threshold) {
   return deduplicated;
 }
 
-function detectionMatchesSelectedTags(detection, selectedTags, tagMatchMode) {
-  const normalizedSelectedTags = normalizeDetectionTags(selectedTags);
-  if (normalizedSelectedTags.length === 0) {
-    return true;
-  }
-
-  const detectionTags = normalizeDetectionTags(detection?.tags);
-  if (detectionTags.length === 0) {
-    return false;
-  }
-
-  if (tagMatchMode === "and") {
-    return normalizedSelectedTags.every((tag) => detectionTags.includes(tag));
-  }
-
-  return normalizedSelectedTags.some((tag) => detectionTags.includes(tag));
-}
-
 function getDisplayDetectionsForStatus(detectionList, status, options = {}) {
   const {
     requireValidBounds = true,
     selectedTags = [],
     tagMatchMode = "or",
   } = options;
+
   const statusMatched = detectionList.filter((detection) => detection.status === status);
   const tagsMatched = statusMatched.filter((detection) =>
     detectionMatchesSelectedTags(detection, selectedTags, tagMatchMode)
@@ -472,116 +454,6 @@ function getDisplayDetectionsForStatus(detectionList, status, options = {}) {
     : tagsMatched;
 
   return deduplicateDetectionsByProximity(scopeMatched, DETECTION_BBOX_PROXIMITY_THRESHOLD);
-}
-
-function getDetectionConfidenceValue(detection) {
-  const numericConfidence = Number(detection?.confidence);
-  return Number.isFinite(numericConfidence) ? numericConfidence : null;
-}
-
-function getDetectionTimestampValue(detection) {
-  const timestampRaw = typeof detection?.timestamp === "string" ? detection.timestamp.trim() : "";
-  if (!timestampRaw) {
-    return null;
-  }
-
-  const parsedTimestamp = Date.parse(timestampRaw);
-  return Number.isFinite(parsedTimestamp) ? parsedTimestamp : null;
-}
-
-function normalizeAnalysisId(value) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function buildAnalysisFilterValue(analysisId) {
-  return `analysis:${analysisId}`;
-}
-
-function parseAnalysisFilterValue(filterValue) {
-  return typeof filterValue === "string" && filterValue.startsWith("analysis:")
-    ? filterValue.slice("analysis:".length)
-    : null;
-}
-
-function getItemTimestampLabel(item) {
-  return typeof item?.timestamp === "string" ? item.timestamp.trim() : "";
-}
-
-function extractLatLonFromPath(filePath) {
-  const normalizedPath = typeof filePath === "string" ? filePath.trim() : "";
-  if (!normalizedPath) {
-    return null;
-  }
-
-  const latLonMatch = normalizedPath.match(/lat-(-?\d+(?:\.\d+)?)_lon-(-?\d+(?:\.\d+)?)/i);
-  if (!latLonMatch) {
-    return null;
-  }
-
-  const lat = Number(latLonMatch[1]);
-  const lon = Number(latLonMatch[2]);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-    return null;
-  }
-
-  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
-    return null;
-  }
-
-  return { lat, lon };
-}
-
-function getDetectionGeoPositionFromBBox(detection, relatedImage) {
-  const geoBounds = detectionToBounds(detection);
-  if (geoBounds) {
-    const [[latMin, lonMin], [latMax, lonMax]] = geoBounds;
-    return {
-      lat: (latMin + latMax) / 2,
-      lon: (lonMin + lonMax) / 2,
-    };
-  }
-
-  const bboxMinMax = parseBBoxToMinMax(detection?.bbox);
-  if (!bboxMinMax) {
-    return null;
-  }
-
-  const imageCenterFromPath = extractLatLonFromPath(relatedImage?.path);
-  const imageCenterLat = imageCenterFromPath ? imageCenterFromPath.lat : Number(relatedImage?.lat);
-  const imageCenterLon = imageCenterFromPath ? imageCenterFromPath.lon : Number(relatedImage?.lon);
-  if (!Number.isFinite(imageCenterLat) || !Number.isFinite(imageCenterLon)) {
-    return null;
-  }
-
-  const resolutionKey = String(relatedImage?.resolution || detection?.resolution || "")
-    .trim()
-    .toLowerCase();
-  const imageSize = Number(RESOLUTION_IMAGE_SIZE_MAP[resolutionKey]);
-  const deltaDeg = Number(RESOLUTION_DELTA_DEG_MAP[resolutionKey]);
-  if (!Number.isFinite(imageSize) || imageSize <= 0 || !Number.isFinite(deltaDeg) || deltaDeg <= 0) {
-    return null;
-  }
-
-  const pixelCenterX = (bboxMinMax.xMin + bboxMinMax.xMax) / 2;
-  const pixelCenterY = (bboxMinMax.yMin + bboxMinMax.yMax) / 2;
-  if (!Number.isFinite(pixelCenterX) || !Number.isFinite(pixelCenterY)) {
-    return null;
-  }
-
-  const normalizedX = pixelCenterX / imageSize;
-  const normalizedY = pixelCenterY / imageSize;
-
-  const lon = imageCenterLon + (normalizedX - 0.5) * deltaDeg;
-  const lat = imageCenterLat - (normalizedY - 0.5) * deltaDeg;
-
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-    return null;
-  }
-
-  return {
-    lat: clampValue(lat, -90, 90),
-    lon: clampValue(lon, -180, 180),
-  };
 }
 
 function buildAnalysisMarkers(imageList) {
@@ -729,6 +601,102 @@ function resolveDetectionStatus(detection, statusMap) {
   return statusMap[detection.detection_id] ?? detection.status ?? DEFAULT_DETECTION_STATUS;
 }
 
+function getDetectionConfidenceValue(detection) {
+  const numericConfidence = Number(detection?.confidence);
+  return Number.isFinite(numericConfidence) ? numericConfidence : null;
+}
+
+function getDetectionTimestampValue(detection) {
+  const timestampRaw = typeof detection?.timestamp === "string" ? detection.timestamp.trim() : "";
+  if (!timestampRaw) {
+    return null;
+  }
+
+  const parsedTimestamp = Date.parse(timestampRaw);
+  return Number.isFinite(parsedTimestamp) ? parsedTimestamp : null;
+}
+
+function getItemTimestampLabel(item) {
+  return typeof item?.timestamp === "string" ? item.timestamp.trim() : "";
+}
+
+function extractLatLonFromPath(filePath) {
+  const normalizedPath = typeof filePath === "string" ? filePath.trim() : "";
+  if (!normalizedPath) {
+    return null;
+  }
+
+  const latLonMatch = normalizedPath.match(/lat-(-?\d+(?:\.\d+)?)_lon-(-?\d+(?:\.\d+)?)/i);
+  if (!latLonMatch) {
+    return null;
+  }
+
+  const lat = Number(latLonMatch[1]);
+  const lon = Number(latLonMatch[2]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return null;
+  }
+
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+    return null;
+  }
+
+  return { lat, lon };
+}
+
+function getDetectionGeoPositionFromBBox(detection, relatedImage) {
+  const geoBounds = detectionToBounds(detection);
+  if (geoBounds) {
+    const [[latMin, lonMin], [latMax, lonMax]] = geoBounds;
+    return {
+      lat: (latMin + latMax) / 2,
+      lon: (lonMin + lonMax) / 2,
+    };
+  }
+
+  const bboxMinMax = parseBBoxToMinMax(detection?.bbox);
+  if (!bboxMinMax) {
+    return null;
+  }
+
+  const imageCenterFromPath = extractLatLonFromPath(relatedImage?.path);
+  const imageCenterLat = imageCenterFromPath ? imageCenterFromPath.lat : Number(relatedImage?.lat);
+  const imageCenterLon = imageCenterFromPath ? imageCenterFromPath.lon : Number(relatedImage?.lon);
+  if (!Number.isFinite(imageCenterLat) || !Number.isFinite(imageCenterLon)) {
+    return null;
+  }
+
+  const resolutionKey = String(relatedImage?.resolution || detection?.resolution || "")
+    .trim()
+    .toLowerCase();
+  const imageSize = Number(RESOLUTION_IMAGE_SIZE_MAP[resolutionKey]);
+  const deltaDeg = Number(RESOLUTION_DELTA_DEG_MAP[resolutionKey]);
+  if (!Number.isFinite(imageSize) || imageSize <= 0 || !Number.isFinite(deltaDeg) || deltaDeg <= 0) {
+    return null;
+  }
+
+  const pixelCenterX = (bboxMinMax.xMin + bboxMinMax.xMax) / 2;
+  const pixelCenterY = (bboxMinMax.yMin + bboxMinMax.yMax) / 2;
+  if (!Number.isFinite(pixelCenterX) || !Number.isFinite(pixelCenterY)) {
+    return null;
+  }
+
+  const normalizedX = pixelCenterX / imageSize;
+  const normalizedY = pixelCenterY / imageSize;
+
+  const lon = imageCenterLon + (normalizedX - 0.5) * deltaDeg;
+  const lat = imageCenterLat - (normalizedY - 0.5) * deltaDeg;
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return null;
+  }
+
+  return {
+    lat: clampValue(lat, -90, 90),
+    lon: clampValue(lon, -180, 180),
+  };
+}
+
 function normalizeDetectionTags(tags) {
   if (!Array.isArray(tags)) {
     return [];
@@ -739,6 +707,38 @@ function normalizeDetectionTags(tags) {
     .filter((tag) => tag.length > 0);
 
   return [...new Set(normalizedTags)];
+}
+
+function normalizeAnalysisId(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function buildAnalysisFilterValue(analysisId) {
+  return `analysis:${analysisId}`;
+}
+
+function parseAnalysisFilterValue(filterValue) {
+  return typeof filterValue === "string" && filterValue.startsWith("analysis:")
+    ? filterValue.slice("analysis:".length)
+    : null;
+}
+
+function detectionMatchesSelectedTags(detection, selectedTags, tagMatchMode) {
+  const normalizedSelectedTags = normalizeDetectionTags(selectedTags);
+  if (normalizedSelectedTags.length === 0) {
+    return true;
+  }
+
+  const detectionTags = normalizeDetectionTags(detection?.tags);
+  if (detectionTags.length === 0) {
+    return false;
+  }
+
+  if (tagMatchMode === "and") {
+    return normalizedSelectedTags.every((tag) => detectionTags.includes(tag));
+  }
+
+  return normalizedSelectedTags.some((tag) => detectionTags.includes(tag));
 }
 
 function applyStatusesToDetections(detectionList, statusMap) {
@@ -959,7 +959,7 @@ export default function App() {
   const [analysisStatus, setAnalysisStatus] = useState(null);
   const [showAnalysisPoints, setShowAnalysisPoints] = useState(true);
   const [showGalleryBbox, setShowGalleryBbox] = useState(false);
-  const [activeSidebarTab, setActiveSidebarTab] = useState(SIDEBAR_TAB_DETECTIONS);
+  const [activeSidebarTab, setActiveSidebarTab] = useState(SIDEBAR_TAB_ANALYSIS);
   const [viewMode, setViewMode] = useState("map");
   const [resolutionMode, setResolutionMode] = useState("detail");
   const [numSamples, setNumSamples] = useState(5);
@@ -3504,18 +3504,24 @@ export default function App() {
             <div className="card-body sidebar-card-body sidebar-layout">
               <h5 className="card-title mb-2">Panel obszaru</h5>
 
-              <div className="btn-group btn-group-sm w-100 sidebar-tabs" role="tablist" aria-label="Zakladki panelu bocznego">
+              <div className="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Tryb widoku aplikacji">
                 <button
                   type="button"
-                  role="tab"
-                  aria-selected={activeSidebarTab === SIDEBAR_TAB_DETECTIONS}
-                  className={`btn ${
-                    activeSidebarTab === SIDEBAR_TAB_DETECTIONS ? "btn-primary" : "btn-outline-primary"
-                  }`}
-                  onClick={() => setActiveSidebarTab(SIDEBAR_TAB_DETECTIONS)}
+                  className={`btn ${viewMode === "map" ? "btn-primary" : "btn-outline-primary"}`}
+                  onClick={() => setViewMode("map")}
                 >
-                  Detekcje
+                  Mapa
                 </button>
+                <button
+                  type="button"
+                  className={`btn ${viewMode === "gallery" ? "btn-primary" : "btn-outline-primary"}`}
+                  onClick={() => setViewMode("gallery")}
+                >
+                  Galeria
+                </button>
+              </div>
+
+              <div className="btn-group btn-group-sm w-100 sidebar-tabs" role="tablist" aria-label="Zakladki panelu bocznego">
                 <button
                   type="button"
                   role="tab"
@@ -3530,6 +3536,17 @@ export default function App() {
                 <button
                   type="button"
                   role="tab"
+                  aria-selected={activeSidebarTab === SIDEBAR_TAB_DETECTIONS}
+                  className={`btn ${
+                    activeSidebarTab === SIDEBAR_TAB_DETECTIONS ? "btn-primary" : "btn-outline-primary"
+                  }`}
+                  onClick={() => setActiveSidebarTab(SIDEBAR_TAB_DETECTIONS)}
+                >
+                  Detekcje
+                </button>
+                <button
+                  type="button"
+                  role="tab"
                   aria-selected={activeSidebarTab === SIDEBAR_TAB_NAVIGATION}
                   className={`btn ${
                     activeSidebarTab === SIDEBAR_TAB_NAVIGATION ? "btn-primary" : "btn-outline-primary"
@@ -3538,532 +3555,560 @@ export default function App() {
                 >
                   Nawigacja
                 </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={activeSidebarTab === SIDEBAR_TAB_STATUS}
-                  className={`btn ${
-                    activeSidebarTab === SIDEBAR_TAB_STATUS ? "btn-primary" : "btn-outline-primary"
-                  }`}
-                  onClick={() => setActiveSidebarTab(SIDEBAR_TAB_STATUS)}
-                >
-                  Status
-                </button>
               </div>
 
               <div className="sidebar-tab-content">
+                <section
+                  className={`sidebar-section sidebar-tab-pane ${
+                    activeSidebarTab === SIDEBAR_TAB_ANALYSIS ? "is-active" : ""
+                  }`}
+                >
+                  <h6 className="sidebar-section-title">Ustawienia analizy</h6>
 
-              <section
-                className={`sidebar-section sidebar-tab-pane ${
-                  activeSidebarTab === SIDEBAR_TAB_NAVIGATION ? "is-active" : ""
-                }`}
-              >
-                <h6 className="sidebar-section-title">Widok i nawigacja</h6>
-
-                <div className="btn-group btn-group-sm w-100 mb-3" role="group" aria-label="Tryb widoku aplikacji">
                   <button
-                    type="button"
-                    className={`btn ${viewMode === "map" ? "btn-primary" : "btn-outline-primary"}`}
-                    onClick={() => setViewMode("map")}
+                    className="btn btn-primary w-100 mb-2 d-flex align-items-center justify-content-center gap-2"
+                    onClick={handleChooseArea}
+                    disabled={isLoadingDetections}
                   >
-                    Mapa
+                    {isLoadingDetections && (
+                      <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                    )}
+                    <span>{isLoadingDetections ? "Analizowanie..." : "Uruchom analize"}</span>
                   </button>
+
                   <button
-                    type="button"
-                    className={`btn ${viewMode === "gallery" ? "btn-primary" : "btn-outline-primary"}`}
-                    onClick={() => setViewMode("gallery")}
+                    className="btn btn-outline-primary w-100 mb-2 d-flex align-items-center justify-content-center gap-2"
+                    onClick={handleLocalAnalysis}
+                    disabled={isLoadingDetections}
                   >
-                    Galeria
+                    {isLoadingDetections && (
+                      <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                    )}
+                    <span>{isLoadingDetections ? "Analizowanie..." : "Analiza lokalna"}</span>
                   </button>
-                </div>
 
-                <div className="mb-2">
-                  <label className="form-label form-label-sm mb-1" htmlFor="analysis-filter-select">
-                    Analiza
-                  </label>
-                  <select
-                    id="analysis-filter-select"
-                    className="form-select form-select-sm"
-                    value={selectedAnalysisFilter}
-                    onChange={(event) => setSelectedAnalysisFilter(event.target.value)}
-                  >
-                    <option value={ANALYSIS_FILTER_LATEST}>Ostatnia</option>
-                    <option value={ANALYSIS_FILTER_ALL}>Wszystkie</option>
-                    {analysisFilterOptions.map((option) => (
-                      <option
-                        key={`analysis-filter-${option.analysisId}`}
-                        value={buildAnalysisFilterValue(option.analysisId)}
-                      >
-                        {option.analysisId}
-                        {option.timestampLabel ? ` (${option.timestampLabel})` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                  <button className="btn btn-outline-secondary w-100 mb-3" onClick={handleResetHomeView}>
+                    Reset widoku
+                  </button>
 
-                <div className="form-check form-switch mt-2">
+                  <div className="small text-muted mb-2">Rozdzielczosc analizy</div>
+                  <div className="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Tryb rozdzielczosci analizy">
+                    <button
+                      type="button"
+                      className={`btn ${resolutionMode === "preview" ? "btn-primary" : "btn-outline-primary"}`}
+                      onClick={() => setResolutionMode("preview")}
+                    >
+                      preview
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn ${resolutionMode === "detail" ? "btn-primary" : "btn-outline-primary"}`}
+                      onClick={() => setResolutionMode("detail")}
+                    >
+                      detail
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn ${resolutionMode === "ultra" ? "btn-primary" : "btn-outline-primary"}`}
+                      onClick={() => setResolutionMode("ultra")}
+                    >
+                      ultra
+                    </button>
+                  </div>
+                  <div className="small text-muted mb-3">
+                    {RESOLUTION_DESCRIPTION_MAP[resolutionMode]} (ok. {RESOLUTION_MPP_MAP[resolutionMode].toFixed(2)} mpp)
+                  </div>
+
+                  <div className="small text-muted mb-2">Liczba probek</div>
+                  <div className="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Liczba probek analizy">
+                    <button
+                      type="button"
+                      className={`btn ${numSamples === 1 ? "btn-primary" : "btn-outline-primary"}`}
+                      onClick={() => setNumSamples(1)}
+                    >
+                      1
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn ${numSamples === 5 ? "btn-primary" : "btn-outline-primary"}`}
+                      onClick={() => setNumSamples(5)}
+                    >
+                      5
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn ${numSamples === 10 ? "btn-primary" : "btn-outline-primary"}`}
+                      onClick={() => setNumSamples(10)}
+                    >
+                      10
+                    </button>
+                  </div>
+                  <div className="small text-muted mb-3">Wiecej probek = dluzsza analiza</div>
+
+                  <div className="small text-muted mb-2">Confidence threshold ({confidenceThreshold.toFixed(2)})</div>
                   <input
-                    className="form-check-input"
-                    type="checkbox"
-                    id="toggle-analysis-points"
-                    checked={showAnalysisPoints}
-                    onChange={(event) => setShowAnalysisPoints(event.target.checked)}
+                    className="form-range mb-3"
+                    type="range"
+                    min="0.01"
+                    max="1.0"
+                    step="0.01"
+                    value={confidenceThreshold}
+                    onChange={(event) => setConfidenceThreshold(Number(event.target.value))}
                   />
-                  <label className="form-check-label" htmlFor="toggle-analysis-points">
-                    Pokaz punkty analiz
-                  </label>
-                </div>
 
-                <div className="small text-muted mt-3 mb-2">Przejdz do wspolrzednych</div>
-                <div className="row g-2">
-                  <div className="col-6">
-                    <input
-                      className="form-control form-control-sm"
-                      type="number"
-                      step="any"
-                      value={manualCoords.xMin}
-                      onChange={(event) =>
-                        setManualCoords((prev) => ({ ...prev, xMin: event.target.value }))
-                      }
-                      placeholder="xMin"
-                    />
-                  </div>
-                  <div className="col-6">
-                    <input
-                      className="form-control form-control-sm"
-                      type="number"
-                      step="any"
-                      value={manualCoords.yMin}
-                      onChange={(event) =>
-                        setManualCoords((prev) => ({ ...prev, yMin: event.target.value }))
-                      }
-                      placeholder="yMin"
-                    />
-                  </div>
-                  <div className="col-6">
-                    <input
-                      className="form-control form-control-sm"
-                      type="number"
-                      step="any"
-                      value={manualCoords.xMax}
-                      onChange={(event) =>
-                        setManualCoords((prev) => ({ ...prev, xMax: event.target.value }))
-                      }
-                      placeholder="xMax"
-                    />
-                  </div>
-                  <div className="col-6">
-                    <input
-                      className="form-control form-control-sm"
-                      type="number"
-                      step="any"
-                      value={manualCoords.yMax}
-                      onChange={(event) =>
-                        setManualCoords((prev) => ({ ...prev, yMax: event.target.value }))
-                      }
-                      placeholder="yMax"
-                    />
-                  </div>
-                </div>
-
-                <button className="btn btn-outline-secondary w-100 mt-3" onClick={handleGoToManual}>
-                  Przejdz
-                </button>
-              </section>
-
-              <section
-                className={`sidebar-section sidebar-tab-pane ${
-                  activeSidebarTab === SIDEBAR_TAB_STATUS ? "is-active" : ""
-                }`}
-              >
-                <h6 className="sidebar-section-title">Status analizy</h6>
-                <div className="small mb-2">
-                  {analysisStatus === "success"
-                    ? "Analiza zakonczona"
-                    : analysisStatus === "loading"
-                      ? "Analiza w toku"
-                      : analysisStatus === "error"
-                        ? "Blad analizy"
-                        : "Brak aktywnej analizy"}
-                </div>
-
-                <div className="d-flex flex-wrap gap-2 small mb-2">
-                  <span className="badge text-bg-success">confirmed: {analysisSummaryCounts.confirmed}</span>
-                  <span className="badge text-bg-warning">to_verify: {analysisSummaryCounts.to_verify}</span>
-                  <span className="badge text-bg-danger">rejected: {analysisSummaryCounts.rejected}</span>
-                </div>
-
-                {resolvedAnalysisFilterId && (
-                  <div className="small text-muted mb-2">
-                    <div>
-                      Analiza: <strong>{resolvedAnalysisFilterId}</strong>
-                      {selectedAnalysisFilter === ANALYSIS_FILTER_LATEST ? " (ostatnia)" : ""}
+                  <div className="small text-muted mb-2">Wybrany segment i poziom</div>
+                  {selectedSegment ? (
+                    <div className="small mb-2">
+                      <div><strong>ID:</strong> {selectedSegment.id}</div>
+                      {selectedCoords && (
+                        <div className="mt-1">
+                          <div>xMin: {selectedCoords.xMin}</div>
+                          <div>yMin: {selectedCoords.yMin}</div>
+                          <div>xMax: {selectedCoords.xMax}</div>
+                          <div>yMax: {selectedCoords.yMax}</div>
+                        </div>
+                      )}
                     </div>
-                    {activeAnalysisFilterOption?.timestampLabel && (
-                      <div>Timestamp: {activeAnalysisFilterOption.timestampLabel}</div>
+                  ) : (
+                    <div className="small text-muted mb-2">Brak wybranego segmentu.</div>
+                  )}
+
+                  <div className="form-check form-switch mb-2">
+                    <input
+                      className="form-check-input"
+                      type="checkbox"
+                      id="toggle-lock-level"
+                      checked={isLevelLocked}
+                      onChange={(event) => setIsLevelLocked(event.target.checked)}
+                    />
+                    <label className="form-check-label" htmlFor="toggle-lock-level">
+                      Lock level
+                    </label>
+                  </div>
+
+                  <div className="small text-muted mb-2">
+                    {isLevelLocked ? "Klik tylko zaznacza segment." : "Klik schodzi poziom nizej."}
+                  </div>
+                  <div className="small text-muted mb-3">Poziom siatki: {currentLevel}</div>
+
+                  <div className="small text-muted mb-2">Status analizy</div>
+                  <div className="small mb-2">
+                    {analysisStatus === "success"
+                      ? "Analiza zakonczona"
+                      : analysisStatus === "loading"
+                        ? "Analiza w toku"
+                        : analysisStatus === "error"
+                          ? "Blad analizy"
+                          : "Brak aktywnej analizy"}
+                  </div>
+
+                  <div className="d-flex flex-wrap gap-2 small mb-2">
+                    <span className="badge text-bg-success">confirmed: {analysisSummaryCounts.confirmed}</span>
+                    <span className="badge text-bg-warning">to_verify: {analysisSummaryCounts.to_verify}</span>
+                    <span className="badge text-bg-danger">rejected: {analysisSummaryCounts.rejected}</span>
+                  </div>
+
+                  {resolvedAnalysisFilterId && (
+                    <div className="small text-muted mb-2">
+                      <div>
+                        Analiza: <strong>{resolvedAnalysisFilterId}</strong>
+                        {selectedAnalysisFilter === ANALYSIS_FILTER_LATEST ? " (ostatnia)" : ""}
+                      </div>
+                      {activeAnalysisFilterOption?.timestampLabel && (
+                        <div>Timestamp: {activeAnalysisFilterOption.timestampLabel}</div>
+                      )}
+                    </div>
+                  )}
+
+                  {chosenMessage && (
+                    <div
+                      className={`alert ${isNoCoverageChosenMessage ? "alert-warning" : "alert-info"} py-2 mb-0`}
+                    >
+                      {chosenMessage}
+                    </div>
+                  )}
+                </section>
+
+                <section
+                  className={`sidebar-section sidebar-tab-pane sidebar-detections-section ${
+                    activeSidebarTab === SIDEBAR_TAB_DETECTIONS ? "is-active" : ""
+                  }`}
+                >
+                  <h6 className="sidebar-section-title">Detekcje ({detectionSectionCount})</h6>
+
+                  <div className="mb-2">
+                    <div className="d-flex justify-content-between align-items-center mb-2">
+                      <div className="small text-muted">Filtr analizy</div>
+                      <div className="small text-muted">
+                        {resolvedAnalysisFilterId ? resolvedAnalysisFilterId : "Wszystkie"}
+                      </div>
+                    </div>
+                    <label className="form-label form-label-sm mb-1" htmlFor="analysis-filter-select">
+                      Analiza
+                    </label>
+                    <select
+                      id="analysis-filter-select"
+                      className="form-select form-select-sm"
+                      value={selectedAnalysisFilter}
+                      onChange={(event) => setSelectedAnalysisFilter(event.target.value)}
+                    >
+                      <option value={ANALYSIS_FILTER_LATEST}>Ostatnia</option>
+                      <option value={ANALYSIS_FILTER_ALL}>Wszystkie</option>
+                      {analysisFilterOptions.map((option) => (
+                        <option
+                          key={`analysis-filter-${option.analysisId}`}
+                          value={buildAnalysisFilterValue(option.analysisId)}
+                        >
+                          {option.analysisId}
+                          {option.timestampLabel ? ` (${option.timestampLabel})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="btn-group btn-group-sm w-100 mb-3" role="group" aria-label="Filtr statusu detekcji">
+                    <button
+                      type="button"
+                      className={`btn ${statusFilter === "confirmed" ? "btn-success" : "btn-outline-success"}`}
+                      onClick={() => setStatusFilter("confirmed")}
+                    >
+                      confirmed
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn ${statusFilter === "to_verify" ? "btn-warning" : "btn-outline-warning"}`}
+                      onClick={() => setStatusFilter("to_verify")}
+                    >
+                      to_verify
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn ${statusFilter === "rejected" ? "btn-danger" : "btn-outline-danger"}`}
+                      onClick={() => setStatusFilter("rejected")}
+                    >
+                      rejected
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn ${statusFilter === NO_DETECTIONS_FILTER ? "btn-secondary" : "btn-outline-secondary"}`}
+                      onClick={() => setStatusFilter(NO_DETECTIONS_FILTER)}
+                    >
+                      no_detections
+                    </button>
+                  </div>
+
+                  <div className="mb-3">
+                    <div className="small text-muted mb-1">Sortowanie listy detekcji</div>
+                    {availableQuickSortFields.length === 0 ? (
+                      <div className="small text-muted">Brak danych do sortowania.</div>
+                    ) : (
+                      <div className="detection-sort-quick-list">
+                        {availableQuickSortFields.map((field) => {
+                          const isActive = effectiveSortBy === field.key;
+                          const directionIcon = effectiveSortOrder === "asc" ? "▲" : "▼";
+
+                          return (
+                            <button
+                              type="button"
+                              key={`quick-sort-${field.key}`}
+                              className={`btn btn-sm ${
+                                isActive ? "btn-secondary" : "btn-outline-secondary"
+                              } detection-sort-quick-btn`}
+                              onClick={() => handleSortFieldClick(field.key)}
+                              aria-pressed={isActive}
+                              title={isActive ? `Kierunek: ${effectiveSortOrder}` : "Ustaw sortowanie"}
+                            >
+                              <span>{field.label}</span>
+                              {isActive && <span className="detection-sort-quick-icon">{directionIcon}</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
                     )}
                   </div>
-                )}
 
-                {chosenMessage && (
-                  <div
-                    className={`alert ${isNoCoverageChosenMessage ? "alert-warning" : "alert-info"} py-2 mb-0`}
-                  >
-                    {chosenMessage}
-                  </div>
-                )}
-              </section>
-
-              <section
-                className={`sidebar-section sidebar-tab-pane sidebar-detections-section ${
-                  activeSidebarTab === SIDEBAR_TAB_DETECTIONS ? "is-active" : ""
-                }`}
-              >
-                <h6 className="mb-3">Detekcje ({detectionSectionCount})</h6>
-
-              <div className="btn-group btn-group-sm w-100 mb-3" role="group" aria-label="Filtr statusu detekcji">
-                <button
-                  type="button"
-                  className={`btn ${statusFilter === "confirmed" ? "btn-success" : "btn-outline-success"}`}
-                  onClick={() => setStatusFilter("confirmed")}
-                >
-                  confirmed
-                </button>
-                <button
-                  type="button"
-                  className={`btn ${statusFilter === "to_verify" ? "btn-warning" : "btn-outline-warning"}`}
-                  onClick={() => setStatusFilter("to_verify")}
-                >
-                  to_verify
-                </button>
-                <button
-                  type="button"
-                  className={`btn ${statusFilter === "rejected" ? "btn-danger" : "btn-outline-danger"}`}
-                  onClick={() => setStatusFilter("rejected")}
-                >
-                  rejected
-                </button>
-                <button
-                  type="button"
-                  className={`btn ${statusFilter === NO_DETECTIONS_FILTER ? "btn-secondary" : "btn-outline-secondary"}`}
-                  onClick={() => setStatusFilter(NO_DETECTIONS_FILTER)}
-                >
-                  no_detections
-                </button>
-              </div>
-
-              <div className="mb-3">
-                <div className="small text-muted mb-1">Sortowanie listy detekcji</div>
-                {availableQuickSortFields.length === 0 ? (
-                  <div className="small text-muted">Brak danych do sortowania.</div>
-                ) : (
-                  <div className="detection-sort-quick-list">
-                    {availableQuickSortFields.map((field) => {
-                      const isActive = effectiveSortBy === field.key;
-                      const directionIcon = effectiveSortOrder === "asc" ? "▲" : "▼";
-
-                      return (
+                  {!isNoDetectionsFilterSelected && (
+                    <div className="mb-3">
+                      <div className="d-flex justify-content-between align-items-center mb-2">
+                        <div className="small text-muted">Filtr tagow</div>
                         <button
                           type="button"
-                          key={`quick-sort-${field.key}`}
-                          className={`btn btn-sm ${
-                            isActive ? "btn-secondary" : "btn-outline-secondary"
-                          } detection-sort-quick-btn`}
-                          onClick={() => handleSortFieldClick(field.key)}
-                          aria-pressed={isActive}
-                          title={isActive ? `Kierunek: ${effectiveSortOrder}` : "Ustaw sortowanie"}
+                          className="btn btn-sm btn-outline-secondary py-0"
+                          onClick={() => {
+                            setSelectedTagFilters([]);
+                            setIsTagFilterDropdownOpen(false);
+                          }}
+                          disabled={selectedTagFilters.length === 0}
                         >
-                          <span>{field.label}</span>
-                          {isActive && <span className="detection-sort-quick-icon">{directionIcon}</span>}
+                          Wyczysc
                         </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+                      </div>
 
-              {!isNoDetectionsFilterSelected && (
-                <div className="mb-3">
-                  <div className="d-flex justify-content-between align-items-center mb-2">
-                    <div className="small text-muted">Filtr tagow</div>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-outline-secondary py-0"
-                      onClick={() => {
-                        setSelectedTagFilters([]);
-                        setIsTagFilterDropdownOpen(false);
-                      }}
-                      disabled={selectedTagFilters.length === 0}
-                    >
-                      Wyczysc
-                    </button>
-                  </div>
+                      {availableDetectionTags.length === 0 ? (
+                        <div className="small text-muted">Brak dostepnych tagow dla wybranego statusu.</div>
+                      ) : (
+                        <>
+                          <div className="dropdown tag-filter-dropdown mb-2" ref={tagFilterDropdownRef}>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-outline-secondary w-100 d-flex justify-content-between align-items-center"
+                              onClick={() => setIsTagFilterDropdownOpen((prevState) => !prevState)}
+                              aria-expanded={isTagFilterDropdownOpen}
+                              aria-haspopup="listbox"
+                            >
+                              <span>
+                                {selectedTagFilters.length > 0
+                                  ? `Wybrane tagi (${selectedTagFilters.length})`
+                                  : "Wybierz tagi"}
+                              </span>
+                              <span className="small text-muted">
+                                {isTagFilterDropdownOpen ? "Zamknij" : "Otworz"}
+                              </span>
+                            </button>
 
-                  {availableDetectionTags.length === 0 ? (
-                    <div className="small text-muted">Brak dostepnych tagow dla wybranego statusu.</div>
+                            {isTagFilterDropdownOpen && (
+                              <div className="dropdown-menu d-block w-100 mt-1 p-2 tag-filter-dropdown-menu">
+                                {availableDetectionTags.map((tag) => {
+                                  const isChecked = selectedTagFilters.includes(tag);
+
+                                  return (
+                                    <label key={`tag-filter-${tag}`} className="form-check mb-1 tag-filter-option">
+                                      <input
+                                        className="form-check-input"
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={() => handleToggleTagFilter(tag)}
+                                      />
+                                      <span className="form-check-label small">{tag}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+
+                          {selectedTagFilters.length > 0 ? (
+                            <div className="d-flex flex-wrap gap-1 mb-2">
+                              {selectedTagFilters.map((tag) => (
+                                <span
+                                  key={`active-tag-filter-${tag}`}
+                                  className="badge text-bg-light border dense-tag-chip d-inline-flex align-items-center"
+                                >
+                                  <span className="me-1">{tag}</span>
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm p-0 border-0 bg-transparent detection-tag-remove"
+                                    onClick={() => handleRemoveTagFilter(tag)}
+                                    aria-label={`Usun filtr tagu ${tag}`}
+                                  >
+                                    x
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="small text-muted mb-2">Brak wybranych tagow.</div>
+                          )}
+
+                          <div className="small text-muted mb-1">Tryb dopasowania:</div>
+                          <div className="d-flex align-items-center gap-3 mb-1">
+                            <div className="form-check form-check-inline mb-0">
+                              <input
+                                className="form-check-input"
+                                type="radio"
+                                name="tag-filter-mode"
+                                id="tag-filter-mode-or"
+                                checked={tagFilterMode === "or"}
+                                onChange={() => setTagFilterMode("or")}
+                              />
+                              <label className="form-check-label small" htmlFor="tag-filter-mode-or">
+                                OR
+                              </label>
+                            </div>
+                            <div className="form-check form-check-inline mb-0">
+                              <input
+                                className="form-check-input"
+                                type="radio"
+                                name="tag-filter-mode"
+                                id="tag-filter-mode-and"
+                                checked={tagFilterMode === "and"}
+                                onChange={() => setTagFilterMode("and")}
+                              />
+                              <label className="form-check-label small" htmlFor="tag-filter-mode-and">
+                                AND
+                              </label>
+                            </div>
+                          </div>
+
+                          <div className="small text-muted">
+                            {tagFilterMode === "or"
+                              ? "OR: pokaz detekcje zawierajace dowolny wybrany tag."
+                              : "AND: pokaz tylko detekcje zawierajace wszystkie wybrane tagi."}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {isNoDetectionsFilterSelected ? (
+                    <>
+                      <div className="form-check mb-2">
+                        <input
+                          ref={masterNoDetectionsCheckboxRef}
+                          className="form-check-input detection-select-checkbox"
+                          type="checkbox"
+                          checked={areAllVisibleNoDetectionsSelected}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                          }}
+                          onChange={(event) => {
+                            event.stopPropagation();
+                            handleToggleSelectAllNoDetections();
+                          }}
+                          disabled={
+                            selectableNoDetectionImageIds.length === 0 ||
+                            deleteModal.isDeleting ||
+                            isNoDetectionBulkTagging
+                          }
+                          aria-label="Zaznacz lub odznacz wszystkie obrazy no_detections"
+                        />
+                        <label className="form-check-label small ms-1">Select / Deselect All</label>
+                      </div>
+
+                      <div className="d-flex gap-2 mb-2">
+                        <input
+                          className="form-control form-control-sm"
+                          type="text"
+                          placeholder="Dodaj tag"
+                          value={noDetectionBulkTagDraft}
+                          onChange={(event) => setNoDetectionBulkTagDraft(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              handleApplyNoDetectionBulkTag();
+                            }
+                          }}
+                          disabled={
+                            selectedNoDetectionImageIds.length === 0 ||
+                            deleteModal.isDeleting ||
+                            isNoDetectionBulkTagging
+                          }
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-primary"
+                          onClick={handleApplyNoDetectionBulkTag}
+                          disabled={
+                            selectedNoDetectionImageIds.length === 0 ||
+                            deleteModal.isDeleting ||
+                            isNoDetectionBulkTagging ||
+                            String(noDetectionBulkTagDraft || "").trim().length === 0
+                          }
+                        >
+                          {isNoDetectionBulkTagging ? "Dodawanie..." : "Dodaj tag"}
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-danger w-100 mb-3"
+                        onClick={handleRequestBulkDeleteNoDetectionImages}
+                        disabled={
+                          selectedNoDetectionImageIds.length === 0 ||
+                          deleteModal.isDeleting ||
+                          isNoDetectionBulkTagging
+                        }
+                      >
+                        Usun zaznaczone obrazy
+                        {selectedNoDetectionImageIds.length > 0
+                          ? ` (${selectedNoDetectionImageIds.length})`
+                          : ""}
+                      </button>
+                    </>
                   ) : (
                     <>
-                      <div className="dropdown tag-filter-dropdown mb-2" ref={tagFilterDropdownRef}>
+                      <div className="form-check mb-2">
+                        <input
+                          ref={masterDetectionsCheckboxRef}
+                          className="form-check-input detection-select-checkbox"
+                          type="checkbox"
+                          checked={areAllVisibleDetectionsSelected}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                          }}
+                          onChange={(event) => {
+                            event.stopPropagation();
+                            handleToggleSelectAllDetections();
+                          }}
+                          disabled={
+                            selectableDetectionIds.length === 0 ||
+                            deleteModal.isDeleting ||
+                            isBulkTagging
+                          }
+                          aria-label="Zaznacz lub odznacz wszystkie detekcje"
+                        />
+                        <label className="form-check-label small ms-1">Select / Deselect All</label>
+                      </div>
+
+                      <div className="d-flex gap-2 mb-2">
+                        <input
+                          className="form-control form-control-sm"
+                          type="text"
+                          placeholder="Dodaj tag"
+                          value={bulkTagDraft}
+                          onChange={(event) => setBulkTagDraft(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              handleApplyBulkTag();
+                            }
+                          }}
+                          disabled={
+                            selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging
+                          }
+                        />
                         <button
                           type="button"
-                          className="btn btn-sm btn-outline-secondary w-100 d-flex justify-content-between align-items-center"
-                          onClick={() => setIsTagFilterDropdownOpen((prevState) => !prevState)}
-                          aria-expanded={isTagFilterDropdownOpen}
-                          aria-haspopup="listbox"
+                          className="btn btn-sm btn-outline-primary"
+                          onClick={handleApplyBulkTag}
+                          disabled={
+                            selectedIds.length === 0 ||
+                            deleteModal.isDeleting ||
+                            isBulkTagging ||
+                            String(bulkTagDraft || "").trim().length === 0
+                          }
                         >
-                          <span>
-                            {selectedTagFilters.length > 0
-                              ? `Wybrane tagi (${selectedTagFilters.length})`
-                              : "Wybierz tagi"}
-                          </span>
-                          <span className="small text-muted">
-                            {isTagFilterDropdownOpen ? "Zamknij" : "Otworz"}
-                          </span>
+                          {isBulkTagging ? "Dodawanie..." : "Dodaj tag"}
                         </button>
-
-                        {isTagFilterDropdownOpen && (
-                          <div className="dropdown-menu d-block w-100 mt-1 p-2 tag-filter-dropdown-menu">
-                            {availableDetectionTags.map((tag) => {
-                              const isChecked = selectedTagFilters.includes(tag);
-
-                              return (
-                                <label key={`tag-filter-${tag}`} className="form-check mb-1 tag-filter-option">
-                                  <input
-                                    className="form-check-input"
-                                    type="checkbox"
-                                    checked={isChecked}
-                                    onChange={() => handleToggleTagFilter(tag)}
-                                  />
-                                  <span className="form-check-label small">{tag}</span>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        )}
                       </div>
-
-                      {selectedTagFilters.length > 0 ? (
-                        <div className="d-flex flex-wrap gap-1 mb-2">
-                          {selectedTagFilters.map((tag) => (
-                            <span
-                              key={`active-tag-filter-${tag}`}
-                              className="badge text-bg-light border dense-tag-chip d-inline-flex align-items-center"
-                            >
-                              <span className="me-1">{tag}</span>
-                              <button
-                                type="button"
-                                className="btn btn-sm p-0 border-0 bg-transparent detection-tag-remove"
-                                onClick={() => handleRemoveTagFilter(tag)}
-                                aria-label={`Usun filtr tagu ${tag}`}
-                              >
-                                x
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="small text-muted mb-2">Brak wybranych tagow.</div>
-                      )}
-
-                      <div className="small text-muted mb-1">Tryb dopasowania:</div>
-                      <div className="d-flex align-items-center gap-3 mb-1">
-                        <div className="form-check form-check-inline mb-0">
-                          <input
-                            className="form-check-input"
-                            type="radio"
-                            name="tag-filter-mode"
-                            id="tag-filter-mode-or"
-                            checked={tagFilterMode === "or"}
-                            onChange={() => setTagFilterMode("or")}
-                          />
-                          <label className="form-check-label small" htmlFor="tag-filter-mode-or">
-                            OR
-                          </label>
-                        </div>
-                        <div className="form-check form-check-inline mb-0">
-                          <input
-                            className="form-check-input"
-                            type="radio"
-                            name="tag-filter-mode"
-                            id="tag-filter-mode-and"
-                            checked={tagFilterMode === "and"}
-                            onChange={() => setTagFilterMode("and")}
-                          />
-                          <label className="form-check-label small" htmlFor="tag-filter-mode-and">
-                            AND
-                          </label>
-                        </div>
+                      <div className="d-flex gap-2 mb-2">
+                        <select
+                          className="form-select form-select-sm"
+                          value={exportFormat}
+                          onChange={(event) => setExportFormat(event.target.value)}
+                          disabled={selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging}
+                        >
+                          <option value="json">JSON</option>
+                          <option value="csv">CSV</option>
+                        </select>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-secondary"
+                          onClick={handleExportSelectedDetections}
+                          disabled={selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging}
+                        >
+                          Export
+                        </button>
                       </div>
-
-                      <div className="small text-muted">
-                        {tagFilterMode === "or"
-                          ? "OR: pokaz detekcje zawierajace dowolny wybrany tag."
-                          : "AND: pokaz tylko detekcje zawierajace wszystkie wybrane tagi."}
-                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-danger w-100 mb-3"
+                        onClick={handleRequestBulkDeleteDetections}
+                        disabled={selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging}
+                      >
+                        Usun zaznaczone{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+                      </button>
                     </>
                   )}
-                </div>
-              )}
-
-              {isNoDetectionsFilterSelected ? (
-                <>
-                  <div className="form-check mb-2">
-                    <input
-                      ref={masterNoDetectionsCheckboxRef}
-                      className="form-check-input detection-select-checkbox"
-                      type="checkbox"
-                      checked={areAllVisibleNoDetectionsSelected}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                      }}
-                      onChange={(event) => {
-                        event.stopPropagation();
-                        handleToggleSelectAllNoDetections();
-                      }}
-                      disabled={
-                        selectableNoDetectionImageIds.length === 0 ||
-                        deleteModal.isDeleting ||
-                        isNoDetectionBulkTagging
-                      }
-                      aria-label="Zaznacz lub odznacz wszystkie obrazy no_detections"
-                    />
-                    <label className="form-check-label small ms-1">Select / Deselect All</label>
-                  </div>
-
-                  <div className="d-flex gap-2 mb-2">
-                    <input
-                      className="form-control form-control-sm"
-                      type="text"
-                      placeholder="Dodaj tag"
-                      value={noDetectionBulkTagDraft}
-                      onChange={(event) => setNoDetectionBulkTagDraft(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          handleApplyNoDetectionBulkTag();
-                        }
-                      }}
-                      disabled={
-                        selectedNoDetectionImageIds.length === 0 ||
-                        deleteModal.isDeleting ||
-                        isNoDetectionBulkTagging
-                      }
-                    />
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-outline-primary"
-                      onClick={handleApplyNoDetectionBulkTag}
-                      disabled={
-                        selectedNoDetectionImageIds.length === 0 ||
-                        deleteModal.isDeleting ||
-                        isNoDetectionBulkTagging ||
-                        String(noDetectionBulkTagDraft || "").trim().length === 0
-                      }
-                    >
-                      {isNoDetectionBulkTagging ? "Dodawanie..." : "Dodaj tag"}
-                    </button>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-outline-danger w-100 mb-3"
-                    onClick={handleRequestBulkDeleteNoDetectionImages}
-                    disabled={
-                      selectedNoDetectionImageIds.length === 0 ||
-                      deleteModal.isDeleting ||
-                      isNoDetectionBulkTagging
-                    }
-                  >
-                    Usun zaznaczone obrazy
-                    {selectedNoDetectionImageIds.length > 0
-                      ? ` (${selectedNoDetectionImageIds.length})`
-                      : ""}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div className="form-check mb-2">
-                    <input
-                      ref={masterDetectionsCheckboxRef}
-                      className="form-check-input detection-select-checkbox"
-                      type="checkbox"
-                      checked={areAllVisibleDetectionsSelected}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                      }}
-                      onChange={(event) => {
-                        event.stopPropagation();
-                        handleToggleSelectAllDetections();
-                      }}
-                      disabled={
-                        selectableDetectionIds.length === 0 ||
-                        deleteModal.isDeleting ||
-                        isBulkTagging
-                      }
-                      aria-label="Zaznacz lub odznacz wszystkie detekcje"
-                    />
-                    <label className="form-check-label small ms-1">Select / Deselect All</label>
-                  </div>
-
-                  <div className="d-flex gap-2 mb-2">
-                    <input
-                      className="form-control form-control-sm"
-                      type="text"
-                      placeholder="Dodaj tag"
-                      value={bulkTagDraft}
-                      onChange={(event) => setBulkTagDraft(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          handleApplyBulkTag();
-                        }
-                      }}
-                      disabled={
-                        selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging
-                      }
-                    />
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-outline-primary"
-                      onClick={handleApplyBulkTag}
-                      disabled={
-                        selectedIds.length === 0 ||
-                        deleteModal.isDeleting ||
-                        isBulkTagging ||
-                        String(bulkTagDraft || "").trim().length === 0
-                      }
-                    >
-                      {isBulkTagging ? "Dodawanie..." : "Dodaj tag"}
-                    </button>
-                  </div>
-                  <div className="d-flex gap-2 mb-2">
-                    <select
-                      className="form-select form-select-sm"
-                      value={exportFormat}
-                      onChange={(event) => setExportFormat(event.target.value)}
-                      disabled={selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging}
-                    >
-                      <option value="json">JSON</option>
-                      <option value="csv">CSV</option>
-                    </select>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-outline-secondary"
-                      onClick={handleExportSelectedDetections}
-                      disabled={selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging}
-                    >
-                      Export
-                    </button>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-outline-danger w-100 mb-3"
-                    onClick={handleRequestBulkDeleteDetections}
-                    disabled={selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging}
-                  >
-                    Usun zaznaczone{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
-                  </button>
-                </>
-              )}
 
               <div className="detection-list-scroll sidebar-detection-list-wrap" ref={detectionListRef}>
                 {isNoDetectionsFilterSelected ? (
@@ -4550,137 +4595,80 @@ export default function App() {
               </section>
 
               <section
-                className={`sidebar-section sidebar-tab-pane sidebar-settings-section ${
-                  activeSidebarTab === SIDEBAR_TAB_ANALYSIS ? "is-active" : ""
+                className={`sidebar-section sidebar-tab-pane ${
+                  activeSidebarTab === SIDEBAR_TAB_NAVIGATION ? "is-active" : ""
                 }`}
               >
-                <h6 className="sidebar-section-title">Ustawienia analizy</h6>
-
-                <button
-                  className="btn btn-primary w-100 mb-2 d-flex align-items-center justify-content-center gap-2"
-                  onClick={handleChooseArea}
-                  disabled={isLoadingDetections}
-                >
-                  {isLoadingDetections && (
-                    <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                  )}
-                  <span>{isLoadingDetections ? "Analizowanie..." : "Uruchom analize"}</span>
-                </button>
-
-                <button
-                  className="btn btn-outline-primary w-100 mb-2 d-flex align-items-center justify-content-center gap-2"
-                  onClick={handleLocalAnalysis}
-                  disabled={isLoadingDetections}
-                >
-                  {isLoadingDetections && (
-                    <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                  )}
-                  <span>{isLoadingDetections ? "Analizowanie..." : "Analiza lokalna"}</span>
-                </button>
-
-                <button className="btn btn-outline-secondary w-100 mb-3" onClick={handleResetHomeView}>
-                  Reset widoku
-                </button>
-
-                <div className="small text-muted mb-2">Rozdzielczosc analizy</div>
-                <div className="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Tryb rozdzielczosci analizy">
-                  <button
-                    type="button"
-                    className={`btn ${resolutionMode === "preview" ? "btn-primary" : "btn-outline-primary"}`}
-                    onClick={() => setResolutionMode("preview")}
-                  >
-                    preview
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn ${resolutionMode === "detail" ? "btn-primary" : "btn-outline-primary"}`}
-                    onClick={() => setResolutionMode("detail")}
-                  >
-                    detail
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn ${resolutionMode === "ultra" ? "btn-primary" : "btn-outline-primary"}`}
-                    onClick={() => setResolutionMode("ultra")}
-                  >
-                    ultra
-                  </button>
-                </div>
-                <div className="small text-muted mb-3">
-                  {RESOLUTION_DESCRIPTION_MAP[resolutionMode]} (ok. {RESOLUTION_MPP_MAP[resolutionMode].toFixed(2)} mpp)
-                </div>
-
-                <div className="small text-muted mb-2">Liczba probek</div>
-                <div className="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Liczba probek analizy">
-                  <button
-                    type="button"
-                    className={`btn ${numSamples === 1 ? "btn-primary" : "btn-outline-primary"}`}
-                    onClick={() => setNumSamples(1)}
-                  >
-                    1
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn ${numSamples === 5 ? "btn-primary" : "btn-outline-primary"}`}
-                    onClick={() => setNumSamples(5)}
-                  >
-                    5
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn ${numSamples === 10 ? "btn-primary" : "btn-outline-primary"}`}
-                    onClick={() => setNumSamples(10)}
-                  >
-                    10
-                  </button>
-                </div>
-                <div className="small text-muted mb-3">Wiecej probek = dluzsza analiza</div>
-
-                <div className="small text-muted mb-2">Confidence threshold ({confidenceThreshold.toFixed(2)})</div>
-                <input
-                  className="form-range mb-3"
-                  type="range"
-                  min="0.01"
-                  max="1.0"
-                  step="0.01"
-                  value={confidenceThreshold}
-                  onChange={(event) => setConfidenceThreshold(Number(event.target.value))}
-                />
-
-                <div className="small text-muted mb-2">Wybrany segment i poziom</div>
-                {selectedSegment ? (
-                  <div className="small mb-2">
-                    <div><strong>ID:</strong> {selectedSegment.id}</div>
-                    {selectedCoords && (
-                      <div className="mt-1">
-                        <div>xMin: {selectedCoords.xMin}</div>
-                        <div>yMin: {selectedCoords.yMin}</div>
-                        <div>xMax: {selectedCoords.xMax}</div>
-                        <div>yMax: {selectedCoords.yMax}</div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="small text-muted mb-2">Brak wybranego segmentu.</div>
-                )}
+                <h6 className="sidebar-section-title">Nawigacja</h6>
 
                 <div className="form-check form-switch mb-2">
                   <input
                     className="form-check-input"
                     type="checkbox"
-                    id="toggle-lock-level"
-                    checked={isLevelLocked}
-                    onChange={(event) => setIsLevelLocked(event.target.checked)}
+                    id="toggle-analysis-points-nav"
+                    checked={showAnalysisPoints}
+                    onChange={(event) => setShowAnalysisPoints(event.target.checked)}
                   />
-                  <label className="form-check-label" htmlFor="toggle-lock-level">
-                    Lock level
+                  <label className="form-check-label" htmlFor="toggle-analysis-points-nav">
+                    Pokaz punkty analiz
                   </label>
                 </div>
 
-                <div className="small text-muted mb-2">
-                  {isLevelLocked ? "Klik tylko zaznacza segment." : "Klik schodzi poziom nizej."}
+                <div className="small text-muted mt-3 mb-2">Przejdz do wspolrzednych</div>
+                <div className="row g-2">
+                  <div className="col-6">
+                    <input
+                      className="form-control form-control-sm"
+                      type="number"
+                      step="any"
+                      value={manualCoords.xMin}
+                      onChange={(event) =>
+                        setManualCoords((prev) => ({ ...prev, xMin: event.target.value }))
+                      }
+                      placeholder="xMin"
+                    />
+                  </div>
+                  <div className="col-6">
+                    <input
+                      className="form-control form-control-sm"
+                      type="number"
+                      step="any"
+                      value={manualCoords.yMin}
+                      onChange={(event) =>
+                        setManualCoords((prev) => ({ ...prev, yMin: event.target.value }))
+                      }
+                      placeholder="yMin"
+                    />
+                  </div>
+                  <div className="col-6">
+                    <input
+                      className="form-control form-control-sm"
+                      type="number"
+                      step="any"
+                      value={manualCoords.xMax}
+                      onChange={(event) =>
+                        setManualCoords((prev) => ({ ...prev, xMax: event.target.value }))
+                      }
+                      placeholder="xMax"
+                    />
+                  </div>
+                  <div className="col-6">
+                    <input
+                      className="form-control form-control-sm"
+                      type="number"
+                      step="any"
+                      value={manualCoords.yMax}
+                      onChange={(event) =>
+                        setManualCoords((prev) => ({ ...prev, yMax: event.target.value }))
+                      }
+                      placeholder="yMax"
+                    />
+                  </div>
                 </div>
-                <div className="small text-muted mb-3">Poziom siatki: {currentLevel}</div>
+
+                <button className="btn btn-outline-secondary w-100 mt-3" onClick={handleGoToManual}>
+                  Przejdz
+                </button>
 
               </section>
               </div>
