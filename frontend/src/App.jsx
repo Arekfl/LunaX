@@ -656,6 +656,30 @@ function getDetectionPreviewUrl(detection) {
   return `https://planetarymaps.usgs.gov/cgi-bin/mapserv?${params.toString()}`;
 }
 
+function NotificationToast({ notification, onClose }) {
+  if (!notification) {
+    return null;
+  }
+
+  return (
+    <div
+      className={`notification-toast notification-toast-${notification.type}`}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="notification-toast-message">{notification.message}</div>
+      <button
+        type="button"
+        className="notification-toast-close"
+        onClick={onClose}
+        aria-label="Zamknij powiadomienie"
+      >
+        &times;
+      </button>
+    </div>
+  );
+}
+
 function FitBoundsOnChange({ bounds }) {
   const map = useMap();
 
@@ -799,6 +823,7 @@ export default function App() {
   });
   const [focusBounds, setFocusBounds] = useState(GEO_BOUNDS);
   const [chosenMessage, setChosenMessage] = useState("");
+  const [notification, setNotification] = useState(null);
   const [manualCoords, setManualCoords] = useState({
     xMin: String(LON_MIN),
     yMin: String(LAT_MIN),
@@ -815,8 +840,12 @@ export default function App() {
   const showDetectedResultsInGallery = useCallback(
     (analysisLabel, analysisId, detectionCount, statusSummary) => {
       setViewMode("gallery");
+      setNotification({
+        type: "success",
+        message: `Znaleziono ${detectionCount} detekcji – pokazuję wyniki w galerii`,
+      });
       setChosenMessage(
-        `${analysisLabel} ${analysisId} zakonczona. Znaleziono ${detectionCount} detekcji – pokazuję wyniki w galerii. ${statusSummary}`
+        `${analysisLabel} ${analysisId} zakonczona. ${statusSummary}`
       );
     },
     []
@@ -1450,6 +1479,7 @@ export default function App() {
       return;
     }
 
+    setNotification(null);
     setIsLoadingDetections(true);
     setAnalysisStatus("loading");
     setAnalysisOverlayBounds(selectedSegment.bounds);
@@ -1537,6 +1567,10 @@ export default function App() {
       const statusSummary = formatDetectionStatusSummary(detectionsWithStatus);
 
       if (detectionsWithStatus.length === 0) {
+        setNotification({
+          type: "warning",
+          message: "Brak detekcji – sprawdź ustawienia lub dane",
+        });
         setChosenMessage(
           `Analiza ${analysisId} zakonczona. Brak detekcji dla wybranego obszaru. ${statusSummary}`
         );
@@ -1572,6 +1606,7 @@ export default function App() {
   };
 
   const handleLocalAnalysis = async () => {
+    setNotification(null);
     setIsLoadingDetections(true);
     setAnalysisStatus("loading");
     setAnalysisOverlayBounds(null);
@@ -1648,6 +1683,10 @@ export default function App() {
       const statusSummary = formatDetectionStatusSummary(detectionsWithStatus);
 
       if (detectionsWithStatus.length === 0) {
+        setNotification({
+          type: "warning",
+          message: "Brak detekcji – sprawdź ustawienia lub dane",
+        });
         setChosenMessage(
           `Analiza lokalna ${analysisId} zakonczona. Brak detekcji w folderze validation. ${statusSummary}`
         );
@@ -2647,6 +2686,7 @@ export default function App() {
 
   return (
     <div className="container-fluid py-3 app-shell">
+      <NotificationToast notification={notification} onClose={() => setNotification(null)} />
       <div className="row g-3 app-main-row">
         <div className="col-lg-6 col-xl-8">
           <div className={viewMode === "map" ? "" : "d-none"}>

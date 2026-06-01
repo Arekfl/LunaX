@@ -52,6 +52,66 @@
   border: 2.5px solid #ffc107;
   box-shadow: 0 0 0 2px #ffc10733;
 }
+
+.notification-toast {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 1200;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  width: min(24rem, calc(100vw - 2rem));
+  padding: 0.85rem 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid #d0d7e2;
+  background: #ffffff;
+  box-shadow: 0 10px 30px rgba(16, 19, 25, 0.14);
+}
+
+.notification-toast-success {
+  border-color: #badbcc;
+  background: #f1fbf4;
+}
+
+.notification-toast-info {
+  border-color: #b6d4fe;
+  background: #f3f8ff;
+}
+
+.notification-toast-warning {
+  border-color: #ffda6a;
+  background: #fff9e8;
+}
+
+.notification-toast-message {
+  flex: 1;
+  color: #1f2933;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.notification-toast-close {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: #52606d;
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+}
+
+.notification-toast-close:hover {
+  color: #111827;
+}
+
+.notification-toast-close:focus-visible {
+  outline: 2px solid #0d6efd;
+  outline-offset: 2px;
+  border-radius: 0.2rem;
+}
+
 html,
 body,
 #root {
