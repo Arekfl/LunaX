@@ -227,6 +227,7 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
         sample_detections = run_inference(
             image=tile_image,
             confidence_threshold=payload.confidence_threshold,
+            model_name=payload.model_name,
         )
 
         sample_model_detections = [
@@ -235,6 +236,7 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
                 analysis_id=analysis_id,
                 confidence=detection["confidence"],
                 **{"class": detection["class"]},
+                class_id=detection["class_id"],
                 bbox=BBox(**detection["bbox"]),
             )
             for detection in sample_detections
@@ -320,6 +322,7 @@ def run_local_validation_analysis(payload: LocalValidationRunRequest) -> Analysi
             image=local_image,
             confidence_threshold=payload.confidence_threshold,
             image_size=max(local_image.size),
+            model_name=payload.model_name,
         )
 
         sample_model_detections: list[Detection] = []
@@ -339,6 +342,7 @@ def run_local_validation_analysis(payload: LocalValidationRunRequest) -> Analysi
                     analysis_id=analysis_id,
                     confidence=detection["confidence"],
                     **{"class": detection["class"]},
+                    class_id=detection["class_id"],
                     bbox=BBox(**display_bbox),
                 )
             )

@@ -2,6 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+ModelName = Literal["best.pt", "best_kratery.pt"]
+
 
 class HealthResponse(BaseModel):
     status: Literal["ok"]
@@ -22,6 +24,7 @@ class Detection(BaseModel):
     bbox: BBox
     confidence: float = Field(..., ge=0, le=1)
     class_name: str = Field(alias="class")
+    class_id: int = Field(default=0)
 
 
 AnalysisResolutionMode = Literal["preview", "detail", "ultra"]
@@ -34,6 +37,7 @@ class AnalysisRunRequest(BaseModel):
     resolution_mode: AnalysisResolutionMode = Field(default="detail", alias="resolutionMode")
     num_samples: int = Field(default=1, ge=1, le=20, alias="numSamples")
     confidence_threshold: float = Field(0.5, ge=0, le=1, alias="confidenceThreshold")
+    model_name: ModelName = Field(default="best.pt", alias="modelName")
     bbox: list[float] = Field(
         default_factory=lambda: [-180.0, -90.0, 180.0, 90.0],
         min_length=4,
@@ -63,6 +67,7 @@ class LocalValidationRunRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     confidence_threshold: float = Field(0.5, ge=0, le=1, alias="confidenceThreshold")
+    model_name: ModelName = Field(default="best.pt", alias="modelName")
 
 
 DetectionStatus = Literal["confirmed", "to_verify", "rejected"]

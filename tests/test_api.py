@@ -22,18 +22,21 @@ def _mock_inference(*_args, **_kwargs):
             "bbox": {"x": 10.0, "y": 20.0, "width": 30.0, "height": 40.0},
             "confidence": 0.93,
             "class": "cave_candidate",
+            "class_id": 0,
         },
         {
             "detection_id": "det-mock-2",
             "bbox": {"x": 50.0, "y": 60.0, "width": 35.0, "height": 45.0},
             "confidence": 0.78,
             "class": "cave_candidate",
+            "class_id": 0,
         },
         {
             "detection_id": "det-mock-3",
             "bbox": {"x": 70.0, "y": 80.0, "width": 20.0, "height": 30.0},
             "confidence": 0.56,
             "class": "crater",
+            "class_id": 1,
         },
     ]
 
@@ -70,6 +73,7 @@ def test_analysis_run_returns_mock_detections_with_expected_json_structure(monke
             "bbox",
             "confidence",
             "class",
+            "class_id",
         }
         assert isinstance(detection["detection_id"], str)
         assert detection["detection_id"]
@@ -226,6 +230,7 @@ def test_local_analysis_runs_on_validation_images(tmp_path, monkeypatch) -> None
                 "bbox": {"x": 80.0, "y": 40.0, "width": 80.0, "height": 40.0},
                 "confidence": 0.82,
                 "class": "cave_candidate",
+                "class_id": 0,
             }
         ]
     )
@@ -460,6 +465,7 @@ def test_analysis_run_saves_images_and_metadata_per_sample_when_detections_exist
                     "bbox": {"x": 10.0, "y": 20.0, "width": 30.0, "height": 40.0},
                     "confidence": 0.95,
                     "class": "cave_candidate",
+                "class_id": 0,
                 }
             ]
         ),
@@ -517,6 +523,7 @@ def test_get_no_detections_query_excludes_samples_with_detections(
                     "bbox": {"x": 10.0, "y": 20.0, "width": 30.0, "height": 40.0},
                     "confidence": 0.95,
                     "class": "cave_candidate",
+                "class_id": 0,
                 }
             ]
         ),
@@ -693,6 +700,7 @@ def test_get_analysis_images_query_returns_all_saved_images(tmp_path, monkeypatc
                     "bbox": {"x": 10.0, "y": 20.0, "width": 30.0, "height": 40.0},
                     "confidence": 0.95,
                     "class": "cave_candidate",
+                "class_id": 0,
                 }
             ]
         ),
@@ -751,6 +759,7 @@ def test_get_analysis_image_returns_png_for_detection_sample(tmp_path, monkeypat
                     "bbox": {"x": 10.0, "y": 20.0, "width": 30.0, "height": 40.0},
                     "confidence": 0.95,
                     "class": "cave_candidate",
+                "class_id": 0,
                 }
             ]
         ),
@@ -1049,6 +1058,7 @@ def test_get_detections_query_filters_with_query_params(tmp_path, monkeypatch) -
         params={
             "status": "rejected",
             "class": "cave_candidate",
+            "class_id": 0,
             "confidence": 0.7,
             "resolutionMode": "detail",
             "analysis_id": first_analysis_id,
@@ -1387,6 +1397,7 @@ def test_delete_detection_removes_detection_related_image_and_overrides(
                     "bbox": {"x": 10.0, "y": 20.0, "width": 30.0, "height": 40.0},
                     "confidence": 0.95,
                     "class": "cave_candidate",
+                "class_id": 0,
                 }
             ]
         ),
@@ -1495,6 +1506,7 @@ def test_delete_detections_bulk_removes_detections_related_images_and_overrides(
                 "bbox": {"x": 10.0 + idx, "y": 20.0 + idx, "width": 30.0, "height": 40.0},
                 "confidence": 0.95,
                 "class": "cave_candidate",
+                "class_id": 0,
             }
         ]
 
@@ -1646,6 +1658,7 @@ def test_delete_detections_bulk_keeps_images_when_delete_images_flag_is_false(
                 "bbox": {"x": 10.0 + idx, "y": 20.0 + idx, "width": 30.0, "height": 40.0},
                 "confidence": 0.95,
                 "class": "cave_candidate",
+                "class_id": 0,
             }
         ]
 
@@ -1712,12 +1725,14 @@ def test_delete_detection_with_delete_images_true_reports_image_in_use(
                     "bbox": {"x": 10.0, "y": 20.0, "width": 30.0, "height": 40.0},
                     "confidence": 0.95,
                     "class": "cave_candidate",
+                "class_id": 0,
                 },
                 {
                     "detection_id": "det-in-use-b",
                     "bbox": {"x": 50.0, "y": 60.0, "width": 30.0, "height": 40.0},
                     "confidence": 0.91,
                     "class": "cave_candidate",
+                "class_id": 0,
                 },
             ]
         ),
@@ -1785,6 +1800,7 @@ def test_delete_detections_bulk_reports_missing_detection_ids(tmp_path, monkeypa
                     "bbox": {"x": 10.0, "y": 20.0, "width": 30.0, "height": 40.0},
                     "confidence": 0.95,
                     "class": "cave_candidate",
+                "class_id": 0,
                 }
             ]
         ),

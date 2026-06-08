@@ -57,6 +57,29 @@ const GRID_SIZE = 4;
 const GRID_ROWS = GRID_SIZE;
 const GRID_COLS = GRID_SIZE;
 
+const MODEL_OPTIONS = [
+  { value: "best.pt", label: "Lunar pits detector (best.pt)" },
+  { value: "best_kratery.pt", label: "Crater classifier (best_kratery.pt)" },
+];
+
+const CRATER_CLASSES = {
+  1: "Pre-Nectarian",
+  2: "Nectarian",
+  3: "Lower Imbrian",
+  4: "Upper Imbrian",
+  5: "Eratosthenian",
+  6: "Copernican",
+};
+
+const CLASS_COLORS = {
+  "Pre-Nectarian": "#00bcd4",
+  "Nectarian": "#00e5ff",
+  "Lower Imbrian": "#ff9800",
+  "Upper Imbrian": "#ff5722",
+  "Eratosthenian": "#8bc34a",
+  "Copernican": "#e91e63",
+};
+
 function buildGridCells(bounds, level) {
   const rows = GRID_ROWS;
   const cols = GRID_COLS;
@@ -804,6 +827,10 @@ function getFileNameFromPath(filePath) {
   return parts[parts.length - 1] ?? "";
 }
 
+function getClassColor(className) {
+  return CLASS_COLORS[String(className ?? "")] ?? null;
+}
+
 function formatCoordinate(value, digits = 2) {
   const numericValue = Number(value);
   if (!Number.isFinite(numericValue)) {
@@ -964,6 +991,8 @@ export default function App() {
   const [resolutionMode, setResolutionMode] = useState("detail");
   const [numSamples, setNumSamples] = useState(5);
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
+  const [selectedModel, setSelectedModel] = useState("best.pt");
+  const [classFilter, setClassFilter] = useState(null);
   const [storedStatuses, setStoredStatuses] = useState({});
   const [statusFilter, setStatusFilter] = useState("to_verify");
   const [selectedAnalysisFilter, setSelectedAnalysisFilter] = useState(ANALYSIS_FILTER_ALL);
@@ -1949,6 +1978,7 @@ export default function App() {
           resolutionMode,
           numSamples,
           confidenceThreshold,
+          modelName: selectedModel,
           bbox: analysisBbox,
         }),
       });
@@ -2070,6 +2100,7 @@ export default function App() {
         },
         body: JSON.stringify({
           confidenceThreshold,
+          modelName: selectedModel,
         }),
       });
 
@@ -3260,6 +3291,48 @@ export default function App() {
                   Pokaz bboxy w galerii
                 </label>
               </div>
+
+              {Object.keys(CLASS_COLORS).length > 0 && (
+                <div className="mb-3">
+                  <div className="small text-muted mb-1">Filtr klasy</div>
+                  <div className="d-flex flex-wrap gap-1 mb-2">
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${classFilter === null ? "btn-secondary" : "btn-outline-secondary"}`}
+                      onClick={() => setClassFilter(null)}
+                    >
+                      Wszystkie
+                    </button>
+                    {Object.entries(CLASS_COLORS).map(([className, color]) => (
+                      <button
+                        key={`class-filter-${className}`}
+                        type="button"
+                        className="btn btn-sm"
+                        style={{
+                          backgroundColor: classFilter === className ? color : "transparent",
+                          borderColor: color,
+                          color: classFilter === className ? "#fff" : color,
+                        }}
+                        onClick={() => setClassFilter(classFilter === className ? null : className)}
+                      >
+                        {className}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="small text-muted mb-1">Legenda klas</div>
+                  <div className="d-flex flex-wrap gap-2">
+                    {Object.entries(CLASS_COLORS).map(([className, color]) => (
+                      <span
+                        key={`legend-${className}`}
+                        className="badge"
+                        style={{ backgroundColor: color, color: "#fff", fontSize: "0.7rem" }}
+                      >
+                        {className}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
               {selectedNoDetectionImage ? (
                 <div className="mb-3">
                   <div className="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
@@ -3410,7 +3483,9 @@ export default function App() {
                 </div>
               ) : (
                 <div className="row g-3">
-                  {filteredDetections.map((detection, detectionIndex) => {
+                  {filteredDetections.filter((detection) =>
+                    classFilter === null || String(detection.class ?? "") === classFilter
+                  ).map((detection, detectionIndex) => {
                     const detectionUniqueId = getDetectionUniqueId(detection);
                     const detectionRenderKey = `${detectionUniqueId}|${detectionIndex}`;
                     const statusBadgeClass = getStatusBadgeClass(detection.status);
@@ -3420,6 +3495,8 @@ export default function App() {
                       showGalleryBbox && previewImage
                         ? getGalleryBBoxOverlayStyle(detection, previewImage)
                         : null;
+                    const detectionClassName = String(detection.class ?? "");
+                    const bboxClassColor = getClassColor(detectionClassName);
                     const isSelected = selectedIds.includes(detection.detection_id);
                     const isHovered = hoveredDetectionId === detectionUniqueId;
 
@@ -3456,7 +3533,21 @@ export default function App() {
                               </div>
                             )}
                             {showGalleryBbox && galleryBBoxStyle && (
-                              <div className="gallery-bbox-overlay" style={galleryBBoxStyle} />
+                              <div
+                                className="gallery-bbox-overlay"
+                                style={bboxClassColor
+                                  ? { ...galleryBBoxStyle, borderColor: bboxClassColor }
+                                  : galleryBBoxStyle}
+                              >
+                                {bboxClassColor && (
+                                  <div
+                                    className="bbox-label"
+                                    style={{ backgroundColor: bboxClassColor + "cc", color: "#fff" }}
+                                  >
+                                    {detectionClassName} {Number(detection.confidence).toFixed(2)}
+                                  </div>
+                                )}
+                              </div>
                             )}
                             {(isHovered || isSelected) && (
                               <div className="gallery-hover-icons">
@@ -3665,6 +3756,18 @@ export default function App() {
                     value={confidenceThreshold}
                     onChange={(event) => setConfidenceThreshold(Number(event.target.value))}
                   />
+
+                  <label className="form-label form-label-sm small text-muted mb-1" htmlFor="model-select">Model</label>
+                  <select
+                    id="model-select"
+                    className="form-select form-select-sm mb-3"
+                    value={selectedModel}
+                    onChange={(event) => setSelectedModel(event.target.value)}
+                  >
+                    {MODEL_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
 
                   <div className="small text-muted mb-2">Wybrany segment i poziom</div>
                   {selectedSegment ? (

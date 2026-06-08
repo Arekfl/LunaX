@@ -20,12 +20,31 @@ AdapterDetection = TypedDict(
         "bbox": AdapterBBox,
         "confidence": float,
         "class": str,
+        "class_id": int,
     },
 )
 
-MODEL_PATH = Path(__file__).resolve().parents[1] / "best.pt"
-# Loaded once at import time.
-model = YOLO(str(MODEL_PATH))
+MODELS_DIR = Path(__file__).resolve().parent / "models"
+DEFAULT_MODEL_NAME = "best.pt"
+# Backward-compatible path reference.
+MODEL_PATH = MODELS_DIR / DEFAULT_MODEL_NAME
+
+# Models loaded on first use, keyed by file name.
+_model_cache: dict[str, YOLO] = {}
+
+
+def _get_model(model_name: str = DEFAULT_MODEL_NAME) -> YOLO:
+    if model_name not in _model_cache:
+        model_path = MODELS_DIR / model_name
+        _model_cache[model_name] = YOLO(str(model_path))
+    return _model_cache[model_name]
+
+
+# Pre-load default model at import time (preserves existing behaviour).
+_get_model(DEFAULT_MODEL_NAME)
+# Backward-compatible alias.
+model = _model_cache[DEFAULT_MODEL_NAME]
+
 
 def _next_detection_id() -> str:
     return f"det-{uuid4().hex}"
@@ -43,9 +62,11 @@ def run_inference(
     image: Image.Image,
     confidence_threshold: float = 0.25,
     image_size: int | None = None,
+    model_name: str = DEFAULT_MODEL_NAME,
 ) -> list[AdapterDetection]:
     """Run YOLO inference on a single PIL image and return adapter detections."""
 
+    yolo_model = _get_model(model_name)
     model_input = image if image.mode == "RGB" else image.convert("RGB")
     predict_kwargs: dict[str, object] = {
         "source": model_input,
@@ -55,7 +76,7 @@ def run_inference(
     if image_size is not None:
         predict_kwargs["imgsz"] = int(image_size)
 
-    results = model.predict(**predict_kwargs)
+    results = yolo_model.predict(**predict_kwargs)
     detections: list[AdapterDetection] = []
 
     for result in results:
@@ -80,6 +101,7 @@ def run_inference(
                     },
                     "confidence": confidence,
                     "class": class_name,
+                    "class_id": class_index,
                 }
             )
 
