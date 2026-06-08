@@ -25,6 +25,12 @@ const STATUS_BADGE_CLASS_MAP = {
   to_verify: "text-bg-warning",
   rejected: "text-bg-danger",
 };
+const STATUS_LABEL_MAP = {
+  confirmed: "Potwierdzone",
+  to_verify: "Do weryfikacji",
+  rejected: "Odrzucone",
+  no_detections: "Brak detekcji",
+};
 const ANALYSIS_FILTER_ALL = "__all__";
 const ANALYSIS_FILTER_LATEST = "__latest__";
 const SIDEBAR_TAB_DETECTIONS = "detections";
@@ -909,7 +915,7 @@ function HomeControl({ onHomeClick }) {
       const button = L.DomUtil.create("a", "leaflet-control-home", container);
 
       button.href = "#";
-      button.title = "Pokaz cala mape";
+      button.title = "Pokaż całą mapę";
       button.innerHTML = "&#8962;";
 
       L.DomEvent.disableClickPropagation(container);
@@ -1057,7 +1063,7 @@ export default function App() {
         message: `Znaleziono ${detectionCount} detekcji – pokazuję wyniki w galerii`,
       });
       setChosenMessage(
-        `${analysisLabel} ${analysisId} zakonczona. ${statusSummary}`
+        `${analysisLabel} ${analysisId} zakończona. ${statusSummary}`
       );
     },
     []
@@ -1566,7 +1572,7 @@ export default function App() {
       try {
         await Promise.all([fetchDetectionsAndStatuses(), fetchAnalysisImages()]);
       } catch (error) {
-        console.warn("Nie udalo sie pobrac danych poczatkowych:", error);
+        console.warn("Nie udało się pobrać danych początkowych:", error);
       }
     };
 
@@ -1867,7 +1873,7 @@ export default function App() {
       xMax: String(LON_MAX),
       yMax: String(LAT_MAX),
     });
-    setChosenMessage("Widok zresetowany do calej mapy.");
+    setChosenMessage("Widok zresetowany do całej mapy.");
   }, []);
 
   const handleStepOutLevel = useCallback(() => {
@@ -1957,7 +1963,7 @@ export default function App() {
 
   const handleChooseArea = async () => {
     if (!selectedSegment) {
-      setChosenMessage("Najpierw wybierz segment na mapie lub wpisz wspolrzedne.");
+      setChosenMessage("Najpierw wybierz segment na mapie lub wpisz współrzędne.");
       setAnalysisStatus("error");
       return;
     }
@@ -2044,7 +2050,7 @@ export default function App() {
       try {
         await fetchAnalysisImages();
       } catch (refreshError) {
-        console.warn("Nie udalo sie odswiezyc listy zapisanych obrazow analizy:", refreshError);
+        console.warn("Nie udało się odświeżyć listy zapisanych obrazów analizy:", refreshError);
       }
       setSelectedDetection(null);
       setAnalysisStatus("success");
@@ -2056,7 +2062,7 @@ export default function App() {
           message: "Brak detekcji – sprawdź ustawienia lub dane",
         });
         setChosenMessage(
-          `Analiza ${analysisId} zakonczona. Brak detekcji dla wybranego obszaru. ${statusSummary}`
+          `Analiza ${analysisId} zakończona. Brak detekcji dla wybranego obszaru. ${statusSummary}`
         );
         return;
       }
@@ -2068,17 +2074,17 @@ export default function App() {
         statusSummary
       );
     } catch (error) {
-      console.error("Blad podczas pobierania detekcji:", error);
+      console.error("Błąd podczas pobierania detekcji:", error);
       const errorMessage =
         error instanceof Error
           ? error.message
-          : "Nie udalo sie pobrac detekcji z backendu FastAPI.";
+          : "Nie udało się pobrać detekcji z backendu FastAPI.";
       if (isNoCoverageErrorMessage(errorMessage)) {
         setChosenMessage(
-          "Brak pokrycia danych dla tej warstwy i obszaru. Zmien warstwe, zrodlo WMS lub zaznacz inny obszar."
+          "Brak pokrycia danych dla tej warstwy i obszaru. Zmień warstwę, źródło WMS lub zaznacz inny obszar."
         );
       } else {
-        setChosenMessage(`Nie udalo sie pobrac detekcji. Szczegoly: ${errorMessage}`);
+        setChosenMessage(`Nie udało się pobrać detekcji. Szczegóły: ${errorMessage}`);
       }
       setAnalysisStatus("error");
       setDetections([]);
@@ -2172,7 +2178,7 @@ export default function App() {
           message: "Brak detekcji – sprawdź ustawienia lub dane",
         });
         setChosenMessage(
-          `Analiza lokalna ${analysisId} zakonczona. Brak detekcji w folderze validation. ${statusSummary}`
+          `Analiza lokalna ${analysisId} zakończona. Brak detekcji w folderze validation. ${statusSummary}`
         );
         return;
       }
@@ -2184,12 +2190,12 @@ export default function App() {
         statusSummary
       );
     } catch (error) {
-      console.error("Blad podczas analizy lokalnej:", error);
+      console.error("Błąd podczas analizy lokalnej:", error);
       const errorMessage =
         error instanceof Error
           ? error.message
-          : "Nie udalo sie uruchomic analizy lokalnej z folderu validation.";
-      setChosenMessage(`Nie udalo sie uruchomic analizy lokalnej. Szczegoly: ${errorMessage}`);
+          : "Nie udało się uruchomić analizy lokalnej z folderu validation.";
+      setChosenMessage(`Nie udało się uruchomić analizy lokalnej. Szczegóły: ${errorMessage}`);
       setAnalysisStatus("error");
       setDetections([]);
       setSelectedDetection(null);
@@ -2215,7 +2221,7 @@ export default function App() {
 
     if (hasInvalidValues) {
       setChosenMessage(
-        `Niepoprawne wspolrzedne. Zakres: lon ${LON_MIN} do ${LON_MAX}, lat ${LAT_MIN} do ${LAT_MAX}, oraz xMax>xMin i yMax>yMin.`
+        `Niepoprawne współrzędne. Zakres: lon ${LON_MIN} do ${LON_MAX}, lat ${LAT_MIN} do ${LAT_MAX}, oraz xMax>xMin i yMax>yMin.`
       );
       return;
     }
@@ -2232,7 +2238,7 @@ export default function App() {
       bounds: manualBounds,
     });
     setFocusBounds(manualBounds);
-    setChosenMessage("Przejscie do recznie wskazanego obszaru.");
+    setChosenMessage("Przejście do ręcznie wskazanego obszaru.");
   };
 
   const handleStartEditComment = (detection) => {
@@ -2278,8 +2284,8 @@ export default function App() {
       setEditingDetectionId(targetDetectionId);
       setChosenMessage(editingDetectionId ? "Komentarz zaktualizowany." : "Komentarz zapisany.");
     } catch (error) {
-      console.error("Blad podczas zapisu komentarza:", error);
-      setChosenMessage("Nie udalo sie zapisac komentarza.");
+      console.error("Błąd podczas zapisu komentarza:", error);
+      setChosenMessage("Nie udało się zapisać komentarza.");
     }
   };
 
@@ -2309,10 +2315,10 @@ export default function App() {
         setInputComment("");
       }
 
-      setChosenMessage("Komentarz usuniety.");
+      setChosenMessage("Komentarz usunięty.");
     } catch (error) {
-      console.error("Blad podczas usuwania komentarza:", error);
-      setChosenMessage("Nie udalo sie usunac komentarza.");
+      console.error("Błąd podczas usuwania komentarza:", error);
+      setChosenMessage("Nie udało się usunąć komentarza.");
     }
   };
 
@@ -2357,7 +2363,7 @@ export default function App() {
 
     if (nextTags.length === currentTags.length) {
       setTagDrafts((prev) => ({ ...prev, [detectionId]: "" }));
-      setChosenMessage("Tag juz istnieje.");
+      setChosenMessage("Tag już istnieje.");
       return;
     }
 
@@ -2366,8 +2372,8 @@ export default function App() {
       setTagDrafts((prev) => ({ ...prev, [detectionId]: "" }));
       setChosenMessage("Tag dodany.");
     } catch (error) {
-      console.error("Blad podczas dodawania tagu:", error);
-      setChosenMessage("Nie udalo sie dodac tagu.");
+      console.error("Błąd podczas dodawania tagu:", error);
+      setChosenMessage("Nie udało się dodać tagu.");
     }
   };
 
@@ -2378,10 +2384,10 @@ export default function App() {
 
     try {
       await handleUpdateDetectionTags(detectionId, nextTags);
-      setChosenMessage("Tag usuniety.");
+      setChosenMessage("Tag usunięty.");
     } catch (error) {
-      console.error("Blad podczas usuwania tagu:", error);
-      setChosenMessage("Nie udalo sie usunac tagu.");
+      console.error("Błąd podczas usuwania tagu:", error);
+      setChosenMessage("Nie udało się usunąć tagu.");
     }
   };
 
@@ -2490,7 +2496,7 @@ export default function App() {
       ...new Set(selectedIds.map((id) => String(id || "").trim()).filter(Boolean)),
     ];
     if (normalizedSelectedIds.length === 0) {
-      setChosenMessage("Zaznacz co najmniej jedna detekcje do tagowania.");
+      setChosenMessage("Zaznacz co najmniej jedną detekcję do tagowania.");
       return;
     }
 
@@ -2556,8 +2562,8 @@ export default function App() {
         `Dodano tag \"${appliedTag}\" do ${updatedDetectionIds.length} detekcji.${missingMessage}`
       );
     } catch (error) {
-      console.error("Blad podczas masowego dodawania tagu:", error);
-      setChosenMessage("Nie udalo sie dodac tagu do zaznaczonych detekcji.");
+      console.error("Błąd podczas masowego dodawania tagu:", error);
+      setChosenMessage("Nie udało się dodać tagu do zaznaczonych detekcji.");
     } finally {
       setIsBulkTagging(false);
     }
@@ -2568,7 +2574,7 @@ export default function App() {
       ...new Set(selectedIds.map((id) => String(id || "").trim()).filter(Boolean)),
     ];
     if (normalizedSelectedIds.length === 0) {
-      setChosenMessage("Zaznacz co najmniej jedna detekcje do walidacji.");
+      setChosenMessage("Zaznacz co najmniej jedną detekcję do walidacji.");
       return;
     }
 
@@ -2624,8 +2630,8 @@ export default function App() {
         prev.filter((id) => !updatedIdsSet.has(String(id || "").trim()))
       );
 
-      const statusLabel = targetStatus === "confirmed" ? "confirmed" : targetStatus === "rejected" ? "rejected" : "to_verify";
-      const filesInfo = payload.files_moved > 0 ? ` Przeniesiono ${payload.files_moved} plik(ow).` : "";
+      const statusLabel = STATUS_LABEL_MAP[targetStatus] ?? targetStatus;
+      const filesInfo = payload.files_moved > 0 ? ` Przeniesiono ${payload.files_moved} pliku/plików.` : "";
       const missingInfo =
         Array.isArray(payload?.missing_detection_ids) && payload.missing_detection_ids.length > 0
           ? ` Nie znaleziono ${payload.missing_detection_ids.length} detekcji.`
@@ -2633,10 +2639,10 @@ export default function App() {
 
       setNotification({
         type: "success",
-        message: `Przeniesiono ${updatedIds.length} elementow do ${statusLabel}.${filesInfo}`,
+        message: `Przeniesiono ${updatedIds.length} elementów do ${statusLabel}.${filesInfo}`,
       });
       setChosenMessage(
-        `Walidacja zakonczona: ${updatedIds.length} → ${statusLabel}.${filesInfo}${missingInfo}`
+        `Walidacja zakończona: ${updatedIds.length} → ${statusLabel}.${filesInfo}${missingInfo}`
       );
 
       // Refresh analysis images to reflect moved files.
@@ -2644,9 +2650,9 @@ export default function App() {
         await fetchAnalysisImages();
       } catch { /* non-critical */ }
     } catch (error) {
-      console.error("Blad podczas walidacji detekcji:", error);
+      console.error("Błąd podczas walidacji detekcji:", error);
       setChosenMessage(
-        `Nie udalo sie przeprowadzic walidacji. ${error instanceof Error ? error.message : ""}`
+        `Nie udało się przeprowadzić walidacji. ${error instanceof Error ? error.message : ""}`
       );
     } finally {
       setIsBulkValidating(false);
@@ -2658,7 +2664,7 @@ export default function App() {
       ...new Set(selectedIds.map((id) => String(id || "").trim()).filter(Boolean)),
     ];
     if (normalizedSelectedIds.length === 0) {
-      setChosenMessage("Zaznacz co najmniej jedna detekcje do eksportu.");
+      setChosenMessage("Zaznacz co najmniej jedną detekcję do eksportu.");
       return;
     }
 
@@ -2866,18 +2872,18 @@ export default function App() {
 
       setNoDetectionBulkTagDraft("");
       if (updatedImageIds.length === 0) {
-        setChosenMessage("Nie znaleziono wybranych obrazow no_detections do tagowania.");
+        setChosenMessage("Nie znaleziono wybranych obrazów no_detections do tagowania.");
         return;
       }
 
       const missingMessage =
-        missingImageIds.length > 0 ? ` Nie znaleziono ${missingImageIds.length} obrazow.` : "";
+        missingImageIds.length > 0 ? ` Nie znaleziono ${missingImageIds.length} obrazów.` : "";
       setChosenMessage(
-        `Dodano tag \"${appliedTag}\" do ${updatedImageIds.length} obrazow no_detections.${missingMessage}`
+        `Dodano tag \"${appliedTag}\" do ${updatedImageIds.length} obrazów no_detections.${missingMessage}`
       );
     } catch (error) {
-      console.error("Blad podczas masowego tagowania obrazow no_detections:", error);
-      setChosenMessage("Nie udalo sie dodac tagu do zaznaczonych obrazow no_detections.");
+      console.error("Błąd podczas masowego tagowania obrazów no_detections:", error);
+      setChosenMessage("Nie udało się dodać tagu do zaznaczonych obrazów no_detections.");
     } finally {
       setIsNoDetectionBulkTagging(false);
     }
@@ -2895,7 +2901,7 @@ export default function App() {
 
   const handleRequestBulkDeleteDetections = () => {
     if (selectedIds.length === 0) {
-      setChosenMessage("Zaznacz co najmniej jedna detekcje do usuniecia.");
+      setChosenMessage("Zaznacz co najmniej jedną detekcję do usunięcia.");
       return;
     }
 
@@ -2929,7 +2935,7 @@ export default function App() {
       .filter(Boolean);
 
     if (normalizedSelectedIds.length === 0) {
-      setChosenMessage("Zaznacz co najmniej jeden obraz do usuniecia.");
+      setChosenMessage("Zaznacz co najmniej jeden obraz do usunięcia.");
       return;
     }
 
@@ -3130,7 +3136,7 @@ export default function App() {
         try {
           await fetchAnalysisImages();
         } catch (refreshError) {
-          console.warn("Nie udalo sie odswiezyc obrazow po usunieciu detekcji:", refreshError);
+          console.warn("Nie udało się odświeżyć obrazów po usunięciu detekcji:", refreshError);
         }
 
         setDeleteModal({
@@ -3148,7 +3154,7 @@ export default function App() {
             missingCount > 0 ? ` Nie znaleziono ${missingCount} detekcji.` : "";
           if (!deleteImages) {
             setChosenMessage(
-              `Usunieto ${deletedCount} zaznaczonych detekcji. Obrazy pozostawiono.${missingMessage}`
+              `Usunięto ${deletedCount} zaznaczonych detekcji. Obrazy pozostawiono.${missingMessage}`
             );
           } else {
             const imageMissingMessage =
@@ -3160,21 +3166,21 @@ export default function App() {
                 ? ` Obraz uzywany przez inne detekcje dla ${relatedImageInUseCount} pozycji - plik pozostawiono.`
                 : "";
             setChosenMessage(
-              `Usunieto ${deletedCount} zaznaczonych detekcji.${missingMessage}${imageMissingMessage}${imageInUseMessage}`
+              `Usunięto ${deletedCount} zaznaczonych detekcji.${missingMessage}${imageMissingMessage}${imageInUseMessage}`
             );
           }
         } else {
           if (!deleteImages) {
-            setChosenMessage("Detekcja usunieta. Powiazany obraz pozostawiono.");
+            setChosenMessage("Detekcja usunięta. Powiązany obraz pozostawiono.");
           } else if (relatedImageInUse) {
             setChosenMessage(
-              "Detekcja usunieta. Obraz jest uzywany przez inne detekcje, wiec nie zostal usuniety."
+              "Detekcja usunięta. Obraz jest używany przez inne detekcje, więc nie został usunięty."
             );
           } else {
             setChosenMessage(
               relatedImageMissing
-                ? "Detekcja usunieta. Powiazany obraz nie byl dostepny."
-                : "Detekcja i powiazany obraz zostaly usuniete."
+                ? "Detekcja usunięta. Powiązany obraz nie był dostępny."
+                : "Detekcja i powiązany obraz zostały usunięte."
             );
           }
         }
@@ -3226,19 +3232,19 @@ export default function App() {
         if (isBulkDelete) {
           const deletedCount = deletedImageIds.length;
           const missingCount = missingImageIds.length;
-          const missingMessage = missingCount > 0 ? ` Nie znaleziono ${missingCount} obrazow.` : "";
+          const missingMessage = missingCount > 0 ? ` Nie znaleziono ${missingCount} obrazów.` : "";
           if (deleteImages) {
-            setChosenMessage(`Usunieto ${deletedCount} zaznaczonych obrazow.${missingMessage}`);
+            setChosenMessage(`Usunięto ${deletedCount} zaznaczonych obrazów.${missingMessage}`);
           } else {
             setChosenMessage(
-              `Usunieto ${deletedCount} zaznaczonych wpisow obrazow. Pliki pozostawiono.${missingMessage}`
+              `Usunięto ${deletedCount} zaznaczonych wpisów obrazów. Pliki pozostawiono.${missingMessage}`
             );
           }
         } else {
           setChosenMessage(
             deleteImages
-              ? "Obraz zostal usuniety."
-              : "Wpis obrazu zostal usuniety. Plik pozostawiono."
+              ? "Obraz został usunięty."
+              : "Wpis obrazu został usunięty. Plik pozostawiono."
           );
         }
       }
@@ -3246,14 +3252,14 @@ export default function App() {
       if (timeoutId !== null) {
         window.clearTimeout(timeoutId);
       }
-      console.error("Blad podczas usuwania:", error);
+      console.error("Błąd podczas usuwania:", error);
       setDeleteModal((prev) => ({ ...prev, isDeleting: false }));
       const timeoutHint =
         error instanceof DOMException && error.name === "AbortError"
           ? " Zadanie przekroczylo limit czasu."
           : "";
       setChosenMessage(
-        `Nie udalo sie usunac elementu.${timeoutHint} ${error instanceof Error ? error.message : ""}`.trim()
+        `Nie udało się usunąć elementu.${timeoutHint} ${error instanceof Error ? error.message : ""}`.trim()
       );
     }
   };
@@ -3369,7 +3375,7 @@ export default function App() {
 
           {viewMode === "gallery" && (
             <div className="gallery-shell border rounded shadow-sm p-3">
-              <h5 className="mb-1">Przegladarka zdjec</h5>
+              <h5 className="mb-1">Przeglądarka zdjęć</h5>
               <div className="form-check form-switch mb-3 mt-2">
                 <input
                   id="toggle-gallery-bbox"
@@ -3379,7 +3385,7 @@ export default function App() {
                   onChange={(event) => setShowGalleryBbox(event.target.checked)}
                 />
                 <label className="form-check-label" htmlFor="toggle-gallery-bbox">
-                  Pokaz bboxy w galerii
+                  Pokaż bboxy w galerii
                 </label>
               </div>
 
@@ -3435,7 +3441,7 @@ export default function App() {
                       className="btn btn-sm btn-outline-secondary"
                       onClick={() => setSelectedNoDetectionImage(null)}
                     >
-                      Zamknij podglad
+                      Zamknij podgląd
                     </button>
                   </div>
                   <div className="gallery-focus-card border rounded p-2 bg-white">
@@ -3457,7 +3463,7 @@ export default function App() {
                           ? selectedNoDetectionImage.lon.toFixed(6)
                           : "-"}
                       </div>
-                      <div><strong>Rozdzielczosc:</strong> {selectedNoDetectionImage.resolution || "-"}</div>
+                      <div><strong>Rozdzielczość:</strong> {selectedNoDetectionImage.resolution || "-"}</div>
                       {selectedNoDetectionImage.timestamp && (
                         <div><strong>Czas:</strong> {selectedNoDetectionImage.timestamp}</div>
                       )}
@@ -3468,13 +3474,13 @@ export default function App() {
                 <div className="small text-muted mb-3">
                   {isNoDetectionsFilterSelected
                     ? "Widok kart oparty o zapisane obrazy analizy."
-                    : "Widok kart oparty o aktualnie widoczne detekcje (filtry statusu i tagow sa zachowane)."}
+                    : "Widok kart oparty o aktualnie widoczne detekcje (filtry statusu i tagów są zachowane)."}
                 </div>
               )}
 
               {selectedNoDetectionImage ? null : isNoDetectionsFilterSelected ? (
                 sortedNoDetectionImages.length === 0 ? (
-                  <div className="small text-muted">Brak zapisanych obrazow z wynikiem no_detections.</div>
+                  <div className="small text-muted">Brak zapisanych obrazów z wynikiem no_detections.</div>
                 ) : (
                   <div className="row g-3">
                     {sortedNoDetectionImages.map((image, imageIndex) => {
@@ -3516,7 +3522,7 @@ export default function App() {
                                   <button
                                     type="button"
                                     className="btn btn-sm btn-outline-secondary gallery-icon-btn"
-                                    title="Podglad"
+                                    title="Podgląd"
                                     onClick={e => {
                                       e.stopPropagation();
                                       handleOpenAnalysisImage(image);
@@ -3563,7 +3569,7 @@ export default function App() {
                   </div>
                 )
               ) : detections.length === 0 ? (
-                <div className="small text-muted">Brak detekcji. Kliknij "Uruchom analize".</div>
+                <div className="small text-muted">Brak detekcji. Kliknij "Uruchom analizę".</div>
               ) : filteredDetections.length === 0 ? (
                 <div className="small text-muted">
                   Brak detekcji dla statusu: {statusFilter}
@@ -3616,7 +3622,7 @@ export default function App() {
                                 className="gallery-preview card-img-top"
                               />
                             ) : (
-                              <div className="gallery-preview-fallback card-img-top">Brak podgladu</div>
+                              <div className="gallery-preview-fallback card-img-top">Brak podglądu</div>
                             )}
                             {isSelected && (
                               <div className="gallery-selected-overlay">
@@ -3645,7 +3651,7 @@ export default function App() {
                                 <button
                                   type="button"
                                   className="btn btn-sm btn-outline-secondary gallery-icon-btn"
-                                  title="Podglad"
+                                  title="Podgląd"
                                   onClick={e => {
                                     e.stopPropagation();
                                     handleOpenDetectionPreviewModal(detection);
@@ -3675,7 +3681,7 @@ export default function App() {
                           <div className="card-body py-2">
                             <div className="fw-semibold small">{detection.detection_id}</div>
                             <div className="small mt-1">
-                              <span className={`badge ${statusBadgeClass}`}>{detection.status}</span>
+                              <span className={`badge ${statusBadgeClass}`}>{STATUS_LABEL_MAP[detection.status] ?? detection.status}</span>
                             </div>
                             <div className="small text-muted">
                               confidence: {Number(detection.confidence).toFixed(2)}
@@ -3765,7 +3771,7 @@ export default function App() {
                     {isLoadingDetections && (
                       <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
                     )}
-                    <span>{isLoadingDetections ? "Analizowanie..." : "Uruchom analize"}</span>
+                    <span>{isLoadingDetections ? "Analizowanie..." : "Uruchom analizę"}</span>
                   </button>
 
                   <button
@@ -3783,7 +3789,7 @@ export default function App() {
                     Reset widoku
                   </button>
 
-                  <div className="small text-muted mb-2">Rozdzielczosc analizy</div>
+                  <div className="small text-muted mb-2">Rozdzielczość analizy</div>
                   <div className="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Tryb rozdzielczosci analizy">
                     <button
                       type="button"
@@ -3811,8 +3817,8 @@ export default function App() {
                     {RESOLUTION_DESCRIPTION_MAP[resolutionMode]} (ok. {RESOLUTION_MPP_MAP[resolutionMode].toFixed(2)} mpp)
                   </div>
 
-                  <div className="small text-muted mb-2">Liczba probek</div>
-                  <div className="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Liczba probek analizy">
+                  <div className="small text-muted mb-2">Liczba próbek</div>
+                  <div className="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Liczba próbek analizy">
                     <button
                       type="button"
                       className={`btn ${numSamples === 1 ? "btn-primary" : "btn-outline-primary"}`}
@@ -3835,7 +3841,7 @@ export default function App() {
                       10
                     </button>
                   </div>
-                  <div className="small text-muted mb-3">Wiecej probek = dluzsza analiza</div>
+                  <div className="small text-muted mb-3">Więcej próbek = dłuższa analiza</div>
 
                   <div className="small text-muted mb-2">Confidence threshold ({confidenceThreshold.toFixed(2)})</div>
                   <input
@@ -3898,11 +3904,11 @@ export default function App() {
                   <div className="small text-muted mb-2">Status analizy</div>
                   <div className="small mb-2">
                     {analysisStatus === "success"
-                      ? "Analiza zakonczona"
+                      ? "Analiza zakończona"
                       : analysisStatus === "loading"
                         ? "Analiza w toku"
                         : analysisStatus === "error"
-                          ? "Blad analizy"
+                          ? "Błąd analizy"
                           : "Brak aktywnej analizy"}
                   </div>
 
@@ -3977,28 +3983,28 @@ export default function App() {
                       className={`btn ${statusFilter === "confirmed" ? "btn-success" : "btn-outline-success"}`}
                       onClick={() => setStatusFilter("confirmed")}
                     >
-                      confirmed
+                      Potwierdzone
                     </button>
                     <button
                       type="button"
                       className={`btn ${statusFilter === "to_verify" ? "btn-warning" : "btn-outline-warning"}`}
                       onClick={() => setStatusFilter("to_verify")}
                     >
-                      to_verify
+                      Do weryfikacji
                     </button>
                     <button
                       type="button"
                       className={`btn ${statusFilter === "rejected" ? "btn-danger" : "btn-outline-danger"}`}
                       onClick={() => setStatusFilter("rejected")}
                     >
-                      rejected
+                      Odrzucone
                     </button>
                     <button
                       type="button"
                       className={`btn ${statusFilter === NO_DETECTIONS_FILTER ? "btn-secondary" : "btn-outline-secondary"}`}
                       onClick={() => setStatusFilter(NO_DETECTIONS_FILTER)}
                     >
-                      no_detections
+                      Brak detekcji
                     </button>
                   </div>
 
@@ -4035,7 +4041,7 @@ export default function App() {
                   {!isNoDetectionsFilterSelected && (
                     <div className="mb-3">
                       <div className="d-flex justify-content-between align-items-center mb-2">
-                        <div className="small text-muted">Filtr tagow</div>
+                        <div className="small text-muted">Filtr tagów</div>
                         <button
                           type="button"
                           className="btn btn-sm btn-outline-secondary py-0"
@@ -4045,12 +4051,12 @@ export default function App() {
                           }}
                           disabled={selectedTagFilters.length === 0}
                         >
-                          Wyczysc
+                          Wyczyść
                         </button>
                       </div>
 
                       {availableDetectionTags.length === 0 ? (
-                        <div className="small text-muted">Brak dostepnych tagow dla wybranego statusu.</div>
+                        <div className="small text-muted">Brak dostępnych tagów dla wybranego statusu.</div>
                       ) : (
                         <>
                           <div className="dropdown tag-filter-dropdown mb-2" ref={tagFilterDropdownRef}>
@@ -4067,7 +4073,7 @@ export default function App() {
                                   : "Wybierz tagi"}
                               </span>
                               <span className="small text-muted">
-                                {isTagFilterDropdownOpen ? "Zamknij" : "Otworz"}
+                                {isTagFilterDropdownOpen ? "Zamknij" : "Otwórz"}
                               </span>
                             </button>
 
@@ -4104,7 +4110,7 @@ export default function App() {
                                     type="button"
                                     className="btn btn-sm p-0 border-0 bg-transparent detection-tag-remove"
                                     onClick={() => handleRemoveTagFilter(tag)}
-                                    aria-label={`Usun filtr tagu ${tag}`}
+                                    aria-label={`Usuń filtr tagu ${tag}`}
                                   >
                                     x
                                   </button>
@@ -4112,7 +4118,7 @@ export default function App() {
                               ))}
                             </div>
                           ) : (
-                            <div className="small text-muted mb-2">Brak wybranych tagow.</div>
+                            <div className="small text-muted mb-2">Brak wybranych tagów.</div>
                           )}
 
                           <div className="small text-muted mb-1">Tryb dopasowania:</div>
@@ -4147,8 +4153,8 @@ export default function App() {
 
                           <div className="small text-muted">
                             {tagFilterMode === "or"
-                              ? "OR: pokaz detekcje zawierajace dowolny wybrany tag."
-                              : "AND: pokaz tylko detekcje zawierajace wszystkie wybrane tagi."}
+                              ? "OR: pokaż detekcje zawierające dowolny wybrany tag."
+                              : "AND: pokaż tylko detekcje zawierające wszystkie wybrane tagi."}
                           </div>
                         </>
                       )}
@@ -4223,7 +4229,7 @@ export default function App() {
                           isNoDetectionBulkTagging
                         }
                       >
-                        Usun zaznaczone obrazy
+                        Usuń zaznaczone obrazy
                         {selectedNoDetectionImageIds.length > 0
                           ? ` (${selectedNoDetectionImageIds.length})`
                           : ""}
@@ -4310,7 +4316,7 @@ export default function App() {
                         onClick={handleRequestBulkDeleteDetections}
                         disabled={selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging || isBulkValidating}
                       >
-                        Usun zaznaczone{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+                        Usuń zaznaczone{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
                       </button>
                       <div className="d-flex gap-2 mb-3">
                         {statusFilter === "to_verify" && (
@@ -4324,7 +4330,7 @@ export default function App() {
                               {isBulkValidating && (
                                 <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
                               )}
-                              Zatwierdz{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+                              Zatwierdź{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
                             </button>
                             <button
                               type="button"
@@ -4335,7 +4341,7 @@ export default function App() {
                               {isBulkValidating && (
                                 <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
                               )}
-                              Odrzuc{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+                              Odrzuć{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
                             </button>
                           </>
                         )}
@@ -4350,7 +4356,7 @@ export default function App() {
                               {isBulkValidating && (
                                 <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
                               )}
-                              Cofnij do to_verify{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+                              Cofnij do weryfikacji{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
                             </button>
                             <button
                               type="button"
@@ -4361,7 +4367,7 @@ export default function App() {
                               {isBulkValidating && (
                                 <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
                               )}
-                              Odrzuc{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+                              Odrzuć{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
                             </button>
                           </>
                         )}
@@ -4376,7 +4382,7 @@ export default function App() {
                               {isBulkValidating && (
                                 <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
                               )}
-                              Zatwierdz{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+                              Zatwierdź{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
                             </button>
                             <button
                               type="button"
@@ -4387,7 +4393,7 @@ export default function App() {
                               {isBulkValidating && (
                                 <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
                               )}
-                              Do to_verify{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+                              Do weryfikacji{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
                             </button>
                           </>
                         )}
@@ -4399,7 +4405,7 @@ export default function App() {
                 {isNoDetectionsFilterSelected ? (
                   <>
                     {sortedNoDetectionImages.length === 0 ? (
-                      <div className="small text-muted">Brak przeanalizowanych zdjec z wynikiem no_detections.</div>
+                      <div className="small text-muted">Brak przeanalizowanych zdjęć z wynikiem no_detections.</div>
                     ) : (
                       <div className="list-group dense-detection-list">
                         {sortedNoDetectionImages.map((image, imageIndex) => {
@@ -4486,7 +4492,7 @@ export default function App() {
                                       event.stopPropagation();
                                       handleOpenAnalysisImage(image);
                                     }}
-                                    title="Podglad"
+                                    title="Podgląd"
                                     aria-label={`Podglad obrazu ${imageId}`}
                                     disabled={deleteModal.isDeleting || isNoDetectionBulkTagging}
                                   >
@@ -4509,8 +4515,8 @@ export default function App() {
                                       event.stopPropagation();
                                       handleRequestDeleteNoDetectionImage(imageId);
                                     }}
-                                    title="Usun obraz"
-                                    aria-label={`Usun obraz ${imageId}`}
+                                    title="Usuń obraz"
+                                    aria-label={`Usuń obraz ${imageId}`}
                                     disabled={
                                       deleteModal.isDeleting ||
                                       isNoDetectionBulkTagging ||
@@ -4529,7 +4535,7 @@ export default function App() {
 
                               {isExpanded && (
                                 <div className="detection-expand-panel">
-                                  <div className="small text-muted mb-1">Szczegoly obrazu</div>
+                                  <div className="small text-muted mb-1">Szczegóły obrazu</div>
                                   <div className="small mb-1">
                                     <strong>plik:</strong> {imageName || "-"}
                                   </div>
@@ -4562,7 +4568,7 @@ export default function App() {
                                       ))}
                                     </div>
                                   ) : (
-                                    <div className="small text-muted mb-2">Brak tagow.</div>
+                                    <div className="small text-muted mb-2">Brak tagów.</div>
                                   )}
                                   <div className="small text-muted text-break">{image.path || ""}</div>
 
@@ -4573,7 +4579,7 @@ export default function App() {
                                       onClick={() => handleOpenAnalysisImage(image)}
                                       disabled={deleteModal.isDeleting || isNoDetectionBulkTagging}
                                     >
-                                      Otworz podglad
+                                      Otwórz podgląd
                                     </button>
                                   </div>
                                 </div>
@@ -4585,10 +4591,10 @@ export default function App() {
                     )}
                   </>
                 ) : detections.length === 0 ? (
-                  <div className="small text-muted">Brak detekcji. Kliknij "Uruchom analize".</div>
+                  <div className="small text-muted">Brak detekcji. Kliknij "Uruchom analizę".</div>
                 ) : filteredDetections.length === 0 ? (
                   <div className="small text-muted">
-                    Brak detekcji dla statusu: {statusFilter}
+                    Brak detekcji dla statusu: {STATUS_LABEL_MAP[statusFilter] ?? STATUS_LABEL_MAP[statusFilter] ?? statusFilter}
                     {selectedTagFilters.length > 0
                       ? ` (tagi: ${selectedTagFilters.join(", ")} - ${tagFilterMode.toUpperCase()})`
                       : ""}
@@ -4661,7 +4667,7 @@ export default function App() {
                                   event.stopPropagation();
                                   handleToggleDetectionSelection(detection.detection_id);
                                 }}
-                                aria-label={`Zaznacz detekcje ${detection.detection_id}`}
+                                aria-label={`Zaznacz detekcję ${detection.detection_id}`}
                                 disabled={deleteModal.isDeleting || isBulkTagging}
                               />
                             </div>
@@ -4671,7 +4677,7 @@ export default function App() {
                             </div>
 
                             <div className="detection-dense-meta">
-                              <span className={`badge ${statusBadgeClass}`}>{detection.status}</span>
+                              <span className={`badge ${statusBadgeClass}`}>{STATUS_LABEL_MAP[detection.status] ?? detection.status}</span>
                             </div>
 
                             <div className="detection-dense-meta text-muted">
@@ -4712,7 +4718,7 @@ export default function App() {
                                   event.stopPropagation();
                                   handleOpenDetectionPreviewModal(detection);
                                 }}
-                                title="Podglad"
+                                title="Podgląd"
                                 aria-label={`Podglad detekcji ${detection.detection_id}`}
                                 disabled={deleteModal.isDeleting || isBulkTagging}
                               >
@@ -4735,8 +4741,8 @@ export default function App() {
                                   event.stopPropagation();
                                   handleRequestDeleteDetection(detection);
                                 }}
-                                title="Usun detekcje"
-                                aria-label={`Usun detekcje ${detection.detection_id}`}
+                                title="Usuń detekcję"
+                                aria-label={`Usuń detekcję ${detection.detection_id}`}
                                 disabled={deleteModal.isDeleting || isBulkTagging}
                               >
                                 <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
@@ -4786,7 +4792,7 @@ export default function App() {
                                         type="button"
                                         className="btn btn-sm p-0 border-0 bg-transparent detection-tag-remove"
                                         onClick={() => handleRemoveTag(detection.detection_id, tag)}
-                                        aria-label={`Usun tag ${tag}`}
+                                        aria-label={`Usuń tag ${tag}`}
                                         disabled={deleteModal.isDeleting}
                                       >
                                         x
@@ -4795,7 +4801,7 @@ export default function App() {
                                   ))}
                                 </div>
                               ) : (
-                                <div className="small text-muted mb-2">Brak tagow.</div>
+                                <div className="small text-muted mb-2">Brak tagów.</div>
                               )}
 
                               <div className="d-flex gap-2 mb-2">
@@ -4864,7 +4870,7 @@ export default function App() {
                                     onClick={() => handleDeleteComment(detection.detection_id)}
                                     disabled={deleteModal.isDeleting}
                                   >
-                                    Usun
+                                    Usuń
                                   </button>
                                 )}
                               </div>
@@ -4895,7 +4901,7 @@ export default function App() {
                     onChange={(event) => setShowAnalysisPoints(event.target.checked)}
                   />
                   <label className="form-check-label" htmlFor="toggle-analysis-points-nav">
-                    Pokaz punkty analiz
+                    Pokaż punkty analiz
                   </label>
                 </div>
 
@@ -5026,7 +5032,7 @@ export default function App() {
                 onChange={handleToggleDetectionPreviewBBox}
               />
               <label className="form-check-label small" htmlFor="toggle-detection-preview-bbox">
-                Pokaz overlay bbox
+                Pokaż overlay bbox
               </label>
             </div>
 
@@ -5037,7 +5043,7 @@ export default function App() {
             <div className="small text-muted detection-preview-meta-grid">
               <div><strong>ID:</strong> {detectionPreviewModal.detection.detection_id}</div>
               <div><strong>analysis_id:</strong> {detectionPreviewModal.detection.analysis_id}</div>
-              <div><strong>status:</strong> {detectionPreviewModal.detection.status}</div>
+              <div><strong>status:</strong> {STATUS_LABEL_MAP[detectionPreviewModal.detection.status] ?? detectionPreviewModal.detection.status}</div>
               <div><strong>class:</strong> {detectionPreviewModal.detection.class}</div>
               <div>
                 <strong>confidence:</strong> {Number(detectionPreviewModal.detection.confidence).toFixed(2)}
@@ -5102,11 +5108,11 @@ export default function App() {
                 ) : (
                   deleteModal.deleteImages ? (
                     <>
-                      Ta operacja usunie <strong>{deleteModal.targetIds.length}</strong> zaznaczonych obrazow oraz ich pliki z backendu.
+                      Ta operacja usunie <strong>{deleteModal.targetIds.length}</strong> zaznaczonych obrazów oraz ich pliki z backendu.
                     </>
                   ) : (
                     <>
-                      Ta operacja usunie <strong>{deleteModal.targetIds.length}</strong> wpisow obrazow.
+                      Ta operacja usunie <strong>{deleteModal.targetIds.length}</strong> wpisów obrazów.
                       Pliki pozostana na dysku backendu.
                     </>
                   )
@@ -5115,24 +5121,24 @@ export default function App() {
                 deleteModal.deleteImages ? (
                   <>
                     Ta operacja usunie detekcje <strong>{deleteModal.targetIds[0]}</strong> oraz
-                    sprobuje usunac powiazany plik obrazu z backendu.
+                    spróbuje usunąć powiązany plik obrazu z backendu.
                   </>
                 ) : (
                   <>
                     Ta operacja usunie detekcje <strong>{deleteModal.targetIds[0]}</strong>.
-                    Powiazany obraz pozostanie bez zmian.
+                    Powiązany obraz pozostanie bez zmian.
                   </>
                 )
               ) : (
                 deleteModal.deleteImages ? (
                   <>
                     Ta operacja usunie <strong>{deleteModal.targetIds.length}</strong> zaznaczonych
-                    detekcji oraz sprobuje usunac powiazane pliki obrazow z backendu.
+                    detekcji oraz spróbuje usunąć powiązane pliki obrazów z backendu.
                   </>
                 ) : (
                   <>
                     Ta operacja usunie <strong>{deleteModal.targetIds.length}</strong> zaznaczonych
-                    detekcji. Powiazane obrazy pozostana bez zmian.
+                    detekcji. Powiązane obrazy pozostaną bez zmian.
                   </>
                 )
               )}
@@ -5155,8 +5161,8 @@ export default function App() {
                 />
                 <label className="form-check-label small" htmlFor="delete-with-images">
                   {deleteModal.targetType === "analysis_image"
-                    ? "Usun takze pliki obrazow"
-                    : "Usun takze powiazane obrazy"}
+                    ? "Usuń także pliki obrazów"
+                    : "Usuń także powiązane obrazy"}
                 </label>
               </div>
             )}
@@ -5179,7 +5185,7 @@ export default function App() {
                 {deleteModal.isDeleting && (
                   <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
                 )}
-                <span>{deleteModal.isDeleting ? "Usuwanie..." : "Usun"}</span>
+                <span>{deleteModal.isDeleting ? "Usuwanie..." : "Usuń"}</span>
               </button>
             </div>
           </div>
