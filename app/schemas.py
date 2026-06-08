@@ -148,7 +148,7 @@ class DetectionBulkValidateRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     detection_ids: list[str] = Field(..., min_length=1, alias="detectionIds")
-    target_status: Literal["confirmed", "rejected"] = Field(..., alias="targetStatus")
+    target_status: Literal["confirmed", "rejected", "to_verify"] = Field(..., alias="targetStatus")
 
 
 class DetectionBulkValidateResponse(BaseModel):

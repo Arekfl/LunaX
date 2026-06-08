@@ -2600,7 +2600,8 @@ export default function App() {
         : [];
       const updatedIdsSet = new Set(updatedIds);
 
-      // Apply new status locally (remove from to_verify view).
+      // Apply new status locally — update both detections and storedStatuses so
+      // statusResolvedDetections (which prefers storedStatuses) reflects the change.
       setDetections((prev) =>
         prev.map((detection) => {
           if (!updatedIdsSet.has(String(detection?.detection_id || "").trim())) {
@@ -2610,12 +2611,20 @@ export default function App() {
         })
       );
 
+      setStoredStatuses((prev) => {
+        const next = { ...prev };
+        for (const id of updatedIds) {
+          next[id] = targetStatus;
+        }
+        return next;
+      });
+
       // Deselect updated detections.
       setSelectedIds((prev) =>
         prev.filter((id) => !updatedIdsSet.has(String(id || "").trim()))
       );
 
-      const statusLabel = targetStatus === "confirmed" ? "confirmed" : "rejected";
+      const statusLabel = targetStatus === "confirmed" ? "confirmed" : targetStatus === "rejected" ? "rejected" : "to_verify";
       const filesInfo = payload.files_moved > 0 ? ` Przeniesiono ${payload.files_moved} plik(ow).` : "";
       const missingInfo =
         Array.isArray(payload?.missing_detection_ids) && payload.missing_detection_ids.length > 0
@@ -4304,28 +4313,84 @@ export default function App() {
                         Usun zaznaczone{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
                       </button>
                       <div className="d-flex gap-2 mb-3">
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-success flex-fill d-flex align-items-center justify-content-center gap-1"
-                          onClick={() => handleBulkValidate("confirmed")}
-                          disabled={selectedIds.length === 0 || isBulkValidating || deleteModal.isDeleting}
-                        >
-                          {isBulkValidating && (
-                            <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                          )}
-                          Zatwierdz{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-danger flex-fill d-flex align-items-center justify-content-center gap-1"
-                          onClick={() => handleBulkValidate("rejected")}
-                          disabled={selectedIds.length === 0 || isBulkValidating || deleteModal.isDeleting}
-                        >
-                          {isBulkValidating && (
-                            <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                          )}
-                          Odrzuc{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
-                        </button>
+                        {statusFilter === "to_verify" && (
+                          <>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-success flex-fill d-flex align-items-center justify-content-center gap-1"
+                              onClick={() => handleBulkValidate("confirmed")}
+                              disabled={selectedIds.length === 0 || isBulkValidating || deleteModal.isDeleting}
+                            >
+                              {isBulkValidating && (
+                                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                              )}
+                              Zatwierdz{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-danger flex-fill d-flex align-items-center justify-content-center gap-1"
+                              onClick={() => handleBulkValidate("rejected")}
+                              disabled={selectedIds.length === 0 || isBulkValidating || deleteModal.isDeleting}
+                            >
+                              {isBulkValidating && (
+                                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                              )}
+                              Odrzuc{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+                            </button>
+                          </>
+                        )}
+                        {statusFilter === "confirmed" && (
+                          <>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-warning flex-fill d-flex align-items-center justify-content-center gap-1"
+                              onClick={() => handleBulkValidate("to_verify")}
+                              disabled={selectedIds.length === 0 || isBulkValidating || deleteModal.isDeleting}
+                            >
+                              {isBulkValidating && (
+                                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                              )}
+                              Cofnij do to_verify{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-danger flex-fill d-flex align-items-center justify-content-center gap-1"
+                              onClick={() => handleBulkValidate("rejected")}
+                              disabled={selectedIds.length === 0 || isBulkValidating || deleteModal.isDeleting}
+                            >
+                              {isBulkValidating && (
+                                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                              )}
+                              Odrzuc{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+                            </button>
+                          </>
+                        )}
+                        {statusFilter === "rejected" && (
+                          <>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-success flex-fill d-flex align-items-center justify-content-center gap-1"
+                              onClick={() => handleBulkValidate("confirmed")}
+                              disabled={selectedIds.length === 0 || isBulkValidating || deleteModal.isDeleting}
+                            >
+                              {isBulkValidating && (
+                                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                              )}
+                              Zatwierdz{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-warning flex-fill d-flex align-items-center justify-content-center gap-1"
+                              onClick={() => handleBulkValidate("to_verify")}
+                              disabled={selectedIds.length === 0 || isBulkValidating || deleteModal.isDeleting}
+                            >
+                              {isBulkValidating && (
+                                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                              )}
+                              Do to_verify{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+                            </button>
+                          </>
+                        )}
                       </div>
                     </>
                   )}

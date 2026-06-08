@@ -1162,7 +1162,7 @@ def query_detections(
 def validate_detections_bulk(
     detection_ids: Sequence[str],
     *,
-    target_status: Literal["confirmed", "rejected"],
+    target_status: Literal["confirmed", "rejected", "to_verify"],
 ) -> dict[str, int | list[str]]:
     """Update status for detections and move their related image files to the target folder.
 
