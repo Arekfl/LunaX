@@ -6,5 +6,8 @@
   "det-8b33cd299b15442dbeff8c4d5ed2f12d": "to_verify",
   "det-e14a824e0936498f9b5af8c6d05daa53": "confirmed",
   "det-899448dcfd3f4620bbb010aa4f5c37d3": "to_verify",
-  "det-c37fef8169be4b6993df12ecd39d40dc": "rejected"
+  "det-c37fef8169be4b6993df12ecd39d40dc": "confirmed",
+  "det-5825063edf054711b28e24298b2de1a0": "to_verify",
+  "det-e101c84bd3df40c5864c22ea4e35d239": "to_verify",
+  "det-c907abd2c6bb4bf0b4d7c483dca8d0d6": "to_verify"
 }

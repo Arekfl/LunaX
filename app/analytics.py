@@ -1251,30 +1251,34 @@ def validate_detections_bulk(
     if analysis_ids_for_update and "image_id" in frame.columns and "path" in frame.columns:
         image_rows = _filter_image_rows(frame)
 
-        # Check if each analysis still has remaining detections with other statuses
-        # (to determine if image is "in use" by other detections of same analysis).
         for analysis_id in analysis_ids_for_update:
             if not analysis_id or "analysis_id" not in image_rows.columns:
                 continue
 
-            # Image rows for this analysis.
-            img_mask = image_rows["analysis_id"].fillna("").astype(str).str.strip() == analysis_id
+            # Move only image rows that are NOT in no_detections status — tiles that had
+            # zero detections share the analysis_id but should stay where they are.
+            img_mask = (
+                (image_rows["analysis_id"].fillna("").astype(str).str.strip() == analysis_id)
+                & (~image_rows["status"].fillna("").astype(str).str.strip().isin({"no_detection", "no_detections"}))
+            )
             analysis_img_rows = image_rows[img_mask]
             if analysis_img_rows.empty:
                 continue
 
-            # Check whether other (non-validated) detection rows reference this analysis.
+            # Move only when ALL detections of this analysis have been resolved
+            # (none remain in to_verify).  This ensures a 1-to-1 mapping between
+            # the set of validated detections and the image tiles that get relocated.
             if "detection_id" in frame.columns:
-                other_det_mask = (
+                pending_mask = (
                     (frame["detection_id"].fillna("").astype(str).str.strip() != "")
                     & (frame["analysis_id"].fillna("").astype(str).str.strip() == analysis_id)
-                    & (~detection_ids_series.isin(set(updated_detection_ids)))
+                    & (frame["status"].fillna("").astype(str).str.strip() == "to_verify")
                 )
-                still_has_other_detections = frame[other_det_mask].shape[0] > 0
+                still_has_pending = frame[pending_mask].shape[0] > 0
             else:
-                still_has_other_detections = False
+                still_has_pending = False
 
-            if still_has_other_detections:
+            if still_has_pending:
                 files_in_use += len(analysis_img_rows)
                 continue
 
