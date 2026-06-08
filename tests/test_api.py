@@ -2132,3 +2132,172 @@ def test_delete_analysis_images_bulk_removes_files_when_delete_files_true(
     assert images_after_response.status_code == 200
     assert images_after_response.json() == []
     assert all(not path.exists() for path in image_paths)
+
+
+# ---------------------------------------------------------------------------
+# Bulk validate endpoint
+# ---------------------------------------------------------------------------
+
+def test_bulk_validate_confirms_detections_and_updates_status(tmp_path, monkeypatch) -> None:
+    detections_file = tmp_path / "detections.parquet"
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_file))
+    monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(tmp_path / "images" / "no_detections"))
+
+    mocked_download = Mock(return_value=Image.new("L", (64, 64), color=128))
+    monkeypatch.setattr("app.main.download_tile", mocked_download)
+    monkeypatch.setattr(
+        "app.main.run_inference",
+        Mock(
+            return_value=[
+                {
+                    "detection_id": "det-validate-1",
+                    "bbox": {"x": 10.0, "y": 20.0, "width": 30.0, "height": 40.0},
+                    "confidence": 0.85,
+                    "class": "cave_candidate",
+                    "class_id": 0,
+                },
+                {
+                    "detection_id": "det-validate-2",
+                    "bbox": {"x": 50.0, "y": 60.0, "width": 20.0, "height": 30.0},
+                    "confidence": 0.70,
+                    "class": "cave_candidate",
+                    "class_id": 0,
+                },
+            ]
+        ),
+    )
+
+    run_response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "detail",
+            "numSamples": 1,
+            "confidenceThreshold": 0.5,
+            "bbox": [-10.0, -5.0, 10.0, 5.0],
+        },
+    )
+    assert run_response.status_code == 200
+
+    response = client.patch(
+        "/detections/bulk/validate",
+        json={"detectionIds": ["det-validate-1"], "targetStatus": "confirmed"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["updated_count"] == 1
+    assert "det-validate-1" in payload["updated_detection_ids"]
+    assert payload["target_status"] == "confirmed"
+    assert payload["missing_detection_ids"] == []
+
+    statuses_response = client.get("/detections/statuses")
+    assert statuses_response.status_code == 200
+    statuses = statuses_response.json()
+    assert statuses.get("det-validate-1") == "confirmed"
+
+
+def test_bulk_validate_rejects_detections(tmp_path, monkeypatch) -> None:
+    detections_file = tmp_path / "detections.parquet"
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_file))
+    monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(tmp_path / "images" / "no_detections"))
+
+    mocked_download = Mock(return_value=Image.new("L", (64, 64), color=128))
+    monkeypatch.setattr("app.main.download_tile", mocked_download)
+    monkeypatch.setattr(
+        "app.main.run_inference",
+        Mock(
+            return_value=[
+                {
+                    "detection_id": "det-reject-1",
+                    "bbox": {"x": 5.0, "y": 5.0, "width": 10.0, "height": 10.0},
+                    "confidence": 0.6,
+                    "class": "cave_candidate",
+                    "class_id": 0,
+                },
+            ]
+        ),
+    )
+    client.post(
+        "/analysis/run",
+        json={"resolutionMode": "detail", "numSamples": 1, "confidenceThreshold": 0.5,
+              "bbox": [-10.0, -5.0, 10.0, 5.0]},
+    )
+
+    response = client.patch(
+        "/detections/bulk/validate",
+        json={"detectionIds": ["det-reject-1"], "targetStatus": "rejected"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["updated_count"] == 1
+    assert payload["target_status"] == "rejected"
+
+    statuses_response = client.get("/detections/statuses")
+    assert statuses_response.json().get("det-reject-1") == "rejected"
+
+
+def test_bulk_validate_reports_missing_detection_ids(tmp_path, monkeypatch) -> None:
+    detections_file = tmp_path / "detections.parquet"
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_file))
+    monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(tmp_path / "images" / "no_detections"))
+
+    mocked_download = Mock(return_value=Image.new("L", (64, 64), color=128))
+    monkeypatch.setattr("app.main.download_tile", mocked_download)
+    monkeypatch.setattr("app.main.run_inference", Mock(return_value=[]))
+    client.post("/analysis/run", json={"resolutionMode": "detail", "numSamples": 1,
+                                       "confidenceThreshold": 0.5, "bbox": [-1.0, -1.0, 1.0, 1.0]})
+
+    response = client.patch(
+        "/detections/bulk/validate",
+        json={"detectionIds": ["det-nonexistent"], "targetStatus": "confirmed"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["updated_count"] == 0
+    assert "det-nonexistent" in payload["missing_detection_ids"]
+
+
+def test_bulk_validate_moves_image_to_target_directory(tmp_path, monkeypatch) -> None:
+    detections_file = tmp_path / "detections.parquet"
+    to_verify_dir = tmp_path / "images" / "to_verify"
+    confirmed_dir = tmp_path / "images" / "confirmed"
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_file))
+    monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(tmp_path / "images" / "no_detections"))
+
+    mocked_download = Mock(return_value=Image.new("RGB", (64, 64), color=(100, 100, 100)))
+    monkeypatch.setattr("app.main.download_tile", mocked_download)
+    monkeypatch.setattr(
+        "app.main.run_inference",
+        Mock(
+            return_value=[
+                {
+                    "detection_id": "det-move-1",
+                    "bbox": {"x": 5.0, "y": 5.0, "width": 10.0, "height": 10.0},
+                    "confidence": 0.9,
+                    "class": "cave_candidate",
+                    "class_id": 0,
+                },
+            ]
+        ),
+    )
+    run_resp = client.post(
+        "/analysis/run",
+        json={"resolutionMode": "detail", "numSamples": 1, "confidenceThreshold": 0.5,
+              "bbox": [-5.0, -5.0, 5.0, 5.0]},
+    )
+    assert run_resp.status_code == 200
+
+    assert to_verify_dir.exists()
+    images_before = list(to_verify_dir.glob("*.png"))
+    assert len(images_before) == 1
+
+    response = client.patch(
+        "/detections/bulk/validate",
+        json={"detectionIds": ["det-move-1"], "targetStatus": "confirmed"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["files_moved"] == 1
+
+    assert confirmed_dir.exists()
+    assert len(list(confirmed_dir.glob("*.png"))) == 1
+    assert len(list(to_verify_dir.glob("*.png"))) == 0

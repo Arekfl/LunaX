@@ -1157,3 +1157,178 @@ def query_detections(
         ]
     finally:
         connection.close()
+
+
+def validate_detections_bulk(
+    detection_ids: Sequence[str],
+    *,
+    target_status: Literal["confirmed", "rejected"],
+) -> dict[str, int | list[str]]:
+    """Update status for detections and move their related image files to the target folder.
+
+    Returns a summary dict with counts and lists of updated / missing detection ids.
+    """
+    unique_detection_ids: list[str] = list(
+        dict.fromkeys(str(d).strip() for d in detection_ids if str(d).strip())
+    )
+
+    if not unique_detection_ids:
+        return {
+            "requested_count": 0,
+            "updated_count": 0,
+            "updated_detection_ids": [],
+            "missing_detection_ids": [],
+            "files_moved": 0,
+            "files_missing": 0,
+            "files_in_use": 0,
+        }
+
+    parquet_file = _get_detections_parquet_path()
+    if not parquet_file.exists():
+        return {
+            "requested_count": len(unique_detection_ids),
+            "updated_count": 0,
+            "updated_detection_ids": [],
+            "missing_detection_ids": unique_detection_ids,
+            "files_moved": 0,
+            "files_missing": 0,
+            "files_in_use": 0,
+        }
+
+    frame = pd.read_parquet(parquet_file)
+    if frame.empty or "detection_id" not in frame.columns:
+        return {
+            "requested_count": len(unique_detection_ids),
+            "updated_count": 0,
+            "updated_detection_ids": [],
+            "missing_detection_ids": unique_detection_ids,
+            "files_moved": 0,
+            "files_missing": 0,
+            "files_in_use": 0,
+        }
+
+    detection_ids_series = frame["detection_id"].fillna("").astype(str).str.strip()
+    requested_set = set(unique_detection_ids)
+    found_ids = {d for d in detection_ids_series.tolist() if d in requested_set}
+    missing_detection_ids = [d for d in unique_detection_ids if d not in found_ids]
+    updated_detection_ids = [d for d in unique_detection_ids if d in found_ids]
+
+    if not updated_detection_ids:
+        return {
+            "requested_count": len(unique_detection_ids),
+            "updated_count": 0,
+            "updated_detection_ids": [],
+            "missing_detection_ids": missing_detection_ids,
+            "files_moved": 0,
+            "files_missing": 0,
+            "files_in_use": 0,
+        }
+
+    # Update status column in parquet for matching detection rows.
+    update_mask = detection_ids_series.isin(set(updated_detection_ids))
+    if "status" not in frame.columns:
+        frame["status"] = "to_verify"
+    frame.loc[update_mask, "status"] = target_status
+
+    # Collect analysis_ids for updated detections to find related image rows.
+    updated_rows = frame[update_mask]
+    analysis_ids_for_update: set[str] = set()
+    if "analysis_id" in updated_rows.columns:
+        analysis_ids_for_update = {
+            str(a).strip()
+            for a in updated_rows["analysis_id"].fillna("").tolist()
+            if str(a).strip()
+        }
+
+    target_dir = _get_analysis_image_dir(target_status)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    allowed_root = _get_no_detections_image_dir().expanduser().resolve().parent
+
+    files_moved = 0
+    files_missing = 0
+    files_in_use = 0
+
+    if analysis_ids_for_update and "image_id" in frame.columns and "path" in frame.columns:
+        image_rows = _filter_image_rows(frame)
+
+        # Check if each analysis still has remaining detections with other statuses
+        # (to determine if image is "in use" by other detections of same analysis).
+        for analysis_id in analysis_ids_for_update:
+            if not analysis_id or "analysis_id" not in image_rows.columns:
+                continue
+
+            # Image rows for this analysis.
+            img_mask = image_rows["analysis_id"].fillna("").astype(str).str.strip() == analysis_id
+            analysis_img_rows = image_rows[img_mask]
+            if analysis_img_rows.empty:
+                continue
+
+            # Check whether other (non-validated) detection rows reference this analysis.
+            if "detection_id" in frame.columns:
+                other_det_mask = (
+                    (frame["detection_id"].fillna("").astype(str).str.strip() != "")
+                    & (frame["analysis_id"].fillna("").astype(str).str.strip() == analysis_id)
+                    & (~detection_ids_series.isin(set(updated_detection_ids)))
+                )
+                still_has_other_detections = frame[other_det_mask].shape[0] > 0
+            else:
+                still_has_other_detections = False
+
+            if still_has_other_detections:
+                files_in_use += len(analysis_img_rows)
+                continue
+
+            # Move image files for this analysis.
+            for idx, img_row in analysis_img_rows.iterrows():
+                old_path_raw = str(img_row.get("path") or "").strip()
+                if not old_path_raw:
+                    files_missing += 1
+                    continue
+
+                old_path = Path(old_path_raw).expanduser().resolve()
+
+                try:
+                    old_path.relative_to(allowed_root)
+                except ValueError:
+                    import logging as _logging
+                    _logging.getLogger(__name__).warning(
+                        "Image path outside allowed root, skipping: %s", old_path
+                    )
+                    files_missing += 1
+                    continue
+
+                if not old_path.exists() or not old_path.is_file():
+                    files_missing += 1
+                    continue
+
+                new_path = target_dir / old_path.name
+                # Avoid overwriting – append image_id suffix if collides.
+                if new_path.exists() and new_path != old_path:
+                    image_id_suffix = str(img_row.get("image_id") or "").strip() or "dup"
+                    new_path = target_dir / f"{old_path.stem}_{image_id_suffix}{old_path.suffix}"
+
+                try:
+                    old_path.rename(new_path)
+                    # Update path in dataframe.
+                    frame.loc[idx, "path"] = str(new_path)
+                    # Also update status for image row.
+                    frame.loc[idx, "status"] = _status_for_analysis_image_storage(target_status)
+                    files_moved += 1
+                except OSError as exc:
+                    import logging as _logging
+                    _logging.getLogger(__name__).warning(
+                        "Could not move image file %s → %s: %s", old_path, new_path, exc
+                    )
+                    files_missing += 1
+
+    frame.to_parquet(parquet_file, index=False)
+
+    return {
+        "requested_count": len(unique_detection_ids),
+        "updated_count": len(updated_detection_ids),
+        "updated_detection_ids": updated_detection_ids,
+        "missing_detection_ids": missing_detection_ids,
+        "files_moved": files_moved,
+        "files_missing": files_missing,
+        "files_in_use": files_in_use,
+    }

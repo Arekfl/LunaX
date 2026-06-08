@@ -1012,6 +1012,7 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkTagDraft, setBulkTagDraft] = useState("");
   const [isBulkTagging, setIsBulkTagging] = useState(false);
+  const [isBulkValidating, setIsBulkValidating] = useState(false);
   const [exportFormat, setExportFormat] = useState("json");
   const [deleteModal, setDeleteModal] = useState({
     targetType: null,
@@ -2559,6 +2560,87 @@ export default function App() {
       setChosenMessage("Nie udalo sie dodac tagu do zaznaczonych detekcji.");
     } finally {
       setIsBulkTagging(false);
+    }
+  };
+
+  const handleBulkValidate = async (targetStatus) => {
+    const normalizedSelectedIds = [
+      ...new Set(selectedIds.map((id) => String(id || "").trim()).filter(Boolean)),
+    ];
+    if (normalizedSelectedIds.length === 0) {
+      setChosenMessage("Zaznacz co najmniej jedna detekcje do walidacji.");
+      return;
+    }
+
+    setIsBulkValidating(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/detections/bulk/validate`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          detectionIds: normalizedSelectedIds,
+          targetStatus,
+        }),
+      });
+
+      if (!response.ok) {
+        let errorDetail = `HTTP ${response.status}`;
+        try {
+          const errorPayload = await response.json();
+          if (errorPayload && typeof errorPayload.detail === "string") {
+            errorDetail = `${errorDetail}: ${errorPayload.detail}`;
+          }
+        } catch { /* ignore */ }
+        throw new Error(errorDetail);
+      }
+
+      const payload = await response.json();
+      const updatedIds = Array.isArray(payload?.updated_detection_ids)
+        ? payload.updated_detection_ids.map((id) => String(id || "").trim()).filter(Boolean)
+        : [];
+      const updatedIdsSet = new Set(updatedIds);
+
+      // Apply new status locally (remove from to_verify view).
+      setDetections((prev) =>
+        prev.map((detection) => {
+          if (!updatedIdsSet.has(String(detection?.detection_id || "").trim())) {
+            return detection;
+          }
+          return { ...detection, status: targetStatus };
+        })
+      );
+
+      // Deselect updated detections.
+      setSelectedIds((prev) =>
+        prev.filter((id) => !updatedIdsSet.has(String(id || "").trim()))
+      );
+
+      const statusLabel = targetStatus === "confirmed" ? "confirmed" : "rejected";
+      const filesInfo = payload.files_moved > 0 ? ` Przeniesiono ${payload.files_moved} plik(ow).` : "";
+      const missingInfo =
+        Array.isArray(payload?.missing_detection_ids) && payload.missing_detection_ids.length > 0
+          ? ` Nie znaleziono ${payload.missing_detection_ids.length} detekcji.`
+          : "";
+
+      setNotification({
+        type: "success",
+        message: `Przeniesiono ${updatedIds.length} elementow do ${statusLabel}.${filesInfo}`,
+      });
+      setChosenMessage(
+        `Walidacja zakonczona: ${updatedIds.length} → ${statusLabel}.${filesInfo}${missingInfo}`
+      );
+
+      // Refresh analysis images to reflect moved files.
+      try {
+        await fetchAnalysisImages();
+      } catch { /* non-critical */ }
+    } catch (error) {
+      console.error("Blad podczas walidacji detekcji:", error);
+      setChosenMessage(
+        `Nie udalo sie przeprowadzic walidacji. ${error instanceof Error ? error.message : ""}`
+      );
+    } finally {
+      setIsBulkValidating(false);
     }
   };
 
@@ -4217,10 +4299,34 @@ export default function App() {
                         type="button"
                         className="btn btn-sm btn-outline-danger w-100 mb-3"
                         onClick={handleRequestBulkDeleteDetections}
-                        disabled={selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging}
+                        disabled={selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging || isBulkValidating}
                       >
                         Usun zaznaczone{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
                       </button>
+                      <div className="d-flex gap-2 mb-3">
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-success flex-fill d-flex align-items-center justify-content-center gap-1"
+                          onClick={() => handleBulkValidate("confirmed")}
+                          disabled={selectedIds.length === 0 || isBulkValidating || deleteModal.isDeleting}
+                        >
+                          {isBulkValidating && (
+                            <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                          )}
+                          Zatwierdz{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-danger flex-fill d-flex align-items-center justify-content-center gap-1"
+                          onClick={() => handleBulkValidate("rejected")}
+                          disabled={selectedIds.length === 0 || isBulkValidating || deleteModal.isDeleting}
+                        >
+                          {isBulkValidating && (
+                            <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                          )}
+                          Odrzuc{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+                        </button>
+                      </div>
                     </>
                   )}
 

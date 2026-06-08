@@ -26,6 +26,8 @@ from app.schemas import (
     DetectionBulkDeleteResponse,
     DetectionBulkTagsUpdateRequest,
     DetectionBulkTagsUpdateResponse,
+    DetectionBulkValidateRequest,
+    DetectionBulkValidateResponse,
     DetectionDeleteResponse,
     Detection,
     DetectionCommentUpdateRequest,
@@ -52,6 +54,7 @@ from app.analytics import (
     query_no_detections,
     save_analysis_image_and_metadata,
     save_detections_to_parquet,
+    validate_detections_bulk,
 )
 from app.storage import (
     delete_detection_comment,
@@ -384,6 +387,33 @@ def update_detection_comment(
 ) -> DetectionCommentUpdateResponse:
     upsert_detection_comment(detection_id=id, comment=payload.comment)
     return DetectionCommentUpdateResponse(detection_id=id, comment=payload.comment)
+
+
+@app.patch("/detections/bulk/validate", response_model=DetectionBulkValidateResponse)
+def validate_detections_bulk_endpoint(
+    payload: DetectionBulkValidateRequest,
+) -> DetectionBulkValidateResponse:
+    summary = validate_detections_bulk(
+        detection_ids=payload.detection_ids,
+        target_status=payload.target_status,
+    )
+
+    for detection_id in summary.get("updated_detection_ids", []):
+        upsert_detection_status(
+            detection_id=str(detection_id),
+            status=payload.target_status,
+        )
+
+    return DetectionBulkValidateResponse(
+        requested_count=int(summary.get("requested_count", 0)),
+        updated_count=int(summary.get("updated_count", 0)),
+        updated_detection_ids=[str(d) for d in summary.get("updated_detection_ids", [])],
+        missing_detection_ids=[str(d) for d in summary.get("missing_detection_ids", [])],
+        target_status=payload.target_status,
+        files_moved=int(summary.get("files_moved", 0)),
+        files_missing=int(summary.get("files_missing", 0)),
+        files_in_use=int(summary.get("files_in_use", 0)),
+    )
 
 
 @app.patch("/detections/bulk/tags", response_model=DetectionBulkTagsUpdateResponse)

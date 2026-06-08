@@ -144,6 +144,24 @@ class DetectionBulkTagsUpdateResponse(BaseModel):
     tag: str
 
 
+class DetectionBulkValidateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    detection_ids: list[str] = Field(..., min_length=1, alias="detectionIds")
+    target_status: Literal["confirmed", "rejected"] = Field(..., alias="targetStatus")
+
+
+class DetectionBulkValidateResponse(BaseModel):
+    requested_count: int
+    updated_count: int
+    updated_detection_ids: list[str]
+    missing_detection_ids: list[str]
+    target_status: str
+    files_moved: int
+    files_missing: int
+    files_in_use: int
+
+
 class AnalysisImageDeleteResponse(BaseModel):
     image_id: str
     image_deleted: bool
