@@ -3817,29 +3817,32 @@ export default function App() {
                     {RESOLUTION_DESCRIPTION_MAP[resolutionMode]} (ok. {RESOLUTION_MPP_MAP[resolutionMode].toFixed(2)} mpp)
                   </div>
 
-                  <div className="small text-muted mb-2">Liczba próbek</div>
-                  <div className="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Liczba próbek analizy">
-                    <button
-                      type="button"
-                      className={`btn ${numSamples === 1 ? "btn-primary" : "btn-outline-primary"}`}
-                      onClick={() => setNumSamples(1)}
-                    >
-                      1
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn ${numSamples === 5 ? "btn-primary" : "btn-outline-primary"}`}
-                      onClick={() => setNumSamples(5)}
-                    >
-                      5
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn ${numSamples === 10 ? "btn-primary" : "btn-outline-primary"}`}
-                      onClick={() => setNumSamples(10)}
-                    >
-                      10
-                    </button>
+                  <div className="small text-muted mb-2">Liczba próbek ({numSamples})</div>
+                  <div className="d-flex align-items-center gap-2 mb-2">
+                    <input
+                      className="form-range flex-grow-1"
+                      type="range"
+                      min="1"
+                      max="20"
+                      step="1"
+                      value={numSamples}
+                      onChange={(event) => setNumSamples(Number(event.target.value))}
+                      aria-label="Liczba próbek analizy"
+                    />
+                    <input
+                      className="form-control form-control-sm"
+                      type="number"
+                      min="1"
+                      max="20"
+                      step="1"
+                      value={numSamples}
+                      onChange={(event) => {
+                        const v = Math.max(1, Math.min(20, Number(event.target.value) || 1));
+                        setNumSamples(v);
+                      }}
+                      style={{ width: "4rem" }}
+                      aria-label="Wpisz liczbę próbek"
+                    />
                   </div>
                   <div className="small text-muted mb-3">Więcej próbek = dłuższa analiza</div>
 
