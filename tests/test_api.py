@@ -268,8 +268,17 @@ def test_local_analysis_runs_on_validation_images(tmp_path, monkeypatch) -> None
         assert bbox["y"] + bbox["height"] <= 90
 
     stored = pd.read_parquet(detections_parquet_file)
-    assert len(stored) == 2
-    assert set(stored["analysis_id"]) == {payload["analysis_id"]}
+    detection_rows = stored[
+        stored["detection_id"].fillna("").astype(str).str.strip() != ""
+    ]
+    image_rows = stored[
+        stored["image_id"].fillna("").astype(str).str.strip() != ""
+    ]
+    assert len(detection_rows) == 2
+    assert len(image_rows) == 2
+    assert set(stored["analysis_id"].fillna("").astype(str).str.strip()) == {
+        payload["analysis_id"]
+    }
 
 
 def test_local_analysis_returns_404_when_validation_folder_has_no_images(tmp_path, monkeypatch) -> None:

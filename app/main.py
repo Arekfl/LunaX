@@ -357,6 +357,25 @@ def run_local_validation_analysis(payload: LocalValidationRunRequest) -> Analysi
         ]
         filtered_detections.extend(sample_filtered_detections)
 
+        sample_status = "to_verify" if sample_filtered_detections else "no_detection"
+        try:
+            save_analysis_image_and_metadata(
+                local_image,
+                analysis_id=analysis_id,
+                # Local validation images do not have geo coordinates.
+                lon=0.0,
+                lat=0.0,
+                resolution="detail",
+                status=sample_status,
+                timestamp=analysis_timestamp,
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging for IO layer
+            logger.warning(
+                "Could not persist local validation analysis image metadata for %s: %s",
+                image_path,
+                exc,
+            )
+
     try:
         save_detections_to_parquet(
             filtered_detections,

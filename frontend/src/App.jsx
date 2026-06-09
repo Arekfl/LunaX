@@ -321,10 +321,45 @@ function normalizeBBoxToPixelMinMax(bbox, originalWidth, originalHeight) {
     parsedBBox.xMax <= 1 &&
     parsedBBox.yMax <= 1;
 
-  const xMinRaw = isYOLO01 ? parsedBBox.xMin * originalWidth : parsedBBox.xMin;
-  const yMinRaw = isYOLO01 ? parsedBBox.yMin * originalHeight : parsedBBox.yMin;
-  const xMaxRaw = isYOLO01 ? parsedBBox.xMax * originalWidth : parsedBBox.xMax;
-  const yMaxRaw = isYOLO01 ? parsedBBox.yMax * originalHeight : parsedBBox.yMax;
+  const isGeo180x90 =
+    parsedBBox.xMin >= 0 &&
+    parsedBBox.yMin >= 0 &&
+    parsedBBox.xMax >= 0 &&
+    parsedBBox.yMax >= 0 &&
+    parsedBBox.xMin <= 180 &&
+    parsedBBox.xMax <= 180 &&
+    parsedBBox.yMin <= 90 &&
+    parsedBBox.yMax <= 90 &&
+    (originalWidth > 180 || originalHeight > 90);
+
+  const isGeoLonLat =
+    parsedBBox.xMin >= -180 &&
+    parsedBBox.xMax <= 180 &&
+    parsedBBox.yMin >= -90 &&
+    parsedBBox.yMax <= 90 &&
+    (parsedBBox.xMin < 0 || parsedBBox.yMin < 0);
+
+  let xMinRaw = parsedBBox.xMin;
+  let yMinRaw = parsedBBox.yMin;
+  let xMaxRaw = parsedBBox.xMax;
+  let yMaxRaw = parsedBBox.yMax;
+
+  if (isYOLO01) {
+    xMinRaw = parsedBBox.xMin * originalWidth;
+    yMinRaw = parsedBBox.yMin * originalHeight;
+    xMaxRaw = parsedBBox.xMax * originalWidth;
+    yMaxRaw = parsedBBox.yMax * originalHeight;
+  } else if (isGeo180x90) {
+    xMinRaw = (parsedBBox.xMin / 180) * originalWidth;
+    yMinRaw = (parsedBBox.yMin / 90) * originalHeight;
+    xMaxRaw = (parsedBBox.xMax / 180) * originalWidth;
+    yMaxRaw = (parsedBBox.yMax / 90) * originalHeight;
+  } else if (isGeoLonLat) {
+    xMinRaw = ((parsedBBox.xMin + 180) / 360) * originalWidth;
+    yMinRaw = ((parsedBBox.yMin + 90) / 180) * originalHeight;
+    xMaxRaw = ((parsedBBox.xMax + 180) / 360) * originalWidth;
+    yMaxRaw = ((parsedBBox.yMax + 90) / 180) * originalHeight;
+  }
 
   const xMin = clampValue(Math.min(xMinRaw, xMaxRaw), 0, originalWidth);
   const yMin = clampValue(Math.min(yMinRaw, yMaxRaw), 0, originalHeight);
@@ -2168,6 +2203,11 @@ export default function App() {
       setCurrentAnalysisId(analysisId);
       setSelectedAnalysisFilter(buildAnalysisFilterValue(analysisId));
       setDetections(detectionsWithStatus);
+      try {
+        await fetchAnalysisImages();
+      } catch (refreshError) {
+        console.warn("Nie udało się odświeżyć listy zapisanych obrazów analizy:", refreshError);
+      }
       setSelectedDetection(null);
       setAnalysisStatus("success");
       const statusSummary = formatDetectionStatusSummary(detectionsWithStatus);
