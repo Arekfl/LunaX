@@ -504,9 +504,15 @@ def test_analysis_run_saves_images_and_metadata_per_sample_when_detections_exist
         metadata["image_id"].notna()
         & (metadata["image_id"].astype(str).str.strip() != "")
     ]
+    detection_rows = pd.read_parquet(detections_parquet_file)
+    detection_rows = detection_rows[
+        detection_rows["detection_id"].fillna("").astype(str).str.strip() != ""
+    ]
     assert len(metadata) == 3
+    assert len(detection_rows) == 3
     assert set(metadata["status"]) == {"to_verify"}
     assert set(metadata["analysis_id"]) == {payload["analysis_id"]}
+    assert detection_rows["timestamp"].nunique(dropna=True) == 3
     assert set(metadata["resolution"]) == {"detail"}
     assert metadata[["lat", "lon"]].drop_duplicates().shape[0] == 3
     assert all(Path(path_value).exists() for path_value in metadata["path"])

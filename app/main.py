@@ -201,12 +201,12 @@ def _pixel_bbox_to_display_bbox(
 @app.post("/analysis/run", response_model=AnalysisRunResponse)
 def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
     analysis_id = str(uuid4())
-    analysis_timestamp = datetime.now(timezone.utc).isoformat()
     geo_bbox = _normalize_analysis_bbox_to_geo(payload.bbox)
 
     filtered_detections: list[Detection] = []
     sample_download_errors: list[str] = []
     for sample_index in range(payload.num_samples):
+        sample_timestamp = datetime.now(timezone.utc).isoformat()
         sample_bbox = _build_sample_bbox(geo_bbox, sample_index, payload.num_samples)
         center_lon = (sample_bbox[0] + sample_bbox[2]) / 2.0
         center_lat = (sample_bbox[1] + sample_bbox[3]) / 2.0
@@ -255,6 +255,14 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
 
         if sample_filtered_detections:
             filtered_detections.extend(sample_filtered_detections)
+            try:
+                save_detections_to_parquet(
+                    sample_filtered_detections,
+                    resolution_mode=payload.resolution_mode,
+                    timestamp=sample_timestamp,
+                )
+            except Exception as exc:  # pragma: no cover - defensive logging for IO layer
+                logger.warning("Could not persist detections to parquet: %s", exc)
 
         try:
             save_analysis_image_and_metadata(
@@ -264,7 +272,7 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
                 lat=center_lat,
                 resolution=payload.resolution_mode,
                 status=sample_status,
-                timestamp=analysis_timestamp,
+                timestamp=sample_timestamp,
             )
         except Exception as exc:  # pragma: no cover - defensive logging for IO layer
             logger.warning("Could not persist analysis image metadata: %s", exc)
@@ -277,15 +285,6 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
                 f"{sample_download_errors[0]}"
             ),
         )
-
-    try:
-        save_detections_to_parquet(
-            filtered_detections,
-            resolution_mode=payload.resolution_mode,
-            timestamp=analysis_timestamp,
-        )
-    except Exception as exc:  # pragma: no cover - defensive logging for IO layer
-        logger.warning("Could not persist detections to parquet: %s", exc)
 
     return AnalysisRunResponse(
         analysis_id=analysis_id,

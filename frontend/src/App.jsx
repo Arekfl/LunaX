@@ -1091,11 +1091,14 @@ export default function App() {
     typeof chosenMessage === "string" &&
     chosenMessage.startsWith("Brak pokrycia danych dla tej warstwy i obszaru.");
   const showDetectedResultsInGallery = useCallback(
-    (analysisLabel, analysisId, detectionCount, statusSummary) => {
+    (analysisLabel, analysisId, detectionCount, statusSummary, imageCount = null) => {
       setViewMode("gallery");
+      const imageSummary = Number.isFinite(imageCount)
+        ? ` na ${imageCount} obraz(ach)`
+        : "";
       setNotification({
         type: "success",
-        message: `Znaleziono ${detectionCount} detekcji – pokazuję wyniki w galerii`,
+        message: `Znaleziono ${detectionCount} detekcji${imageSummary}`,
       });
       setChosenMessage(
         `${analysisLabel} ${analysisId} zakończona. ${statusSummary}`
@@ -2119,8 +2122,12 @@ export default function App() {
       setCurrentAnalysisId(analysisId);
       setSelectedAnalysisFilter(buildAnalysisFilterValue(analysisId));
       setDetections(detectionsWithStatus);
+      let analyzedImageCount = 0;
       try {
-        await fetchAnalysisImages();
+        const refreshedImages = await fetchAnalysisImages();
+        analyzedImageCount = refreshedImages.filter(
+          (image) => normalizeAnalysisId(image?.analysis_id) === analysisId
+        ).length;
       } catch (refreshError) {
         console.warn("Nie udało się odświeżyć listy zapisanych obrazów analizy:", refreshError);
       }
@@ -2143,7 +2150,8 @@ export default function App() {
         "Analiza",
         analysisId,
         detectionsWithStatus.length,
-        statusSummary
+        statusSummary,
+        analyzedImageCount
       );
     } catch (error) {
       console.error("Błąd podczas pobierania detekcji:", error);
