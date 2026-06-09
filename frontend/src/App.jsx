@@ -1027,6 +1027,7 @@ export default function App() {
   const [isNoDetectionBulkTagging, setIsNoDetectionBulkTagging] = useState(false);
   const [currentAnalysisId, setCurrentAnalysisId] = useState(null);
   const [isLoadingDetections, setIsLoadingDetections] = useState(false);
+  const [activeAnalysisAction, setActiveAnalysisAction] = useState(null);
   const [analysisStatus, setAnalysisStatus] = useState(null);
   const [showAnalysisPoints, setShowAnalysisPoints] = useState(true);
   const [showGalleryBbox, setShowGalleryBbox] = useState(false);
@@ -2040,6 +2041,7 @@ export default function App() {
     }
 
     setNotification(null);
+    setActiveAnalysisAction("remote");
     setIsLoadingDetections(true);
     setAnalysisStatus("loading");
 
@@ -2175,11 +2177,13 @@ export default function App() {
       setSelectedDetection(null);
     } finally {
       setIsLoadingDetections(false);
+      setActiveAnalysisAction(null);
     }
   };
 
   const handleLocalAnalysis = async () => {
     setNotification(null);
+    setActiveAnalysisAction("local");
     setIsLoadingDetections(true);
     setAnalysisStatus("loading");
 
@@ -2302,6 +2306,7 @@ export default function App() {
       setSelectedDetection(null);
     } finally {
       setIsLoadingDetections(false);
+      setActiveAnalysisAction(null);
     }
   };
 
@@ -3887,10 +3892,10 @@ export default function App() {
                     onClick={handleChooseArea}
                     disabled={isLoadingDetections}
                   >
-                    {isLoadingDetections && (
+                    {isLoadingDetections && activeAnalysisAction === "remote" && (
                       <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
                     )}
-                    <span>{isLoadingDetections ? "Analizowanie..." : "Uruchom analizę"}</span>
+                    <span>{isLoadingDetections && activeAnalysisAction === "remote" ? "Analizowanie..." : "Uruchom analizę"}</span>
                   </button>
 
                   <button
@@ -3898,10 +3903,10 @@ export default function App() {
                     onClick={handleLocalAnalysis}
                     disabled={isLoadingDetections}
                   >
-                    {isLoadingDetections && (
+                    {isLoadingDetections && activeAnalysisAction === "local" && (
                       <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
                     )}
-                    <span>{isLoadingDetections ? "Analizowanie..." : "Analiza lokalna"}</span>
+                    <span>{isLoadingDetections && activeAnalysisAction === "local" ? "Analizowanie..." : "Analiza lokalna"}</span>
                   </button>
 
                   <button className="btn btn-outline-secondary w-100 mb-3" onClick={handleResetHomeView}>
