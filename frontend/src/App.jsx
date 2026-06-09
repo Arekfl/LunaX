@@ -303,6 +303,42 @@ function resolveAnalysisImageForDetection(detection, analysisImageList) {
   })[0] ?? null;
 }
 
+function getDetectionImageId(detection, analysisImageList = []) {
+  if (!detection || typeof detection !== "object") {
+    return "";
+  }
+
+  const directImageId = String(
+    detection.image_id || detection.analysis_image_id || detection.no_detection_image_id || ""
+  ).trim();
+  if (directImageId) {
+    return directImageId;
+  }
+
+  const resolvedImage = resolveAnalysisImageForDetection(detection, analysisImageList);
+  return String(resolvedImage?.image_id || "").trim();
+}
+
+function countDetectedImages(detectionList, analysisImageList = []) {
+  if (!Array.isArray(detectionList) || detectionList.length === 0) {
+    return 0;
+  }
+
+  const uniqueImageIds = new Set();
+  for (const detection of detectionList) {
+    const imageId = getDetectionImageId(detection, analysisImageList);
+    if (imageId) {
+      uniqueImageIds.add(imageId);
+    }
+  }
+
+  if (uniqueImageIds.size > 0) {
+    return uniqueImageIds.size;
+  }
+
+  return detectionList.length > 0 ? 1 : 0;
+}
+
 function normalizeBBoxToPixelMinMax(bbox, originalWidth, originalHeight) {
   const parsedBBox = parseBBoxToMinMax(bbox);
   if (!parsedBBox) {
@@ -816,43 +852,6 @@ function applyStatusesToDetections(detectionList, statusMap) {
   }));
 }
 
-function getDetectionStatusCounts(detectionList) {
-  const counts = {
-    confirmed: 0,
-    to_verify: 0,
-    approved: 0,
-  };
-
-  for (const detection of detectionList) {
-    const normalizedStatus =
-      typeof detection?.status === "string" ? detection.status.trim().toLowerCase() : "";
-
-    if (normalizedStatus === "confirmed") {
-      counts.confirmed += 1;
-      continue;
-    }
-
-    if (normalizedStatus === "to_verify") {
-      counts.to_verify += 1;
-      continue;
-    }
-
-    if (normalizedStatus === "approved") {
-      counts.approved += 1;
-    }
-  }
-
-  return counts;
-}
-
-function formatDetectionStatusSummary(detectionList) {
-  const counts = getDetectionStatusCounts(detectionList);
-  return (
-    `Statusy: confirmed ${counts.confirmed}, ` +
-    `to_verify ${counts.to_verify}, approved ${counts.approved}.`
-  );
-}
-
 function getStatusColor(status) {
   return STATUS_COLOR_MAP[status] ?? STATUS_COLOR_MAP[DEFAULT_DETECTION_STATUS];
 }
@@ -900,34 +899,6 @@ function triggerTextDownload(content, fileName, mimeType) {
   linkElement.click();
   document.body.removeChild(linkElement);
   URL.revokeObjectURL(downloadUrl);
-}
-
-function NotificationToast({ notification, onClose }) {
-  if (!notification?.message) {
-    return null;
-  }
-
-  const tone = String(notification?.tone || "info").trim().toLowerCase();
-  const toneClass =
-    tone === "success"
-      ? "notification-toast-success"
-      : tone === "warning"
-        ? "notification-toast-warning"
-        : "notification-toast-info";
-
-  return (
-    <div className={`notification-toast ${toneClass}`} role="status" aria-live="polite">
-      <div className="notification-toast-message">{notification.message}</div>
-      <button
-        type="button"
-        className="notification-toast-close"
-        onClick={onClose}
-        aria-label="Zamknij powiadomienie"
-      >
-        {"\u00d7"}
-      </button>
-    </div>
-  );
 }
 
 function FitBoundsOnChange({ bounds }) {
@@ -1082,7 +1053,7 @@ export default function App() {
   const [detectionPreviewZoom, setDetectionPreviewZoom] = useState(1);
   const [focusBounds, setFocusBounds] = useState(GEO_BOUNDS);
   const [chosenMessage, setChosenMessage] = useState("");
-  const [notification, setNotification] = useState(null);
+  const [, setNotification] = useState(null);
   const [manualCoords, setManualCoords] = useState({
     xMin: String(LON_MIN),
     yMin: String(LAT_MIN),
@@ -1097,18 +1068,16 @@ export default function App() {
     typeof chosenMessage === "string" &&
     chosenMessage.startsWith("Brak pokrycia danych dla tej warstwy i obszaru.");
   const showDetectedResultsInGallery = useCallback(
-    (analysisLabel, analysisId, detectionCount, statusSummary, imageCount = null) => {
+    (analyzedImageCount, detectionCount, detectedImageCount) => {
       setViewMode("gallery");
-      const imageSummary = Number.isFinite(imageCount)
-        ? ` na ${imageCount} obraz(ach)`
-        : "";
+      const summaryMessage =
+        `Przeanalizowano ${analyzedImageCount} obrazów. ` +
+        `Znaleziono ${detectionCount} detekcji na ${detectedImageCount} obrazach.`;
       setNotification({
         type: "success",
-        message: `Znaleziono ${detectionCount} detekcji${imageSummary}`,
+        message: summaryMessage,
       });
-      setChosenMessage(
-        `${analysisLabel} ${analysisId} zakończona. ${statusSummary}`
-      );
+      setChosenMessage(summaryMessage);
     },
     []
   );
@@ -2179,8 +2148,9 @@ export default function App() {
       setSelectedAnalysisFilter(buildAnalysisFilterValue(analysisId));
       setDetections(detectionsWithStatus);
       let analyzedImageCount = 0;
+      let refreshedImages = [];
       try {
-        const refreshedImages = await fetchAnalysisImages();
+        refreshedImages = await fetchAnalysisImages();
         analyzedImageCount = refreshedImages.filter(
           (image) => normalizeAnalysisId(image?.analysis_id) === analysisId
         ).length;
@@ -2189,26 +2159,18 @@ export default function App() {
       }
       setSelectedDetection(null);
       setAnalysisStatus("success");
-      const statusSummary = formatDetectionStatusSummary(detectionsWithStatus);
-
       if (detectionsWithStatus.length === 0) {
+        const noDetectionMessage = `Przeanalizowano ${analyzedImageCount} obrazów. Brak detekcji.`;
         setNotification({
           type: "warning",
-          message: "Brak detekcji – sprawdź ustawienia lub dane",
+          message: noDetectionMessage,
         });
-        setChosenMessage(
-          `Analiza ${analysisId} zakończona. Brak detekcji dla wybranego obszaru. ${statusSummary}`
-        );
+        setChosenMessage(noDetectionMessage);
         return;
       }
 
-      showDetectedResultsInGallery(
-        "Analiza",
-        analysisId,
-        detectionsWithStatus.length,
-        statusSummary,
-        analyzedImageCount
-      );
+      const detectedImageCount = countDetectedImages(detectionsWithStatus, refreshedImages);
+      showDetectedResultsInGallery(analyzedImageCount, detectionsWithStatus.length, detectedImageCount);
     } catch (error) {
       console.error("Błąd podczas pobierania detekcji:", error);
       const errorMessage =
@@ -2315,8 +2277,9 @@ export default function App() {
       setSelectedAnalysisFilter(buildAnalysisFilterValue(analysisId));
       setDetections(detectionsWithStatus);
       let analyzedImageCount = 0;
+      let refreshedImages = [];
       try {
-        const refreshedImages = await fetchAnalysisImages();
+        refreshedImages = await fetchAnalysisImages();
         analyzedImageCount = refreshedImages.filter(
           (image) => normalizeAnalysisId(image?.analysis_id) === analysisId
         ).length;
@@ -2325,25 +2288,18 @@ export default function App() {
       }
       setSelectedDetection(null);
       setAnalysisStatus("success");
-      const statusSummary = formatDetectionStatusSummary(detectionsWithStatus);
-
       if (detectionsWithStatus.length === 0) {
+        const noDetectionMessage = `Przeanalizowano ${analyzedImageCount} obrazów. Brak detekcji.`;
         setNotification({
           type: "warning",
-          message: "Brak detekcji – sprawdź ustawienia lub dane",
+          message: noDetectionMessage,
         });
-        setChosenMessage(
-          `Analiza lokalna ${analysisId} zakończona. Przeanalizowano ${analyzedImageCount} obraz(y). Brak detekcji w folderze validation. ${statusSummary}`
-        );
+        setChosenMessage(noDetectionMessage);
         return;
       }
 
-      setViewMode("gallery");
-      setNotification({
-        type: "success",
-        message: `Znaleziono ${detectionsWithStatus.length} detekcji na ${analyzedImageCount} obraz(ach)`,
-      });
-      setChosenMessage(`Analiza lokalna ${analysisId} zakończona. ${statusSummary}`);
+      const detectedImageCount = countDetectedImages(detectionsWithStatus, refreshedImages);
+      showDetectedResultsInGallery(analyzedImageCount, detectionsWithStatus.length, detectedImageCount);
     } catch (error) {
       console.error("Błąd podczas analizy lokalnej:", error);
       const errorMessage =
@@ -3112,15 +3068,6 @@ export default function App() {
           ? Number(runPayload.reanalyzed_count || 0)
           : 0;
       const reanalyzedImageCount = Number.isFinite(reanalyzedCount) ? reanalyzedCount : 0;
-      const missingImageIds =
-        runPayload && typeof runPayload === "object" && Array.isArray(runPayload.missing_image_ids)
-          ? runPayload.missing_image_ids.map((imageId) => String(imageId || "").trim()).filter(Boolean)
-          : [];
-      const failedImageIds =
-        runPayload && typeof runPayload === "object" && Array.isArray(runPayload.failed_image_ids)
-          ? runPayload.failed_image_ids.map((imageId) => String(imageId || "").trim()).filter(Boolean)
-          : [];
-
       if (!analysisId) {
         throw new Error("Missing analysis_id in /analysis/reanalyze response");
       }
@@ -3143,23 +3090,26 @@ export default function App() {
       setSelectedIds([]);
       setSelectedNoDetectionImageIds([]);
 
+      let refreshedImages = [];
       try {
-        await fetchAnalysisImages();
+        refreshedImages = await fetchAnalysisImages();
       } catch (refreshError) {
         console.warn("Nie udało się odświeżyć obrazów po re-analizie:", refreshError);
       }
 
-      const missingSummary = missingImageIds.length > 0 ? ` Brak obrazów: ${missingImageIds.length}.` : "";
-      const failedSummary = failedImageIds.length > 0 ? ` Błędy odczytu: ${failedImageIds.length}.` : "";
       const detectionsCount = detectionsWithStatus.length;
 
-      setNotification({
-        tone: "success",
-        message: `Znaleziono ${detectionsCount} detekcji na ${reanalyzedImageCount} obrazach`,
-      });
-      setChosenMessage(
-        `Re-analiza ${analysisId} zakończona. Znaleziono ${detectionsCount} detekcji na ${reanalyzedImageCount} obrazach.${missingSummary}${failedSummary}`
-      );
+      if (detectionsCount === 0) {
+        const noDetectionMessage = `Przeanalizowano ${reanalyzedImageCount} obrazów. Brak detekcji.`;
+        setNotification({
+          type: "warning",
+          message: noDetectionMessage,
+        });
+        setChosenMessage(noDetectionMessage);
+      } else {
+        const detectedImageCount = countDetectedImages(detectionsWithStatus, refreshedImages);
+        showDetectedResultsInGallery(reanalyzedImageCount, detectionsCount, detectedImageCount);
+      }
     } catch (error) {
       console.error("Błąd podczas re-analizy:", error);
       const errorMessage =
@@ -3566,7 +3516,6 @@ export default function App() {
 
   return (
     <div className="container-fluid py-3 app-shell">
-      <NotificationToast notification={notification} onClose={() => setNotification(null)} />
       <div className="row g-3 app-main-row">
         <div className="col-lg-6 col-xl-8">
           <div className={viewMode === "map" ? "" : "d-none"}>
