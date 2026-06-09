@@ -416,12 +416,15 @@ body {
   padding: 0.4rem;
   background: #f8fafc;
   text-align: center;
+  overflow: auto;
+  max-height: 62vh;
 }
 
 .detection-preview-image-stage {
   position: relative;
   display: inline-block;
   line-height: 0;
+  transform-origin: top center;
 }
 
 .detection-preview-image,

@@ -36,6 +36,9 @@ const ANALYSIS_FILTER_LATEST = "__latest__";
 const SIDEBAR_TAB_DETECTIONS = "detections";
 const SIDEBAR_TAB_ANALYSIS = "analysis";
 const SIDEBAR_TAB_NAVIGATION = "navigation";
+const DETECTION_PREVIEW_ZOOM_MIN = 0.5;
+const DETECTION_PREVIEW_ZOOM_MAX = 4;
+const DETECTION_PREVIEW_ZOOM_STEP = 0.25;
 const DETECTION_BBOX_PROXIMITY_THRESHOLD = 12;
 const NO_DETECTIONS_FILTER = "no_detections";
 const RESOLUTION_DESCRIPTION_MAP = {
@@ -1074,6 +1077,7 @@ export default function App() {
     displayWidth: 0,
     displayHeight: 0,
   });
+  const [detectionPreviewZoom, setDetectionPreviewZoom] = useState(1);
   const [focusBounds, setFocusBounds] = useState(GEO_BOUNDS);
   const [chosenMessage, setChosenMessage] = useState("");
   const [notification, setNotification] = useState(null);
@@ -2500,6 +2504,7 @@ export default function App() {
       displayWidth: 0,
       displayHeight: 0,
     });
+    setDetectionPreviewZoom(1);
     setDetectionPreviewModal({
       isOpen: true,
       detection,
@@ -2515,6 +2520,7 @@ export default function App() {
       displayWidth: 0,
       displayHeight: 0,
     });
+    setDetectionPreviewZoom(1);
     setDetectionPreviewModal((prevModal) => ({ ...prevModal, isOpen: false }));
   };
 
@@ -2523,6 +2529,22 @@ export default function App() {
       ...prevModal,
       showBBoxPreview: !prevModal.showBBoxPreview,
     }));
+  };
+
+  const handleDetectionPreviewZoomOut = () => {
+    setDetectionPreviewZoom((prevZoom) =>
+      Math.max(DETECTION_PREVIEW_ZOOM_MIN, Number((prevZoom - DETECTION_PREVIEW_ZOOM_STEP).toFixed(2)))
+    );
+  };
+
+  const handleDetectionPreviewZoomIn = () => {
+    setDetectionPreviewZoom((prevZoom) =>
+      Math.min(DETECTION_PREVIEW_ZOOM_MAX, Number((prevZoom + DETECTION_PREVIEW_ZOOM_STEP).toFixed(2)))
+    );
+  };
+
+  const handleDetectionPreviewZoomReset = () => {
+    setDetectionPreviewZoom(1);
   };
 
   const handleToggleDetectionExpand = (detection) => {
@@ -5099,7 +5121,40 @@ export default function App() {
 
             {detectionPreviewModal.image?.image_id ? (
               <div className="detection-preview-image-wrap mb-2">
-                <div className="detection-preview-image-stage">
+                <div className="d-flex flex-wrap align-items-center justify-content-center gap-2 mb-2">
+                  <span className="small text-muted">Zoom: {Math.round(detectionPreviewZoom * 100)}%</span>
+                  <div className="btn-group btn-group-sm" role="group" aria-label="Sterowanie zoomem podgladu">
+                    <button
+                      type="button"
+                      className="btn btn-outline-secondary"
+                      onClick={handleDetectionPreviewZoomOut}
+                      disabled={detectionPreviewZoom <= DETECTION_PREVIEW_ZOOM_MIN}
+                    >
+                      -
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline-secondary"
+                      onClick={handleDetectionPreviewZoomReset}
+                      disabled={Math.abs(detectionPreviewZoom - 1) < 0.001}
+                    >
+                      100%
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline-secondary"
+                      onClick={handleDetectionPreviewZoomIn}
+                      disabled={detectionPreviewZoom >= DETECTION_PREVIEW_ZOOM_MAX}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  className="detection-preview-image-stage"
+                  style={{ transform: `scale(${detectionPreviewZoom})`, transformOrigin: "top center" }}
+                >
                   <img
                     ref={detectionPreviewImageRef}
                     src={getAnalysisImageUrl(detectionPreviewModal.image.image_id)}
