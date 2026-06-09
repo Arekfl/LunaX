@@ -768,6 +768,48 @@ function getItemTimestampLabel(item) {
   return typeof item?.timestamp === "string" ? item.timestamp.trim() : "";
 }
 
+function formatAnalysisTimestampShort(timestampLabel) {
+  const normalizedTimestamp = typeof timestampLabel === "string" ? timestampLabel.trim() : "";
+  if (!normalizedTimestamp) {
+    return "Brak czasu";
+  }
+
+  const parsedTimestampValue = Date.parse(normalizedTimestamp);
+  if (!Number.isFinite(parsedTimestampValue)) {
+    return "Brak czasu";
+  }
+
+  const parsedDate = new Date(parsedTimestampValue);
+  const now = new Date();
+  const isSameDay =
+    parsedDate.getFullYear() === now.getFullYear() &&
+    parsedDate.getMonth() === now.getMonth() &&
+    parsedDate.getDate() === now.getDate();
+
+  if (isSameDay) {
+    return new Intl.DateTimeFormat("pl-PL", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(parsedDate);
+  }
+
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(parsedDate);
+}
+
+function buildAnalysisOptionTooltip(analysisId, timestampLabel) {
+  const resolvedAnalysisId = normalizeAnalysisId(analysisId);
+  const resolvedTimestamp = typeof timestampLabel === "string" ? timestampLabel.trim() : "";
+
+  return `UUID: ${resolvedAnalysisId || "brak"}\nCzas: ${resolvedTimestamp || "brak"}`;
+}
+
 function extractLatLonFromPath(filePath) {
   const normalizedPath = typeof filePath === "string" ? filePath.trim() : "";
   if (!normalizedPath) {
@@ -1105,10 +1147,8 @@ export default function App() {
   const [focusBounds, setFocusBounds] = useState(GEO_BOUNDS);
   const [chosenMessage, setChosenMessage] = useState("");
   const [manualCoords, setManualCoords] = useState({
-    xMin: String(LON_MIN),
-    yMin: String(LAT_MIN),
-    xMax: String(LON_MAX),
-    yMax: String(LAT_MAX),
+    lon: String((LON_MIN + LON_MAX) / 2),
+    lat: String((LAT_MIN + LAT_MAX) / 2),
   });
 
   const selectedCoords = selectedSegment ? boundsToCoords(selectedSegment.bounds) : null;
@@ -1188,6 +1228,21 @@ export default function App() {
     [detections, storedStatuses]
   );
 
+  const detectionCountsByAnalysisId = useMemo(() => {
+    const countsMap = new Map();
+
+    statusResolvedDetections.forEach((detection) => {
+      const analysisId = normalizeAnalysisId(detection?.analysis_id);
+      if (!analysisId) {
+        return;
+      }
+
+      countsMap.set(analysisId, (countsMap.get(analysisId) ?? 0) + 1);
+    });
+
+    return countsMap;
+  }, [statusResolvedDetections]);
+
   const analysisFilterOptions = useMemo(() => {
     const analysisMap = new Map();
 
@@ -1224,21 +1279,65 @@ export default function App() {
     statusResolvedDetections.forEach(registerAnalysisItem);
     analysisImages.forEach(registerAnalysisItem);
 
-    return Array.from(analysisMap.values()).sort((leftOption, rightOption) => {
-      const timestampDelta = compareNullableNumbers(
-        leftOption.timestampValue,
-        rightOption.timestampValue,
-        "desc"
-      );
-      if (timestampDelta !== 0) {
-        return timestampDelta;
-      }
+    return Array.from(analysisMap.values())
+      .sort((leftOption, rightOption) => {
+        const timestampDelta = compareNullableNumbers(
+          leftOption.timestampValue,
+          rightOption.timestampValue,
+          "desc"
+        );
+        if (timestampDelta !== 0) {
+          return timestampDelta;
+        }
 
-      return rightOption.analysisId.localeCompare(leftOption.analysisId);
-    });
-  }, [statusResolvedDetections, analysisImages]);
+        return rightOption.analysisId.localeCompare(leftOption.analysisId);
+      })
+      .map((option) => {
+        const detectionCount = detectionCountsByAnalysisId.get(option.analysisId) ?? 0;
+        const shortTimestampLabel = formatAnalysisTimestampShort(option.timestampLabel);
+
+        return {
+          ...option,
+          detectionCount,
+          shortTimestampLabel,
+          displayLabel: `${shortTimestampLabel} (${detectionCount})`,
+          tooltipLabel: buildAnalysisOptionTooltip(option.analysisId, option.timestampLabel),
+        };
+      });
+  }, [statusResolvedDetections, analysisImages, detectionCountsByAnalysisId]);
 
   const latestAnalysisOption = analysisFilterOptions[0] ?? null;
+
+  const selectedAnalysisFilterSummary = useMemo(() => {
+    if (selectedAnalysisFilter === ANALYSIS_FILTER_ALL) {
+      return { label: "Wszystkie", title: "Wszystkie analizy" };
+    }
+
+    if (selectedAnalysisFilter === ANALYSIS_FILTER_LATEST) {
+      if (!latestAnalysisOption) {
+        return { label: "Ostatnia", title: "Brak analiz" };
+      }
+
+      return {
+        label: `${latestAnalysisOption.displayLabel} - ostatnia`,
+        title: latestAnalysisOption.tooltipLabel,
+      };
+    }
+
+    const specificAnalysisId = parseAnalysisFilterValue(selectedAnalysisFilter);
+    const selectedOption = analysisFilterOptions.find(
+      (option) => option.analysisId === specificAnalysisId
+    );
+
+    if (selectedOption) {
+      return {
+        label: selectedOption.displayLabel,
+        title: selectedOption.tooltipLabel,
+      };
+    }
+
+    return { label: "Nieznana analiza", title: "Brak danych analizy" };
+  }, [selectedAnalysisFilter, latestAnalysisOption, analysisFilterOptions]);
 
   const resolvedAnalysisFilterId = useMemo(() => {
     if (selectedAnalysisFilter === ANALYSIS_FILTER_ALL) {
@@ -2040,10 +2139,8 @@ export default function App() {
     setSelectedSegment(null);
     setFocusBounds(GEO_BOUNDS);
     setManualCoords({
-      xMin: String(LON_MIN),
-      yMin: String(LAT_MIN),
-      xMax: String(LON_MAX),
-      yMax: String(LAT_MAX),
+      lon: String((LON_MIN + LON_MAX) / 2),
+      lat: String((LAT_MIN + LAT_MAX) / 2),
     });
     setChosenMessage("Widok zresetowany do całej mapy.");
   }, []);
@@ -2069,10 +2166,8 @@ export default function App() {
 
       const coords = boundsToCoords(parentBounds);
       setManualCoords({
-        xMin: String(coords.xMin),
-        yMin: String(coords.yMin),
-        xMax: String(coords.xMax),
-        yMax: String(coords.yMax),
+        lon: String((coords.xMin + coords.xMax) / 2),
+        lat: String((coords.yMin + coords.yMax) / 2),
       });
 
       return nextHistory;
@@ -2092,10 +2187,8 @@ export default function App() {
 
     const coords = boundsToCoords(segment.bounds);
     setManualCoords({
-      xMin: String(coords.xMin),
-      yMin: String(coords.yMin),
-      xMax: String(coords.xMax),
-      yMax: String(coords.yMax),
+      lon: String((coords.xMin + coords.xMax) / 2),
+      lat: String((coords.yMin + coords.yMax) / 2),
     });
   };
 
@@ -2388,26 +2481,32 @@ export default function App() {
   };
 
   const handleGoToManual = () => {
-    const xMin = Number(manualCoords.xMin);
-    const yMin = Number(manualCoords.yMin);
-    const xMax = Number(manualCoords.xMax);
-    const yMax = Number(manualCoords.yMax);
+    const lon = Number(manualCoords.lon);
+    const lat = Number(manualCoords.lat);
 
     const hasInvalidValues =
-      [xMin, yMin, xMax, yMax].some((value) => Number.isNaN(value)) ||
-      xMin < LON_MIN ||
-      yMin < LAT_MIN ||
-      xMax > LON_MAX ||
-      yMax > LAT_MAX ||
-      xMax <= xMin ||
-      yMax <= yMin;
+      [lon, lat].some((value) => Number.isNaN(value)) ||
+      lon < LON_MIN ||
+      lon > LON_MAX ||
+      lat < LAT_MIN ||
+      lat > LAT_MAX;
 
     if (hasInvalidValues) {
       setChosenMessage(
-        `Niepoprawne współrzędne. Zakres: lon ${LON_MIN} do ${LON_MAX}, lat ${LAT_MIN} do ${LAT_MAX}, oraz xMax>xMin i yMax>yMin.`
+        `Niepoprawne współrzędne. Zakres: lon ${LON_MIN} do ${LON_MAX}, lat ${LAT_MIN} do ${LAT_MAX}.`
       );
       return;
     }
+
+    const currentLonSpan = Math.abs(selectedBBox?.[1]?.[1] - selectedBBox?.[0]?.[1]) || GEO_WIDTH;
+    const currentLatSpan = Math.abs(selectedBBox?.[1]?.[0] - selectedBBox?.[0]?.[0]) || GEO_HEIGHT;
+    const halfLonSpan = Math.max(currentLonSpan * 0.1, 0.2);
+    const halfLatSpan = Math.max(currentLatSpan * 0.1, 0.2);
+
+    const xMin = clampValue(lon - halfLonSpan, LON_MIN, LON_MAX);
+    const xMax = clampValue(lon + halfLonSpan, LON_MIN, LON_MAX);
+    const yMin = clampValue(lat - halfLatSpan, LAT_MIN, LAT_MAX);
+    const yMax = clampValue(lat + halfLatSpan, LAT_MIN, LAT_MAX);
 
     const manualBounds = [
       [yMin, xMin],
@@ -2421,7 +2520,7 @@ export default function App() {
       bounds: manualBounds,
     });
     setFocusBounds(manualBounds);
-    setChosenMessage("Przejście do ręcznie wskazanego obszaru.");
+    setChosenMessage(`Przejście do punktu lon ${lon.toFixed(4)}, lat ${lat.toFixed(4)}.`);
   };
 
   const handleStartEditComment = (detection) => {
@@ -4083,8 +4182,8 @@ export default function App() {
                 >
                   <h6 className="sidebar-section-title">Ustawienia analizy</h6>
 
-                  <div className="small text-muted mb-2">Status analizy</div>
                   <div className="small mb-2">
+                    <span className="text-muted">Status analizy:</span>{" "}
                     {analysisStatus === "success"
                       ? "Analiza zakończona"
                       : analysisStatus === "loading"
@@ -4113,6 +4212,39 @@ export default function App() {
                       {chosenMessage}
                     </div>
                   )}
+
+                  <div className="small text-muted mb-2">Wybrany segment i poziom</div>
+                  {selectedSegment ? (
+                    <div className="small mb-2">
+                      <div><strong>ID:</strong> {selectedSegment.id}</div>
+                      {selectedCoords && (
+                        <div className="mt-1">
+                          <div>xMin: {selectedCoords.xMin}, yMin: {selectedCoords.yMin}</div>
+                          <div>xMax: {selectedCoords.xMax}, yMax: {selectedCoords.yMax}</div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="small text-muted mb-2">Brak wybranego segmentu.</div>
+                  )}
+
+                  <div className="form-check form-switch mb-2">
+                    <input
+                      className="form-check-input"
+                      type="checkbox"
+                      id="toggle-lock-level"
+                      checked={isLevelLocked}
+                      onChange={(event) => setIsLevelLocked(event.target.checked)}
+                    />
+                    <label className="form-check-label" htmlFor="toggle-lock-level">
+                      Lock level
+                    </label>
+                  </div>
+
+                  <div className="small text-muted mb-2">
+                    {isLevelLocked ? "Klik tylko zaznacza segment." : "Klik schodzi poziom nizej."}
+                  </div>
+                  <div className="small text-muted mb-3">Poziom siatki: {currentLevel}</div>
 
                   <div className="small text-muted mb-2">Rozdzielczość analizy</div>
                   <div className="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Tryb rozdzielczosci analizy">
@@ -4210,41 +4342,6 @@ export default function App() {
                     ))}
                   </select>
 
-                  <div className="small text-muted mb-2">Wybrany segment i poziom</div>
-                  {selectedSegment ? (
-                    <div className="small mb-2">
-                      <div><strong>ID:</strong> {selectedSegment.id}</div>
-                      {selectedCoords && (
-                        <div className="mt-1">
-                          <div>xMin: {selectedCoords.xMin}</div>
-                          <div>yMin: {selectedCoords.yMin}</div>
-                          <div>xMax: {selectedCoords.xMax}</div>
-                          <div>yMax: {selectedCoords.yMax}</div>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="small text-muted mb-2">Brak wybranego segmentu.</div>
-                  )}
-
-                  <div className="form-check form-switch mb-2">
-                    <input
-                      className="form-check-input"
-                      type="checkbox"
-                      id="toggle-lock-level"
-                      checked={isLevelLocked}
-                      onChange={(event) => setIsLevelLocked(event.target.checked)}
-                    />
-                    <label className="form-check-label" htmlFor="toggle-lock-level">
-                      Lock level
-                    </label>
-                  </div>
-
-                  <div className="small text-muted mb-2">
-                    {isLevelLocked ? "Klik tylko zaznacza segment." : "Klik schodzi poziom nizej."}
-                  </div>
-                  <div className="small text-muted mb-3">Poziom siatki: {currentLevel}</div>
-
                   <button
                     className="btn btn-primary w-100 mb-2 d-flex align-items-center justify-content-center gap-2"
                     onClick={handleRunAnalysisAction}
@@ -4282,6 +4379,19 @@ export default function App() {
                 >
                   <h6 className="sidebar-section-title">Detekcje</h6>
 
+                  <div className="form-check form-switch mb-3">
+                    <input
+                      className="form-check-input"
+                      type="checkbox"
+                      id="toggle-analysis-points-detections"
+                      checked={showAnalysisPoints}
+                      onChange={(event) => setShowAnalysisPoints(event.target.checked)}
+                    />
+                    <label className="form-check-label" htmlFor="toggle-analysis-points-detections">
+                      Pokaż punkty analiz
+                    </label>
+                  </div>
+
                   <div className="d-flex flex-wrap gap-2 small mb-3">
                     <span className="badge text-bg-success">Potwierdzone: {analysisSummaryCounts.confirmed}</span>
                     <span className="badge text-bg-warning">Do weryfikacji: {analysisSummaryCounts.to_verify}</span>
@@ -4291,8 +4401,8 @@ export default function App() {
                   <div className="mb-2">
                     <div className="d-flex justify-content-between align-items-center mb-2">
                       <div className="small text-muted">Filtr analizy</div>
-                      <div className="small text-muted">
-                        {resolvedAnalysisFilterId ? resolvedAnalysisFilterId : "Wszystkie"}
+                      <div className="small text-muted" title={selectedAnalysisFilterSummary.title}>
+                        {selectedAnalysisFilterSummary.label}
                       </div>
                     </div>
                     <label className="form-label form-label-sm mb-1" htmlFor="analysis-filter-select">
@@ -4302,17 +4412,25 @@ export default function App() {
                       id="analysis-filter-select"
                       className="form-select form-select-sm"
                       value={selectedAnalysisFilter}
+                      title={selectedAnalysisFilterSummary.title}
                       onChange={(event) => setSelectedAnalysisFilter(event.target.value)}
                     >
-                      <option value={ANALYSIS_FILTER_LATEST}>Ostatnia</option>
+                      <option
+                        value={ANALYSIS_FILTER_LATEST}
+                        title={latestAnalysisOption?.tooltipLabel ?? "Brak analiz"}
+                      >
+                        {latestAnalysisOption
+                          ? `${latestAnalysisOption.displayLabel} - ostatnia`
+                          : "Ostatnia"}
+                      </option>
                       <option value={ANALYSIS_FILTER_ALL}>Wszystkie</option>
                       {analysisFilterOptions.map((option) => (
                         <option
                           key={`analysis-filter-${option.analysisId}`}
                           value={buildAnalysisFilterValue(option.analysisId)}
+                          title={option.tooltipLabel}
                         >
-                          {option.analysisId}
-                          {option.timestampLabel ? ` (${option.timestampLabel})` : ""}
+                          {option.displayLabel}
                         </option>
                       ))}
                     </select>
@@ -5233,67 +5351,38 @@ export default function App() {
               >
                 <h6 className="sidebar-section-title">Nawigacja</h6>
 
-                <div className="form-check form-switch mb-2">
-                  <input
-                    className="form-check-input"
-                    type="checkbox"
-                    id="toggle-analysis-points-nav"
-                    checked={showAnalysisPoints}
-                    onChange={(event) => setShowAnalysisPoints(event.target.checked)}
-                  />
-                  <label className="form-check-label" htmlFor="toggle-analysis-points-nav">
-                    Pokaż punkty analiz
-                  </label>
-                </div>
-
                 <div className="small text-muted mt-3 mb-2">Przejdz do wspolrzednych</div>
                 <div className="row g-2">
                   <div className="col-6">
+                    <label className="form-label form-label-sm mb-1" htmlFor="manual-lon-input">
+                      Lon
+                    </label>
                     <input
+                      id="manual-lon-input"
                       className="form-control form-control-sm"
                       type="number"
                       step="any"
-                      value={manualCoords.xMin}
+                      value={manualCoords.lon}
                       onChange={(event) =>
-                        setManualCoords((prev) => ({ ...prev, xMin: event.target.value }))
+                        setManualCoords((prev) => ({ ...prev, lon: event.target.value }))
                       }
-                      placeholder="xMin"
+                      placeholder="lon"
                     />
                   </div>
                   <div className="col-6">
+                    <label className="form-label form-label-sm mb-1" htmlFor="manual-lat-input">
+                      Lat
+                    </label>
                     <input
+                      id="manual-lat-input"
                       className="form-control form-control-sm"
                       type="number"
                       step="any"
-                      value={manualCoords.yMin}
+                      value={manualCoords.lat}
                       onChange={(event) =>
-                        setManualCoords((prev) => ({ ...prev, yMin: event.target.value }))
+                        setManualCoords((prev) => ({ ...prev, lat: event.target.value }))
                       }
-                      placeholder="yMin"
-                    />
-                  </div>
-                  <div className="col-6">
-                    <input
-                      className="form-control form-control-sm"
-                      type="number"
-                      step="any"
-                      value={manualCoords.xMax}
-                      onChange={(event) =>
-                        setManualCoords((prev) => ({ ...prev, xMax: event.target.value }))
-                      }
-                      placeholder="xMax"
-                    />
-                  </div>
-                  <div className="col-6">
-                    <input
-                      className="form-control form-control-sm"
-                      type="number"
-                      step="any"
-                      value={manualCoords.yMax}
-                      onChange={(event) =>
-                        setManualCoords((prev) => ({ ...prev, yMax: event.target.value }))
-                      }
-                      placeholder="yMax"
+                      placeholder="lat"
                     />
                   </div>
                 </div>
