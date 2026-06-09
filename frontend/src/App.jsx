@@ -517,7 +517,7 @@ function getDisplayDetectionsForStatus(detectionList, status, options = {}) {
     ? tagsMatched.filter((detection) => detectionToBounds(detection))
     : tagsMatched;
 
-  return deduplicateDetectionsByProximity(scopeMatched, DETECTION_BBOX_PROXIMITY_THRESHOLD);
+  return scopeMatched;
 }
 
 function buildAnalysisMarkers(imageList) {
@@ -1573,6 +1573,35 @@ export default function App() {
     return mergedDetections;
   }, [fetchDetectionStatuses, backendSortBy, backendSortOrder]);
 
+  const fetchDetectionsForAnalysis = useCallback(
+    async (analysisId, statusMapOverride = null) => {
+      const normalizedAnalysisId = String(analysisId || "").trim();
+      if (!normalizedAnalysisId) {
+        return [];
+      }
+
+      const queryParams = new URLSearchParams({
+        analysis_id: normalizedAnalysisId,
+        sortBy: backendSortBy,
+        sortOrder: backendSortOrder,
+      });
+
+      const detectionsResponse = await fetch(
+        `${API_BASE_URL}/detections/query?${queryParams.toString()}`
+      );
+
+      if (!detectionsResponse.ok) {
+        throw new Error(`Detections query HTTP ${detectionsResponse.status}`);
+      }
+
+      const detectionsPayload = await detectionsResponse.json();
+      const queriedDetections = Array.isArray(detectionsPayload) ? detectionsPayload : [];
+      const statusMap = statusMapOverride ?? (await fetchDetectionStatuses());
+      return applyStatusesToDetections(queriedDetections, statusMap);
+    },
+    [backendSortBy, backendSortOrder, fetchDetectionStatuses]
+  );
+
   useEffect(() => {
     if (availableQuickSortFields.length === 0) {
       return;
@@ -2053,7 +2082,15 @@ export default function App() {
       }
 
       const statusMap = await fetchDetectionStatuses();
-      const detectionsWithStatus = applyStatusesToDetections(runDetections, statusMap);
+      let detectionsWithStatus = applyStatusesToDetections(runDetections, statusMap);
+      try {
+        const persistedDetections = await fetchDetectionsForAnalysis(analysisId, statusMap);
+        if (persistedDetections.length > 0 || runDetections.length === 0) {
+          detectionsWithStatus = persistedDetections;
+        }
+      } catch (refreshError) {
+        console.warn("Nie udało się odświeżyć detekcji dla aktualnej analizy:", refreshError);
+      }
       const visibleWithCurrentFilter = getDisplayDetectionsForStatus(
         detectionsWithStatus,
         statusFilter,
@@ -2174,7 +2211,15 @@ export default function App() {
       }
 
       const statusMap = await fetchDetectionStatuses();
-      const detectionsWithStatus = applyStatusesToDetections(runDetections, statusMap);
+      let detectionsWithStatus = applyStatusesToDetections(runDetections, statusMap);
+      try {
+        const persistedDetections = await fetchDetectionsForAnalysis(analysisId, statusMap);
+        if (persistedDetections.length > 0 || runDetections.length === 0) {
+          detectionsWithStatus = persistedDetections;
+        }
+      } catch (refreshError) {
+        console.warn("Nie udało się odświeżyć detekcji dla aktualnej analizy:", refreshError);
+      }
       const visibleWithCurrentFilter = getDisplayDetectionsForStatus(
         detectionsWithStatus,
         statusFilter,
@@ -2203,8 +2248,12 @@ export default function App() {
       setCurrentAnalysisId(analysisId);
       setSelectedAnalysisFilter(buildAnalysisFilterValue(analysisId));
       setDetections(detectionsWithStatus);
+      let analyzedImageCount = 0;
       try {
-        await fetchAnalysisImages();
+        const refreshedImages = await fetchAnalysisImages();
+        analyzedImageCount = refreshedImages.filter(
+          (image) => normalizeAnalysisId(image?.analysis_id) === analysisId
+        ).length;
       } catch (refreshError) {
         console.warn("Nie udało się odświeżyć listy zapisanych obrazów analizy:", refreshError);
       }
@@ -2218,17 +2267,17 @@ export default function App() {
           message: "Brak detekcji – sprawdź ustawienia lub dane",
         });
         setChosenMessage(
-          `Analiza lokalna ${analysisId} zakończona. Brak detekcji w folderze validation. ${statusSummary}`
+          `Analiza lokalna ${analysisId} zakończona. Przeanalizowano ${analyzedImageCount} obraz(y). Brak detekcji w folderze validation. ${statusSummary}`
         );
         return;
       }
 
-      showDetectedResultsInGallery(
-        "Analiza lokalna",
-        analysisId,
-        detectionsWithStatus.length,
-        statusSummary
-      );
+      setViewMode("gallery");
+      setNotification({
+        type: "success",
+        message: `Znaleziono ${detectionsWithStatus.length} detekcji na ${analyzedImageCount} obraz(ach)`,
+      });
+      setChosenMessage(`Analiza lokalna ${analysisId} zakończona. ${statusSummary}`);
     } catch (error) {
       console.error("Błąd podczas analizy lokalnej:", error);
       const errorMessage =

@@ -297,7 +297,6 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
 @app.post("/analysis/local-run", response_model=AnalysisRunResponse)
 def run_local_validation_analysis(payload: LocalValidationRunRequest) -> AnalysisRunResponse:
     analysis_id = str(uuid4())
-    analysis_timestamp = datetime.now(timezone.utc).isoformat()
 
     validation_dir = _get_validation_image_dir()
     validation_images = _get_validation_image_paths(validation_dir)
@@ -309,6 +308,7 @@ def run_local_validation_analysis(payload: LocalValidationRunRequest) -> Analysi
 
     filtered_detections: list[Detection] = []
     for image_path in validation_images:
+        sample_timestamp = datetime.now(timezone.utc).isoformat()
         try:
             with Image.open(image_path) as opened_image:
                 local_image = opened_image.convert("RGB")
@@ -357,6 +357,20 @@ def run_local_validation_analysis(payload: LocalValidationRunRequest) -> Analysi
         ]
         filtered_detections.extend(sample_filtered_detections)
 
+        if sample_filtered_detections:
+            try:
+                save_detections_to_parquet(
+                    sample_filtered_detections,
+                    resolution_mode="detail",
+                    timestamp=sample_timestamp,
+                )
+            except Exception as exc:  # pragma: no cover - defensive logging for IO layer
+                logger.warning(
+                    "Could not persist local validation detections to parquet for %s: %s",
+                    image_path,
+                    exc,
+                )
+
         sample_status = "to_verify" if sample_filtered_detections else "no_detection"
         try:
             save_analysis_image_and_metadata(
@@ -367,7 +381,7 @@ def run_local_validation_analysis(payload: LocalValidationRunRequest) -> Analysi
                 lat=0.0,
                 resolution="detail",
                 status=sample_status,
-                timestamp=analysis_timestamp,
+                timestamp=sample_timestamp,
             )
         except Exception as exc:  # pragma: no cover - defensive logging for IO layer
             logger.warning(
@@ -375,15 +389,6 @@ def run_local_validation_analysis(payload: LocalValidationRunRequest) -> Analysi
                 image_path,
                 exc,
             )
-
-    try:
-        save_detections_to_parquet(
-            filtered_detections,
-            resolution_mode="detail",
-            timestamp=analysis_timestamp,
-        )
-    except Exception as exc:  # pragma: no cover - defensive logging for IO layer
-        logger.warning("Could not persist local validation detections to parquet: %s", exc)
 
     return AnalysisRunResponse(
         analysis_id=analysis_id,

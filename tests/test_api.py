@@ -279,6 +279,7 @@ def test_local_analysis_runs_on_validation_images(tmp_path, monkeypatch) -> None
     assert set(stored["analysis_id"].fillna("").astype(str).str.strip()) == {
         payload["analysis_id"]
     }
+    assert detection_rows["timestamp"].nunique(dropna=True) == 2
 
 
 def test_local_analysis_returns_404_when_validation_folder_has_no_images(tmp_path, monkeypatch) -> None:
