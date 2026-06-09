@@ -4058,33 +4058,36 @@ export default function App() {
                 >
                   <h6 className="sidebar-section-title">Ustawienia analizy</h6>
 
-                  <button
-                    className="btn btn-primary w-100 mb-2 d-flex align-items-center justify-content-center gap-2"
-                    onClick={handleRunAnalysisAction}
-                    disabled={isLoadingDetections || isReanalyzing}
-                  >
-                    {(isLoadingDetections && activeAnalysisAction === "remote") || isReanalyzing ? (
-                      <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                    ) : null}
-                    <span>
-                      {isLoadingDetections && activeAnalysisAction === "remote"
-                        ? "Analizowanie..."
-                        : isReanalyzing
-                          ? "Re-analizowanie..."
-                          : "Uruchom analizę"}
-                    </span>
-                  </button>
+                  <div className="small text-muted mb-2">Status analizy</div>
+                  <div className="small mb-2">
+                    {analysisStatus === "success"
+                      ? "Analiza zakończona"
+                      : analysisStatus === "loading"
+                        ? "Analiza w toku"
+                        : analysisStatus === "error"
+                          ? "Błąd analizy"
+                          : "Brak aktywnej analizy"}
+                  </div>
 
-                  <button
-                    className="btn btn-outline-primary w-100 mb-2 d-flex align-items-center justify-content-center gap-2"
-                    onClick={handleLocalAnalysis}
-                    disabled={isLoadingDetections}
-                  >
-                    {isLoadingDetections && activeAnalysisAction === "local" && (
-                      <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                    )}
-                    <span>{isLoadingDetections && activeAnalysisAction === "local" ? "Analizowanie..." : "Analiza lokalna"}</span>
-                  </button>
+                  {resolvedAnalysisFilterId && (
+                    <div className="small text-muted mb-2">
+                      <div>
+                        Analiza: <strong>{resolvedAnalysisFilterId}</strong>
+                        {selectedAnalysisFilter === ANALYSIS_FILTER_LATEST ? " (ostatnia)" : ""}
+                      </div>
+                      {activeAnalysisFilterOption?.timestampLabel && (
+                        <div>Timestamp: {activeAnalysisFilterOption.timestampLabel}</div>
+                      )}
+                    </div>
+                  )}
+
+                  {chosenMessage && (
+                    <div
+                      className={`alert ${isNoCoverageChosenMessage ? "alert-warning" : "alert-info"} py-2 mb-3`}
+                    >
+                      {chosenMessage}
+                    </div>
+                  )}
 
                   <div className="small text-muted mb-2">Rozdzielczość analizy</div>
                   <div className="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Tryb rozdzielczosci analizy">
@@ -4141,7 +4144,6 @@ export default function App() {
                       aria-label="Wpisz liczbę próbek"
                     />
                   </div>
-                  <div className="small text-muted mb-3">Więcej próbek = dłuższa analiza</div>
 
                   <div className="small text-muted mb-2">Confidence threshold ({confidenceThreshold.toFixed(2)})</div>
                   <div className="d-flex align-items-center gap-2 mb-3">
@@ -4218,42 +4220,33 @@ export default function App() {
                   </div>
                   <div className="small text-muted mb-3">Poziom siatki: {currentLevel}</div>
 
-                  <div className="small text-muted mb-2">Status analizy</div>
-                  <div className="small mb-2">
-                    {analysisStatus === "success"
-                      ? "Analiza zakończona"
-                      : analysisStatus === "loading"
-                        ? "Analiza w toku"
-                        : analysisStatus === "error"
-                          ? "Błąd analizy"
-                          : "Brak aktywnej analizy"}
-                  </div>
+                  <button
+                    className="btn btn-primary w-100 mb-2 d-flex align-items-center justify-content-center gap-2"
+                    onClick={handleRunAnalysisAction}
+                    disabled={isLoadingDetections || isReanalyzing}
+                  >
+                    {(isLoadingDetections && activeAnalysisAction === "remote") || isReanalyzing ? (
+                      <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                    ) : null}
+                    <span>
+                      {isLoadingDetections && activeAnalysisAction === "remote"
+                        ? "Analizowanie..."
+                        : isReanalyzing
+                          ? "Re-analizowanie..."
+                          : "Uruchom analizę"}
+                    </span>
+                  </button>
 
-                  <div className="d-flex flex-wrap gap-2 small mb-2">
-                    <span className="badge text-bg-success">confirmed: {analysisSummaryCounts.confirmed}</span>
-                    <span className="badge text-bg-warning">to_verify: {analysisSummaryCounts.to_verify}</span>
-                    <span className="badge text-bg-danger">rejected: {analysisSummaryCounts.rejected}</span>
-                  </div>
-
-                  {resolvedAnalysisFilterId && (
-                    <div className="small text-muted mb-2">
-                      <div>
-                        Analiza: <strong>{resolvedAnalysisFilterId}</strong>
-                        {selectedAnalysisFilter === ANALYSIS_FILTER_LATEST ? " (ostatnia)" : ""}
-                      </div>
-                      {activeAnalysisFilterOption?.timestampLabel && (
-                        <div>Timestamp: {activeAnalysisFilterOption.timestampLabel}</div>
-                      )}
-                    </div>
-                  )}
-
-                  {chosenMessage && (
-                    <div
-                      className={`alert ${isNoCoverageChosenMessage ? "alert-warning" : "alert-info"} py-2 mb-0`}
-                    >
-                      {chosenMessage}
-                    </div>
-                  )}
+                  <button
+                    className="btn btn-outline-primary w-100 mb-2 d-flex align-items-center justify-content-center gap-2"
+                    onClick={handleLocalAnalysis}
+                    disabled={isLoadingDetections}
+                  >
+                    {isLoadingDetections && activeAnalysisAction === "local" && (
+                      <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                    )}
+                    <span>{isLoadingDetections && activeAnalysisAction === "local" ? "Analizowanie..." : "Analiza lokalna"}</span>
+                  </button>
                 </section>
 
                 <section
@@ -4262,7 +4255,13 @@ export default function App() {
                   }`}
                   ref={detectionListRef}
                 >
-                  <h6 className="sidebar-section-title">Detekcje ({detectionSectionCount})</h6>
+                  <h6 className="sidebar-section-title">Detekcje</h6>
+
+                  <div className="d-flex flex-wrap gap-2 small mb-3">
+                    <span className="badge text-bg-success">Potwierdzone: {analysisSummaryCounts.confirmed}</span>
+                    <span className="badge text-bg-warning">Do weryfikacji: {analysisSummaryCounts.to_verify}</span>
+                    <span className="badge text-bg-danger">Odrzucone: {analysisSummaryCounts.rejected}</span>
+                  </div>
 
                   <div className="mb-2">
                     <div className="d-flex justify-content-between align-items-center mb-2">
@@ -4505,7 +4504,7 @@ export default function App() {
 
                       <div className="d-flex gap-2 mb-2">
                         <input
-                          className="form-control form-control-sm"
+                          className="form-control form-control-sm tag-input-single-line"
                           type="text"
                           placeholder="Dodaj tag"
                           value={noDetectionBulkTagDraft}
@@ -4524,7 +4523,7 @@ export default function App() {
                         />
                         <button
                           type="button"
-                          className="btn btn-sm btn-outline-primary"
+                          className="btn btn-sm btn-outline-primary tag-add-btn"
                           onClick={handleApplyNoDetectionBulkTag}
                           disabled={
                             selectedNoDetectionImageIds.length === 0 ||
@@ -4579,7 +4578,7 @@ export default function App() {
 
                       <div className="d-flex gap-2 mb-2">
                         <input
-                          className="form-control form-control-sm"
+                          className="form-control form-control-sm tag-input-single-line"
                           type="text"
                           placeholder="Dodaj tag"
                           value={bulkTagDraft}
@@ -4596,7 +4595,7 @@ export default function App() {
                         />
                         <button
                           type="button"
-                          className="btn btn-sm btn-outline-primary"
+                          className="btn btn-sm btn-outline-primary tag-add-btn"
                           onClick={handleApplyBulkTag}
                           disabled={
                             selectedIds.length === 0 ||
@@ -5123,7 +5122,7 @@ export default function App() {
 
                               <div className="d-flex gap-2 mb-2">
                                 <input
-                                  className="form-control form-control-sm"
+                                  className="form-control form-control-sm tag-input-single-line"
                                   type="text"
                                   placeholder="Dodaj tag"
                                   value={tagDraftValue}
@@ -5143,7 +5142,7 @@ export default function App() {
                                 />
                                 <button
                                   type="button"
-                                  className="btn btn-sm btn-outline-primary"
+                                  className="btn btn-sm btn-outline-primary tag-add-btn"
                                   onClick={() => handleAddTag(detection.detection_id)}
                                   disabled={deleteModal.isDeleting}
                                 >

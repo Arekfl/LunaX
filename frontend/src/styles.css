@@ -468,6 +468,20 @@ body {
   min-height: 0;
 }
 
+.tag-input-single-line {
+  height: calc(1.2em + 0.5rem + 2px);
+  line-height: 1.2;
+  padding-top: 0.2rem;
+  padding-bottom: 0.2rem;
+}
+
+.tag-add-btn {
+  white-space: nowrap;
+  line-height: 1.2;
+  padding: 0.2rem 0.45rem;
+  flex: 0 0 auto;
+}
+
 .sidebar-tab-pane {
   display: none;
   flex-direction: column;
