@@ -4086,10 +4086,6 @@ export default function App() {
                     <span>{isLoadingDetections && activeAnalysisAction === "local" ? "Analizowanie..." : "Analiza lokalna"}</span>
                   </button>
 
-                  <button className="btn btn-outline-secondary w-100 mb-3" onClick={handleResetHomeView}>
-                    Reset widoku
-                  </button>
-
                   <div className="small text-muted mb-2">Rozdzielczość analizy</div>
                   <div className="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Tryb rozdzielczosci analizy">
                     <button
