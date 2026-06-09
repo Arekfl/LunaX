@@ -4148,15 +4148,32 @@ export default function App() {
                   <div className="small text-muted mb-3">Więcej próbek = dłuższa analiza</div>
 
                   <div className="small text-muted mb-2">Confidence threshold ({confidenceThreshold.toFixed(2)})</div>
-                  <input
-                    className="form-range mb-3"
-                    type="range"
-                    min="0.01"
-                    max="1.0"
-                    step="0.01"
-                    value={confidenceThreshold}
-                    onChange={(event) => setConfidenceThreshold(Number(event.target.value))}
-                  />
+                  <div className="d-flex align-items-center gap-2 mb-3">
+                    <input
+                      className="form-range flex-grow-1"
+                      type="range"
+                      min="0.01"
+                      max="1.0"
+                      step="0.01"
+                      value={confidenceThreshold}
+                      onChange={(event) => setConfidenceThreshold(Number(event.target.value))}
+                      aria-label="Suwak confidence threshold"
+                    />
+                    <input
+                      className="form-control form-control-sm"
+                      type="number"
+                      min="0.01"
+                      max="1.0"
+                      step="0.01"
+                      value={confidenceThreshold}
+                      onChange={(event) => {
+                        const v = Math.max(0.01, Math.min(1, Number(event.target.value) || 0.01));
+                        setConfidenceThreshold(v);
+                      }}
+                      style={{ width: "4rem" }}
+                      aria-label="Wpisz confidence threshold"
+                    />
+                  </div>
 
                   <label className="form-label form-label-sm small text-muted mb-1" htmlFor="model-select">Model</label>
                   <select
