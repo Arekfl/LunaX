@@ -213,6 +213,120 @@ def test_analysis_run_returns_502_when_wms_download_fails(monkeypatch) -> None:
     assert "No valid imagery" in response.json()["detail"]
 
 
+def test_analysis_reanalyze_creates_new_analysis_and_preserves_previous_results(
+    tmp_path, monkeypatch
+) -> None:
+    detections_parquet_file = tmp_path / "detections.parquet"
+    no_detections_image_dir = tmp_path / "images" / "no_detections"
+    to_verify_image_dir = tmp_path / "images" / "to_verify"
+
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+    monkeypatch.setenv("NO_DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+    monkeypatch.setenv("NO_DETECTIONS_IMAGE_DIR", str(no_detections_image_dir))
+
+    monkeypatch.setattr("app.main.download_tile", Mock(return_value=Image.new("L", (64, 64), color=128)))
+    monkeypatch.setattr("app.main.run_inference", Mock(return_value=[]))
+
+    initial_run_response = client.post(
+        "/analysis/run",
+        json={
+            "resolutionMode": "detail",
+            "numSamples": 1,
+            "confidenceThreshold": 0.5,
+            "bbox": [-10.0, -5.0, 10.0, 5.0],
+        },
+    )
+    assert initial_run_response.status_code == 200
+    initial_analysis_id = initial_run_response.json()["analysis_id"]
+
+    analysis_images_response = client.get("/analysis-images/query")
+    assert analysis_images_response.status_code == 200
+    analysis_images = analysis_images_response.json()
+    assert len(analysis_images) == 1
+    source_image_id = analysis_images[0]["image_id"]
+
+    monkeypatch.setattr(
+        "app.main.run_inference",
+        Mock(
+            return_value=[
+                {
+                    "detection_id": "det-reanalyzed-1",
+                    "bbox": {"x": 10.0, "y": 20.0, "width": 30.0, "height": 40.0},
+                    "confidence": 0.9,
+                    "class": "cave_candidate",
+                    "class_id": 0,
+                }
+            ]
+        ),
+    )
+
+    reanalyze_response = client.post(
+        "/analysis/reanalyze",
+        json={
+            "imageIds": [source_image_id],
+            "model": "best.pt",
+            "settings": {
+                "resolution": "ultra",
+                "samples": 1,
+                "threshold": 0.5,
+            },
+        },
+    )
+
+    assert reanalyze_response.status_code == 200
+    reanalyze_payload = reanalyze_response.json()
+    assert reanalyze_payload["requested_count"] == 1
+    assert reanalyze_payload["reanalyzed_count"] == 1
+    assert reanalyze_payload["missing_image_ids"] == []
+    assert reanalyze_payload["failed_image_ids"] == []
+    assert len(reanalyze_payload["detections"]) == 1
+    assert reanalyze_payload["analysis_id"] != initial_analysis_id
+
+    stored_rows = pd.read_parquet(detections_parquet_file)
+    metadata_rows = stored_rows[
+        stored_rows["image_id"].notna() & (stored_rows["image_id"].astype(str).str.strip() != "")
+    ]
+    assert metadata_rows["analysis_id"].astype(str).eq(initial_analysis_id).any()
+    assert metadata_rows["analysis_id"].astype(str).eq(reanalyze_payload["analysis_id"]).any()
+
+    reanalyzed_metadata = metadata_rows[
+        metadata_rows["analysis_id"].astype(str) == reanalyze_payload["analysis_id"]
+    ]
+    assert not reanalyzed_metadata.empty
+    assert set(reanalyzed_metadata["status"]) == {"to_verify"}
+    assert set(reanalyzed_metadata["resolution"]) == {"ultra"}
+    assert to_verify_image_dir.exists()
+
+
+def test_analysis_reanalyze_reports_missing_images(tmp_path, monkeypatch) -> None:
+    detections_parquet_file = tmp_path / "detections.parquet"
+    monkeypatch.setenv("DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+    monkeypatch.setenv("NO_DETECTIONS_PARQUET_FILE", str(detections_parquet_file))
+
+    monkeypatch.setattr("app.main.run_inference", Mock(return_value=[]))
+
+    response = client.post(
+        "/analysis/reanalyze",
+        json={
+            "imageIds": ["img-missing"],
+            "model": "best.pt",
+            "settings": {
+                "resolution": "detail",
+                "samples": 1,
+                "threshold": 0.5,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["requested_count"] == 1
+    assert payload["reanalyzed_count"] == 0
+    assert payload["missing_image_ids"] == ["img-missing"]
+    assert payload["failed_image_ids"] == []
+    assert payload["detections"] == []
+
+
 def test_local_analysis_runs_on_validation_images(tmp_path, monkeypatch) -> None:
     validation_dir = tmp_path / "images" / "validation"
     validation_dir.mkdir(parents=True, exist_ok=True)

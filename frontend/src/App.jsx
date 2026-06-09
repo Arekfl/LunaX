@@ -1025,6 +1025,7 @@ export default function App() {
   const [selectedNoDetectionImageIds, setSelectedNoDetectionImageIds] = useState([]);
   const [noDetectionBulkTagDraft, setNoDetectionBulkTagDraft] = useState("");
   const [isNoDetectionBulkTagging, setIsNoDetectionBulkTagging] = useState(false);
+  const [isReanalyzing, setIsReanalyzing] = useState(false);
   const [currentAnalysisId, setCurrentAnalysisId] = useState(null);
   const [isLoadingDetections, setIsLoadingDetections] = useState(false);
   const [activeAnalysisAction, setActiveAnalysisAction] = useState(null);
@@ -1539,6 +1540,55 @@ export default function App() {
     selectedVisibleNoDetectionsCount === selectableNoDetectionImageIds.length;
   const areSomeVisibleNoDetectionsSelected =
     selectedVisibleNoDetectionsCount > 0 && !areAllVisibleNoDetectionsSelected;
+
+  const selectedImageIdsForReanalysis = useMemo(() => {
+    if (isNoDetectionsFilterSelected) {
+      return [
+        ...new Set(
+          selectedNoDetectionImageIds
+            .map((imageId) => String(imageId || "").trim())
+            .filter(Boolean)
+        ),
+      ];
+    }
+
+    const selectedDetectionIdsSet = new Set(
+      selectedIds.map((detectionId) => String(detectionId || "").trim()).filter(Boolean)
+    );
+    if (selectedDetectionIdsSet.size === 0) {
+      return [];
+    }
+
+    const selectedImageIds = [];
+    const seenImageIds = new Set();
+    for (const detection of statusResolvedDetections) {
+      const detectionId = String(detection?.detection_id || "").trim();
+      if (!selectedDetectionIdsSet.has(detectionId)) {
+        continue;
+      }
+
+      let imageId = String(detection?.image_id || "").trim();
+      if (!imageId) {
+        const relatedImage = resolveAnalysisImageForDetection(detection, analysisImages);
+        imageId = String(relatedImage?.image_id || "").trim();
+      }
+
+      if (!imageId || seenImageIds.has(imageId)) {
+        continue;
+      }
+
+      seenImageIds.add(imageId);
+      selectedImageIds.push(imageId);
+    }
+
+    return selectedImageIds;
+  }, [
+    isNoDetectionsFilterSelected,
+    selectedNoDetectionImageIds,
+    selectedIds,
+    statusResolvedDetections,
+    analysisImages,
+  ]);
 
   const fetchDetectionStatuses = useCallback(async () => {
     const statusesResponse = await fetch(`${API_BASE_URL}/detections/statuses`);
@@ -3013,6 +3063,127 @@ export default function App() {
     }
   };
 
+  const handleReanalyzeSelected = async () => {
+    if (selectedImageIdsForReanalysis.length === 0) {
+      setChosenMessage("Zaznacz co najmniej jeden obraz do re-analizy.");
+      return;
+    }
+
+    setNotification(null);
+    setIsReanalyzing(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/analysis/reanalyze`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          imageIds: selectedImageIdsForReanalysis,
+          model: selectedModel,
+          settings: {
+            resolution: resolutionMode,
+            samples: numSamples,
+            threshold: confidenceThreshold,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        let errorDetail = `HTTP ${response.status}`;
+        try {
+          const errorPayload = await response.json();
+          if (errorPayload && typeof errorPayload.detail === "string") {
+            errorDetail = `${errorDetail}: ${errorPayload.detail}`;
+          }
+        } catch {
+          // Ignore parse failures and keep default HTTP message.
+        }
+        throw new Error(errorDetail);
+      }
+
+      const runPayload = await response.json();
+      const analysisId =
+        runPayload && typeof runPayload === "object" && typeof runPayload.analysis_id === "string"
+          ? runPayload.analysis_id
+          : null;
+      const reanalyzedCount =
+        runPayload && typeof runPayload === "object"
+          ? Number(runPayload.reanalyzed_count || 0)
+          : 0;
+      const reanalyzedImageCount = Number.isFinite(reanalyzedCount) ? reanalyzedCount : 0;
+      const missingImageIds =
+        runPayload && typeof runPayload === "object" && Array.isArray(runPayload.missing_image_ids)
+          ? runPayload.missing_image_ids.map((imageId) => String(imageId || "").trim()).filter(Boolean)
+          : [];
+      const failedImageIds =
+        runPayload && typeof runPayload === "object" && Array.isArray(runPayload.failed_image_ids)
+          ? runPayload.failed_image_ids.map((imageId) => String(imageId || "").trim()).filter(Boolean)
+          : [];
+
+      if (!analysisId) {
+        throw new Error("Missing analysis_id in /analysis/reanalyze response");
+      }
+
+      const statusMap = await fetchDetectionStatuses();
+      let detectionsWithStatus = [];
+      try {
+        detectionsWithStatus = await fetchDetectionsForAnalysis(analysisId, statusMap);
+      } catch (refreshError) {
+        console.warn("Nie udało się odświeżyć detekcji po re-analizie:", refreshError);
+      }
+
+      setCurrentAnalysisId(analysisId);
+      setSelectedAnalysisFilter(buildAnalysisFilterValue(analysisId));
+      setDetections(detectionsWithStatus);
+      setStatusFilter("to_verify");
+      setViewMode("gallery");
+      setSelectedDetection(null);
+      setSelectedNoDetectionImage(null);
+      setSelectedIds([]);
+      setSelectedNoDetectionImageIds([]);
+
+      try {
+        await fetchAnalysisImages();
+      } catch (refreshError) {
+        console.warn("Nie udało się odświeżyć obrazów po re-analizie:", refreshError);
+      }
+
+      const missingSummary = missingImageIds.length > 0 ? ` Brak obrazów: ${missingImageIds.length}.` : "";
+      const failedSummary = failedImageIds.length > 0 ? ` Błędy odczytu: ${failedImageIds.length}.` : "";
+      const detectionsCount = detectionsWithStatus.length;
+
+      setNotification({
+        tone: "success",
+        message: `Znaleziono ${detectionsCount} detekcji na ${reanalyzedImageCount} obrazach`,
+      });
+      setChosenMessage(
+        `Re-analiza ${analysisId} zakończona. Znaleziono ${detectionsCount} detekcji na ${reanalyzedImageCount} obrazach.${missingSummary}${failedSummary}`
+      );
+    } catch (error) {
+      console.error("Błąd podczas re-analizy:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "Nie udało się uruchomić re-analizy obrazów.";
+      setChosenMessage(`Nie udało się wykonać re-analizy. Szczegóły: ${errorMessage}`);
+    } finally {
+      setIsReanalyzing(false);
+    }
+  };
+
+  const handleRunAnalysisAction = async () => {
+    if (selectedSegment) {
+      await handleChooseArea();
+      return;
+    }
+
+    if (selectedImageIdsForReanalysis.length > 0) {
+      await handleReanalyzeSelected();
+      return;
+    }
+
+    setChosenMessage("Najpierw wybierz segment na mapie lub zaznacz pozycje na liscie.");
+  };
+
   const handleRequestDeleteDetection = (detection) => {
     setDeleteModal({
       targetType: "detection",
@@ -3889,13 +4060,19 @@ export default function App() {
 
                   <button
                     className="btn btn-primary w-100 mb-2 d-flex align-items-center justify-content-center gap-2"
-                    onClick={handleChooseArea}
-                    disabled={isLoadingDetections}
+                    onClick={handleRunAnalysisAction}
+                    disabled={isLoadingDetections || isReanalyzing}
                   >
-                    {isLoadingDetections && activeAnalysisAction === "remote" && (
+                    {(isLoadingDetections && activeAnalysisAction === "remote") || isReanalyzing ? (
                       <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                    )}
-                    <span>{isLoadingDetections && activeAnalysisAction === "remote" ? "Analizowanie..." : "Uruchom analizę"}</span>
+                    ) : null}
+                    <span>
+                      {isLoadingDetections && activeAnalysisAction === "remote"
+                        ? "Analizowanie..."
+                        : isReanalyzing
+                          ? "Re-analizowanie..."
+                          : "Uruchom analizę"}
+                    </span>
                   </button>
 
                   <button
@@ -4441,7 +4618,7 @@ export default function App() {
                         type="button"
                         className="btn btn-sm btn-outline-danger w-100 mb-3"
                         onClick={handleRequestBulkDeleteDetections}
-                        disabled={selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging || isBulkValidating}
+                        disabled={selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging || isBulkValidating || isReanalyzing}
                       >
                         Usuń zaznaczone{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
                       </button>

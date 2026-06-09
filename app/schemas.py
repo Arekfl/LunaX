@@ -63,6 +63,32 @@ class AnalysisRunResponse(BaseModel):
     detections: list[Detection]
 
 
+class AnalysisReanalysisSettings(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    resolution_mode: AnalysisResolutionMode = Field(default="detail", alias="resolution")
+    num_samples: int = Field(default=1, ge=1, le=20, alias="samples")
+    confidence_threshold: float = Field(0.5, ge=0, le=1, alias="threshold")
+
+
+class AnalysisReanalysisRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    image_ids: list[str] = Field(..., min_length=1, alias="imageIds")
+    model_name: ModelName = Field(default="best.pt", alias="model")
+    settings: AnalysisReanalysisSettings = Field(default_factory=AnalysisReanalysisSettings)
+
+
+class AnalysisReanalysisResponse(BaseModel):
+    analysis_id: str
+    source: Literal["mock"]
+    requested_count: int
+    reanalyzed_count: int
+    missing_image_ids: list[str]
+    failed_image_ids: list[str]
+    detections: list[Detection]
+
+
 class LocalValidationRunRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 

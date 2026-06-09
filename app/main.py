@@ -1,6 +1,7 @@
 import logging
 import math
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
@@ -18,6 +19,8 @@ from app.schemas import (
     AnalysisImageBulkDeleteResponse,
     AnalysisImageBulkTagsUpdateRequest,
     AnalysisImageBulkTagsUpdateResponse,
+    AnalysisReanalysisRequest,
+    AnalysisReanalysisResponse,
     AnalysisImageDeleteResponse,
     AnalysisRunRequest,
     AnalysisRunResponse,
@@ -148,6 +151,23 @@ def _build_sample_bbox(
     sample_y_max = y_max if row == rows - 1 else y_min + (row + 1) * cell_height
 
     return [sample_x_min, sample_y_min, sample_x_max, sample_y_max]
+
+
+def _extract_lat_lon_from_path(path_value: str | None) -> tuple[float, float] | None:
+    normalized_path = str(path_value or "").strip()
+    if not normalized_path:
+        return None
+
+    matched = re.search(r"lat-(-?\d+(?:\.\d+)?)_lon-(-?\d+(?:\.\d+)?)", normalized_path)
+    if matched is None:
+        return None
+
+    lat = float(matched.group(1))
+    lon = float(matched.group(2))
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+        return None
+
+    return lat, lon
 
 
 def _get_validation_image_dir() -> Path:
@@ -290,6 +310,121 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
         analysis_id=analysis_id,
         source="mock",
         detections=filtered_detections,
+    )
+
+
+@app.post("/analysis/reanalyze", response_model=AnalysisReanalysisResponse)
+def reanalyze_images(payload: AnalysisReanalysisRequest) -> AnalysisReanalysisResponse:
+    normalized_image_ids: list[str] = []
+    seen_image_ids: set[str] = set()
+    for raw_image_id in payload.image_ids:
+        image_id = str(raw_image_id).strip()
+        if not image_id or image_id in seen_image_ids:
+            continue
+
+        seen_image_ids.add(image_id)
+        normalized_image_ids.append(image_id)
+
+    if not normalized_image_ids:
+        raise HTTPException(status_code=422, detail="At least one image ID is required")
+
+    analysis_id = str(uuid4())
+    image_rows = query_analysis_images()
+    image_lookup = {
+        str(item.get("image_id") or "").strip(): item
+        for item in image_rows
+        if str(item.get("image_id") or "").strip()
+    }
+
+    detections: list[Detection] = []
+    missing_image_ids: list[str] = []
+    failed_image_ids: list[str] = []
+    reanalyzed_count = 0
+
+    for image_id in normalized_image_ids:
+        image_row = image_lookup.get(image_id)
+        if image_row is None:
+            missing_image_ids.append(image_id)
+            continue
+
+        image_path_raw = str(image_row.get("path") or "").strip()
+        if not image_path_raw:
+            failed_image_ids.append(image_id)
+            continue
+
+        image_path = Path(image_path_raw)
+        if not image_path.exists() or not image_path.is_file():
+            failed_image_ids.append(image_id)
+            continue
+
+        try:
+            with Image.open(image_path) as opened_image:
+                analysis_image = opened_image.convert("RGB")
+        except OSError:
+            failed_image_ids.append(image_id)
+            continue
+
+        sample_timestamp = datetime.now(timezone.utc).isoformat()
+        model_detections = run_inference(
+            image=analysis_image,
+            confidence_threshold=payload.settings.confidence_threshold,
+            image_size=max(analysis_image.size),
+            model_name=payload.model_name,
+        )
+
+        filtered_sample_detections: list[Detection] = []
+        for detection in model_detections:
+            parsed_detection = Detection(
+                detection_id=detection["detection_id"],
+                analysis_id=analysis_id,
+                confidence=detection["confidence"],
+                **{"class": detection["class"]},
+                class_id=detection["class_id"],
+                bbox=BBox(**detection["bbox"]),
+            )
+            if parsed_detection.confidence >= payload.settings.confidence_threshold:
+                filtered_sample_detections.append(parsed_detection)
+
+        if filtered_sample_detections:
+            detections.extend(filtered_sample_detections)
+            try:
+                save_detections_to_parquet(
+                    filtered_sample_detections,
+                    resolution_mode=payload.settings.resolution_mode,
+                    timestamp=sample_timestamp,
+                )
+            except Exception as exc:  # pragma: no cover - defensive logging for IO layer
+                logger.warning("Could not persist reanalysis detections to parquet: %s", exc)
+
+        parsed_lat_lon = _extract_lat_lon_from_path(image_path_raw)
+        fallback_lat = float(image_row.get("lat")) if image_row.get("lat") is not None else 0.0
+        fallback_lon = float(image_row.get("lon")) if image_row.get("lon") is not None else 0.0
+        center_lat = parsed_lat_lon[0] if parsed_lat_lon is not None else fallback_lat
+        center_lon = parsed_lat_lon[1] if parsed_lat_lon is not None else fallback_lon
+
+        try:
+            save_analysis_image_and_metadata(
+                analysis_image,
+                analysis_id=analysis_id,
+                lon=center_lon,
+                lat=center_lat,
+                resolution=payload.settings.resolution_mode,
+                status="to_verify",
+                timestamp=sample_timestamp,
+            )
+        except Exception as exc:  # pragma: no cover - defensive logging for IO layer
+            logger.warning("Could not persist reanalysis image metadata: %s", exc)
+
+        reanalyzed_count += 1
+
+    return AnalysisReanalysisResponse(
+        analysis_id=analysis_id,
+        source="mock",
+        requested_count=len(normalized_image_ids),
+        reanalyzed_count=reanalyzed_count,
+        missing_image_ids=missing_image_ids,
+        failed_image_ids=failed_image_ids,
+        detections=detections,
     )
 
 
