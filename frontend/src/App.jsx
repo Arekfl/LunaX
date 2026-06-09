@@ -88,6 +88,51 @@ const CLASS_COLORS = {
   "Eratosthenian": "#8bc34a",
   "Copernican": "#e91e63",
 };
+const NO_CLASS_FILTER_VALUE = "__no_class__";
+const NO_CLASS_LABEL = "Brak klasy";
+const UNCLASSIFIED_BBOX_COLOR = "#6f42c1";
+const LAVA_PIT_COLOR = "#0d6efd";
+const CLASS_FALLBACK_COLOR = "#6c757d";
+
+function getDetectionClassName(detection) {
+  const rawClassName = detection?.class_name ?? detection?.class;
+  if (rawClassName === null || rawClassName === undefined) {
+    return null;
+  }
+
+  const normalizedClassName = String(rawClassName).trim();
+  return normalizedClassName.length > 0 ? normalizedClassName : null;
+}
+
+function isLavaPitClassName(className) {
+  return String(className || "").trim().toLowerCase() === "lava_pit";
+}
+
+function getClassDisplayLabel(className) {
+  const normalizedClassName = String(className || "").trim();
+  if (!normalizedClassName) {
+    return "";
+  }
+
+  if (isLavaPitClassName(normalizedClassName)) {
+    return "Lava pit";
+  }
+
+  return normalizedClassName;
+}
+
+function matchesDetectionClassFilter(detection, classFilter) {
+  if (classFilter === null) {
+    return true;
+  }
+
+  const detectionClassName = getDetectionClassName(detection);
+  if (classFilter === NO_CLASS_FILTER_VALUE) {
+    return detectionClassName === null;
+  }
+
+  return detectionClassName === classFilter;
+}
 
 function buildGridCells(bounds, level) {
   const rows = GRID_ROWS;
@@ -520,7 +565,7 @@ function deduplicateDetectionsByProximity(detectionList, threshold) {
 
   for (const detection of detectionList) {
     const matchIndex = deduplicated.findIndex((existing) => {
-      if (existing.class !== detection.class) {
+      if (getDetectionClassName(existing) !== getDetectionClassName(detection)) {
         return false;
       }
 
@@ -871,7 +916,13 @@ function getFileNameFromPath(filePath) {
 }
 
 function getClassColor(className) {
-  return CLASS_COLORS[String(className ?? "")] ?? null;
+  const normalizedClassName = String(className ?? "").trim();
+  const loweredClassName = normalizedClassName.toLowerCase();
+  if (loweredClassName === "lava_pit" || loweredClassName === "lava pit") {
+    return LAVA_PIT_COLOR;
+  }
+
+  return CLASS_COLORS[normalizedClassName] ?? null;
 }
 
 function formatCoordinate(value, digits = 2) {
@@ -1053,7 +1104,6 @@ export default function App() {
   const [detectionPreviewZoom, setDetectionPreviewZoom] = useState(1);
   const [focusBounds, setFocusBounds] = useState(GEO_BOUNDS);
   const [chosenMessage, setChosenMessage] = useState("");
-  const [, setNotification] = useState(null);
   const [manualCoords, setManualCoords] = useState({
     xMin: String(LON_MIN),
     yMin: String(LAT_MIN),
@@ -1073,10 +1123,6 @@ export default function App() {
       const summaryMessage =
         `Przeanalizowano ${analyzedImageCount} obrazów. ` +
         `Znaleziono ${detectionCount} detekcji na ${detectedImageCount} obrazach.`;
-      setNotification({
-        type: "success",
-        message: summaryMessage,
-      });
       setChosenMessage(summaryMessage);
     },
     []
@@ -1354,6 +1400,41 @@ export default function App() {
   const filteredDetections = useMemo(
     () => sortDetectionList(detectionsForCurrentView, effectiveSortBy, effectiveSortOrder),
     [detectionsForCurrentView, effectiveSortBy, effectiveSortOrder]
+  );
+
+  const classFilterOptions = useMemo(() => {
+    const classNames = new Set();
+    let hasNoClass = false;
+
+    for (const detection of filteredDetections) {
+      const detectionClassName = getDetectionClassName(detection);
+      if (detectionClassName) {
+        classNames.add(detectionClassName);
+      } else {
+        hasNoClass = true;
+      }
+    }
+
+    return {
+      classNames: Array.from(classNames).sort((leftClass, rightClass) => {
+        const leftIsLavaPit = isLavaPitClassName(leftClass);
+        const rightIsLavaPit = isLavaPitClassName(rightClass);
+        if (leftIsLavaPit && !rightIsLavaPit) {
+          return -1;
+        }
+        if (!leftIsLavaPit && rightIsLavaPit) {
+          return 1;
+        }
+
+        return leftClass.localeCompare(rightClass);
+      }),
+      hasNoClass,
+    };
+  }, [filteredDetections]);
+
+  const classFilteredDetections = useMemo(
+    () => filteredDetections.filter((detection) => matchesDetectionClassFilter(detection, classFilter)),
+    [filteredDetections, classFilter]
   );
 
   const sortedNoDetectionImages = useMemo(
@@ -2059,7 +2140,6 @@ export default function App() {
       return;
     }
 
-    setNotification(null);
     setActiveAnalysisAction("remote");
     setIsLoadingDetections(true);
     setAnalysisStatus("loading");
@@ -2161,10 +2241,6 @@ export default function App() {
       setAnalysisStatus("success");
       if (detectionsWithStatus.length === 0) {
         const noDetectionMessage = `Przeanalizowano ${analyzedImageCount} obrazów. Brak detekcji.`;
-        setNotification({
-          type: "warning",
-          message: noDetectionMessage,
-        });
         setChosenMessage(noDetectionMessage);
         return;
       }
@@ -2194,7 +2270,6 @@ export default function App() {
   };
 
   const handleLocalAnalysis = async () => {
-    setNotification(null);
     setActiveAnalysisAction("local");
     setIsLoadingDetections(true);
     setAnalysisStatus("loading");
@@ -2290,10 +2365,6 @@ export default function App() {
       setAnalysisStatus("success");
       if (detectionsWithStatus.length === 0) {
         const noDetectionMessage = `Przeanalizowano ${analyzedImageCount} obrazów. Brak detekcji.`;
-        setNotification({
-          type: "warning",
-          message: noDetectionMessage,
-        });
         setChosenMessage(noDetectionMessage);
         return;
       }
@@ -2767,10 +2838,6 @@ export default function App() {
           ? ` Nie znaleziono ${payload.missing_detection_ids.length} detekcji.`
           : "";
 
-      setNotification({
-        type: "success",
-        message: `Przeniesiono ${updatedIds.length} elementów do ${statusLabel}.${filesInfo}`,
-      });
       setChosenMessage(
         `Walidacja zakończona: ${updatedIds.length} → ${statusLabel}.${filesInfo}${missingInfo}`
       );
@@ -3025,7 +3092,6 @@ export default function App() {
       return;
     }
 
-    setNotification(null);
     setIsReanalyzing(true);
 
     try {
@@ -3101,10 +3167,6 @@ export default function App() {
 
       if (detectionsCount === 0) {
         const noDetectionMessage = `Przeanalizowano ${reanalyzedImageCount} obrazów. Brak detekcji.`;
-        setNotification({
-          type: "warning",
-          message: noDetectionMessage,
-        });
         setChosenMessage(noDetectionMessage);
       } else {
         const detectedImageCount = countDetectedImages(detectionsWithStatus, refreshedImages);
@@ -3633,7 +3695,8 @@ export default function App() {
                 </label>
               </div>
 
-              {Object.keys(CLASS_COLORS).length > 0 && (
+              {!isNoDetectionsFilterSelected &&
+                (classFilterOptions.classNames.length > 0 || classFilterOptions.hasNoClass) && (
                 <div className="mb-3">
                   <div className="small text-muted mb-1">Filtr klasy</div>
                   <div className="d-flex flex-wrap gap-1 mb-2">
@@ -3644,33 +3707,44 @@ export default function App() {
                     >
                       Wszystkie
                     </button>
-                    {Object.entries(CLASS_COLORS).map(([className, color]) => (
+                    {classFilterOptions.classNames.map((className) => {
+                      const classColor = getClassColor(className) || CLASS_FALLBACK_COLOR;
+
+                      return (
                       <button
                         key={`class-filter-${className}`}
                         type="button"
                         className="btn btn-sm"
                         style={{
-                          backgroundColor: classFilter === className ? color : "transparent",
-                          borderColor: color,
-                          color: classFilter === className ? "#fff" : color,
+                          backgroundColor: classFilter === className ? classColor : "transparent",
+                          borderColor: classColor,
+                          color: classFilter === className ? "#fff" : classColor,
                         }}
                         onClick={() => setClassFilter(classFilter === className ? null : className)}
                       >
-                        {className}
+                        {getClassDisplayLabel(className)}
                       </button>
-                    ))}
-                  </div>
-                  <div className="small text-muted mb-1">Legenda klas</div>
-                  <div className="d-flex flex-wrap gap-2">
-                    {Object.entries(CLASS_COLORS).map(([className, color]) => (
-                      <span
-                        key={`legend-${className}`}
-                        className="badge"
-                        style={{ backgroundColor: color, color: "#fff", fontSize: "0.7rem" }}
+                      );
+                    })}
+                    {classFilterOptions.hasNoClass && (
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        style={{
+                          backgroundColor:
+                            classFilter === NO_CLASS_FILTER_VALUE ? UNCLASSIFIED_BBOX_COLOR : "transparent",
+                          borderColor: UNCLASSIFIED_BBOX_COLOR,
+                          color: classFilter === NO_CLASS_FILTER_VALUE ? "#fff" : UNCLASSIFIED_BBOX_COLOR,
+                        }}
+                        onClick={() =>
+                          setClassFilter(
+                            classFilter === NO_CLASS_FILTER_VALUE ? null : NO_CLASS_FILTER_VALUE
+                          )
+                        }
                       >
-                        {className}
-                      </span>
-                    ))}
+                        {NO_CLASS_LABEL}
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -3822,11 +3896,13 @@ export default function App() {
                     : ""}
                   .
                 </div>
+              ) : classFilteredDetections.length === 0 ? (
+                <div className="small text-muted">
+                  Brak detekcji dla wybranego filtra klasy.
+                </div>
               ) : (
                 <div className="row g-3">
-                  {filteredDetections.filter((detection) =>
-                    classFilter === null || String(detection.class ?? "") === classFilter
-                  ).map((detection, detectionIndex) => {
+                  {classFilteredDetections.map((detection, detectionIndex) => {
                     const detectionUniqueId = getDetectionUniqueId(detection);
                     const detectionRenderKey = `${detectionUniqueId}|${detectionIndex}`;
                     const statusBadgeClass = getStatusBadgeClass(detection.status);
@@ -3836,8 +3912,10 @@ export default function App() {
                       showGalleryBbox && previewImage
                         ? getGalleryBBoxOverlayStyle(detection, previewImage)
                         : null;
-                    const detectionClassName = String(detection.class ?? "");
-                    const bboxClassColor = getClassColor(detectionClassName);
+                    const detectionClassName = getDetectionClassName(detection);
+                    const bboxClassColor = detectionClassName
+                      ? getClassColor(detectionClassName) || CLASS_FALLBACK_COLOR
+                      : UNCLASSIFIED_BBOX_COLOR;
                     const isSelected = selectedIds.includes(detection.detection_id);
                     const isHovered = hoveredDetectionId === detectionUniqueId;
 
@@ -3876,16 +3954,14 @@ export default function App() {
                             {showGalleryBbox && galleryBBoxStyle && (
                               <div
                                 className="gallery-bbox-overlay"
-                                style={bboxClassColor
-                                  ? { ...galleryBBoxStyle, borderColor: bboxClassColor }
-                                  : galleryBBoxStyle}
+                                style={{ ...galleryBBoxStyle, borderColor: bboxClassColor }}
                               >
-                                {bboxClassColor && (
+                                {detectionClassName && (
                                   <div
                                     className="bbox-label"
                                     style={{ backgroundColor: bboxClassColor + "cc", color: "#fff" }}
                                   >
-                                    {detectionClassName} {Number(detection.confidence).toFixed(2)}
+                                    {getClassDisplayLabel(detectionClassName)} {Number(detection.confidence).toFixed(2)}
                                   </div>
                                 )}
                               </div>
@@ -5025,7 +5101,7 @@ export default function App() {
                               <div className="small text-muted mb-1">Metadane</div>
                               <div className="small mb-2">
                                 <div><strong>status:</strong> {detection.status || "-"}</div>
-                                <div><strong>class:</strong> {detection.class || "-"}</div>
+                                <div><strong>class:</strong> {getClassDisplayLabel(getDetectionClassName(detection)) || NO_CLASS_LABEL}</div>
                                 <div><strong>confidence:</strong> {Number(detection.confidence).toFixed(2)}</div>
                                 <div><strong>resolution:</strong> {resolutionLabel || "-"}</div>
                                 <div><strong>analysis_id:</strong> {detection.analysis_id || "-"}</div>
@@ -5342,7 +5418,7 @@ export default function App() {
               <div><strong>ID:</strong> {detectionPreviewModal.detection.detection_id}</div>
               <div><strong>analysis_id:</strong> {detectionPreviewModal.detection.analysis_id}</div>
               <div><strong>status:</strong> {STATUS_LABEL_MAP[detectionPreviewModal.detection.status] ?? detectionPreviewModal.detection.status}</div>
-              <div><strong>class:</strong> {detectionPreviewModal.detection.class}</div>
+              <div><strong>class:</strong> {getClassDisplayLabel(getDetectionClassName(detectionPreviewModal.detection)) || NO_CLASS_LABEL}</div>
               <div>
                 <strong>confidence:</strong> {Number(detectionPreviewModal.detection.confidence).toFixed(2)}
               </div>
