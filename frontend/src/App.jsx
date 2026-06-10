@@ -4530,25 +4530,27 @@ export default function App() {
                     <div className="d-flex gap-2 mb-3">
                       <button
                         type="button"
-                        className="btn btn-sm btn-success flex-fill d-flex align-items-center justify-content-center gap-1"
-                        onClick={() => handleBulkValidate("confirmed")}
+                        className={`btn btn-sm ${statusFilter === "confirmed" ? "btn-warning" : "btn-success"} flex-fill d-flex align-items-center justify-content-center gap-1`}
+                        onClick={() => handleBulkValidate(statusFilter === "confirmed" ? "to_verify" : "confirmed")}
                         disabled={selectedIds.length === 0 || isBulkValidating || deleteModal.isDeleting}
                       >
                         {isBulkValidating && (
                           <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
                         )}
-                        Zatwierdź{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+                        {statusFilter === "confirmed" ? "Do weryfikacji" : "Zatwierdź"}
+                        {selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
                       </button>
                       <button
                         type="button"
-                        className="btn btn-sm btn-danger flex-fill d-flex align-items-center justify-content-center gap-1"
-                        onClick={() => handleBulkValidate("rejected")}
+                        className={`btn btn-sm ${statusFilter === "rejected" ? "btn-warning" : "btn-danger"} flex-fill d-flex align-items-center justify-content-center gap-1`}
+                        onClick={() => handleBulkValidate(statusFilter === "rejected" ? "to_verify" : "rejected")}
                         disabled={selectedIds.length === 0 || isBulkValidating || deleteModal.isDeleting}
                       >
                         {isBulkValidating && (
                           <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
                         )}
-                        Odrzuć{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+                        {statusFilter === "rejected" ? "Do weryfikacji" : "Odrzuć"}
+                        {selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
                       </button>
                       <button
                         type="button"
