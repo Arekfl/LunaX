@@ -381,6 +381,8 @@ function countDetectedImages(detectionList, analysisImageList = []) {
     return uniqueImageIds.size;
   }
 
+  setActiveSidebarTab(SIDEBAR_TAB_DETECTIONS);
+  setStatusFilter(NO_DETECTIONS_FILTER);
   return detectionList.length > 0 ? 1 : 0;
 }
 
@@ -1071,6 +1073,8 @@ export default function App() {
   const detectionListRef = useRef(null);
   const detectionItemRefs = useRef(new Map());
   const noDetectionItemRefs = useRef(new Map());
+  const galleryDetectionItemRefs = useRef(new Map());
+  const galleryNoDetectionItemRefs = useRef(new Map());
   const masterDetectionsCheckboxRef = useRef(null);
   const masterNoDetectionsCheckboxRef = useRef(null);
   const tagFilterDropdownRef = useRef(null);
@@ -1893,24 +1897,33 @@ export default function App() {
 
     const selectedRenderKey = `${getDetectionUniqueId(filteredDetections[selectedIndex])}|${selectedIndex}`;
     const selectedItem = detectionItemRefs.current.get(selectedRenderKey);
-    const container = detectionListRef.current;
-    if (!selectedItem || !container) {
+    if (!selectedItem) {
       return;
     }
 
-    const containerRect = container.getBoundingClientRect();
-    const itemRect = selectedItem.getBoundingClientRect();
-    const padding = 8;
-
-    if (itemRect.top < containerRect.top) {
-      container.scrollTop -= containerRect.top - itemRect.top + padding;
-      return;
-    }
-
-    if (itemRect.bottom > containerRect.bottom) {
-      container.scrollTop += itemRect.bottom - containerRect.bottom + padding;
-    }
+    selectedItem.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [filteredDetections, selectedDetection]);
+
+  useEffect(() => {
+    if (viewMode !== "gallery" || isNoDetectionsFilterSelected || !selectedDetection) {
+      return;
+    }
+
+    const selectedIndex = classFilteredDetections.findIndex((detection) =>
+      isSameDetection(detection, selectedDetection)
+    );
+    if (selectedIndex < 0) {
+      return;
+    }
+
+    const selectedRenderKey = `${getDetectionUniqueId(classFilteredDetections[selectedIndex])}|${selectedIndex}`;
+    const selectedGalleryCardNode = galleryDetectionItemRefs.current.get(selectedRenderKey);
+    if (!selectedGalleryCardNode) {
+      return;
+    }
+
+    selectedGalleryCardNode.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [selectedDetection, classFilteredDetections, viewMode, isNoDetectionsFilterSelected]);
 
   useEffect(() => {
     if (!hoveredDetectionId) {
@@ -2082,6 +2095,24 @@ export default function App() {
   }, [selectedNoDetectionListItemId]);
 
   useEffect(() => {
+    if (viewMode !== "gallery") {
+      return;
+    }
+
+    const selectedImageId = String(selectedNoDetectionListItemId || "").trim();
+    if (!selectedImageId) {
+      return;
+    }
+
+    const selectedGalleryCardNode = galleryNoDetectionItemRefs.current.get(selectedImageId);
+    if (!selectedGalleryCardNode) {
+      return;
+    }
+
+    selectedGalleryCardNode.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [selectedNoDetectionListItemId, viewMode, sortedNoDetectionImages]);
+
+  useEffect(() => {
     if (!selectedNoDetectionListItemId) {
       return;
     }
@@ -2203,6 +2234,8 @@ export default function App() {
         return;
       }
 
+      setActiveSidebarTab(SIDEBAR_TAB_DETECTIONS);
+      setStatusFilter(NO_DETECTIONS_FILTER);
       setExpandedNoDetectionImageId(imageId);
       setSelectedNoDetectionListItemId(imageId);
       setSelectedDetection(null);
@@ -2740,12 +2773,33 @@ export default function App() {
       return;
     }
 
+    setViewMode("gallery");
     setExpandedDetectionId(detectionId);
     setEditingDetectionId(detectionId);
     setInputComment(detection.comment ?? "");
     setSelectedDetection(detection);
     setSelectedNoDetectionListItemId(null);
   };
+
+  const handleFocusDetectionFromGallery = useCallback((detection) => {
+    if (!detection || typeof detection !== "object") {
+      return;
+    }
+
+    const detectionStatus = String(detection.status || DEFAULT_DETECTION_STATUS)
+      .trim()
+      .toLowerCase();
+
+    setActiveSidebarTab(SIDEBAR_TAB_DETECTIONS);
+    setStatusFilter(
+      detectionStatus === "confirmed" || detectionStatus === "rejected" || detectionStatus === "to_verify"
+        ? detectionStatus
+        : DEFAULT_DETECTION_STATUS
+    );
+    setExpandedDetectionId(detection.detection_id);
+    setSelectedDetection(detection);
+    setSelectedNoDetectionListItemId(null);
+  }, []);
 
   const handleToggleDetectionSelection = (detectionId) => {
     setSelectedIds((prevSelectedIds) => {
@@ -3098,10 +3152,24 @@ export default function App() {
       return;
     }
 
+    setViewMode("gallery");
     setExpandedNoDetectionImageId(imageId);
     setSelectedNoDetectionListItemId(imageId);
     setSelectedDetection(null);
   };
+
+  const handleFocusNoDetectionFromGallery = useCallback((image) => {
+    const imageId = String(image?.image_id || "").trim();
+    if (!imageId) {
+      return;
+    }
+
+    setActiveSidebarTab(SIDEBAR_TAB_DETECTIONS);
+    setStatusFilter(NO_DETECTIONS_FILTER);
+    setExpandedNoDetectionImageId(imageId);
+    setSelectedNoDetectionListItemId(imageId);
+    setSelectedDetection(null);
+  }, []);
 
   const handleApplyNoDetectionBulkTag = async () => {
     const normalizedTag = String(noDetectionBulkTagDraft || "").trim();
@@ -3901,24 +3969,41 @@ export default function App() {
                 ) : (
                   <div className="row g-3">
                     {sortedNoDetectionImages.map((image, imageIndex) => {
+                      const imageId = String(image.image_id || "");
                       const itemKey = `${image.image_id || "no-id"}|${image.timestamp || "no-ts"}|${imageIndex}`;
                       const isNoDetectionsStatus =
                         (typeof image.status === "string" ? image.status : NO_DETECTIONS_FILTER) ===
                         NO_DETECTIONS_FILTER;
-                      const isSelected = selectedNoDetectionImageIds.includes(image.image_id);
-                      const isHovered = hoveredDetectionId === image.image_id;
+                      const isSelected = selectedNoDetectionImageIds.includes(imageId);
+                      const isHovered = hoveredDetectionId === imageId;
 
                       return (
-                        <div className="col-12 col-sm-6 col-lg-4 col-xl-3" key={`gallery-image-${itemKey}`}
-                          onMouseEnter={() => setHoveredDetectionId(image.image_id)}
+                        <div
+                          className="col-12 col-sm-6 col-lg-4 col-xl-3"
+                          key={`gallery-image-${itemKey}`}
+                          ref={(node) => {
+                            if (node) {
+                              galleryNoDetectionItemRefs.current.set(imageId, node);
+                            } else {
+                              galleryNoDetectionItemRefs.current.delete(imageId);
+                            }
+                          }}
+                          onMouseEnter={() => setHoveredDetectionId(imageId)}
                           onMouseLeave={() => setHoveredDetectionId(null)}
                         >
                           <div
                             className={`gallery-card card h-100 shadow-sm border-0 position-relative${isSelected ? " gallery-card-selected" : ""}`}
                             tabIndex={0}
-                            onClick={() => handleToggleNoDetectionSelection(image.image_id)}
+                            onClick={() => {
+                              handleFocusNoDetectionFromGallery(image);
+                              handleToggleNoDetectionSelection(imageId);
+                            }}
                             onKeyDown={e => {
-                              if (e.key === "Enter" || e.key === " ") handleToggleNoDetectionSelection(image.image_id);
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                handleFocusNoDetectionFromGallery(image);
+                                handleToggleNoDetectionSelection(imageId);
+                              }
                             }}
                             style={{ cursor: "pointer" }}
                           >
@@ -4018,13 +4103,27 @@ export default function App() {
                       <div
                         className="col-sm-6 col-xl-4"
                         key={`gallery-${detectionRenderKey}`}
+                        ref={(node) => {
+                          if (node) {
+                            galleryDetectionItemRefs.current.set(detectionRenderKey, node);
+                          } else {
+                            galleryDetectionItemRefs.current.delete(detectionRenderKey);
+                          }
+                        }}
                       >
                         <div
                           className={`gallery-card card h-100 shadow-sm border-0 position-relative${isSelected ? " gallery-card-selected" : ""}`}
                           tabIndex={0}
-                          onClick={() => handleToggleDetectionSelection(detection.detection_id)}
+                          onClick={() => {
+                            handleFocusDetectionFromGallery(detection);
+                            handleToggleDetectionSelection(detection.detection_id);
+                          }}
                           onKeyDown={e => {
-                            if (e.key === "Enter" || e.key === " ") handleToggleDetectionSelection(detection.detection_id);
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              handleFocusDetectionFromGallery(detection);
+                              handleToggleDetectionSelection(detection.detection_id);
+                            }
                           }}
                           onMouseEnter={() => setHoveredDetectionId(detectionUniqueId)}
                           onMouseLeave={() => setHoveredDetectionId(null)}
