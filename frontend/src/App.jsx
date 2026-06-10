@@ -3989,11 +3989,7 @@ export default function App() {
                 <div className="small text-muted">Brak detekcji. Kliknij "Uruchom analizę".</div>
               ) : filteredDetections.length === 0 ? (
                 <div className="small text-muted">
-                  Brak detekcji dla statusu: {statusFilter}
-                  {selectedTagFilters.length > 0
-                    ? ` (tagi: ${selectedTagFilters.join(", ")} - ${tagFilterMode.toUpperCase()})`
-                    : ""}
-                  .
+                  Brak detekcji dla wybranego statusu.
                 </div>
               ) : classFilteredDetections.length === 0 ? (
                 <div className="small text-muted">
@@ -4379,6 +4375,8 @@ export default function App() {
                 >
                   <h6 className="sidebar-section-title">Detekcje</h6>
 
+                  <div className="sidebar-detections-toolbar">
+
                   <div className="form-check form-switch mb-3">
                     <input
                       className="form-check-input"
@@ -4436,7 +4434,7 @@ export default function App() {
                     </select>
                   </div>
 
-                  <div className="btn-group btn-group-sm w-100 mb-3" role="group" aria-label="Filtr statusu detekcji">
+                  <div className="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Filtr statusu detekcji">
                     <button
                       type="button"
                       className={`btn ${statusFilter === "confirmed" ? "btn-success" : "btn-outline-success"}`}
@@ -4467,12 +4465,12 @@ export default function App() {
                     </button>
                   </div>
 
-                  <div className="mb-3">
-                    <div className="small text-muted mb-1">Sortowanie listy detekcji</div>
+                  <div className="detection-top-toolbar mb-3">
+                    <div className="small text-muted mb-1">Sortowanie</div>
                     {availableQuickSortFields.length === 0 ? (
                       <div className="small text-muted">Brak danych do sortowania.</div>
                     ) : (
-                      <div className="detection-sort-quick-list">
+                      <div className="detection-sort-quick-list mb-2">
                         {availableQuickSortFields.map((field) => {
                           const isActive = effectiveSortBy === field.key;
                           const directionIcon = effectiveSortOrder === "asc" ? "▲" : "▼";
@@ -4495,370 +4493,306 @@ export default function App() {
                         })}
                       </div>
                     )}
+
+                    <div className="form-check mb-0">
+                      <input
+                        ref={isNoDetectionsFilterSelected ? masterNoDetectionsCheckboxRef : masterDetectionsCheckboxRef}
+                        className="form-check-input detection-select-checkbox"
+                        type="checkbox"
+                        checked={
+                          isNoDetectionsFilterSelected
+                            ? areAllVisibleNoDetectionsSelected
+                            : areAllVisibleDetectionsSelected
+                        }
+                        onClick={(event) => {
+                          event.stopPropagation();
+                        }}
+                        onChange={(event) => {
+                          event.stopPropagation();
+                          if (isNoDetectionsFilterSelected) {
+                            handleToggleSelectAllNoDetections();
+                          } else {
+                            handleToggleSelectAllDetections();
+                          }
+                        }}
+                        disabled={
+                          isNoDetectionsFilterSelected
+                            ? selectableNoDetectionImageIds.length === 0 || deleteModal.isDeleting || isNoDetectionBulkTagging
+                            : selectableDetectionIds.length === 0 || deleteModal.isDeleting || isBulkTagging
+                        }
+                        aria-label="Zaznacz lub odznacz wszystkie elementy"
+                      />
+                      <label className="form-check-label small ms-1">Zaznacz wszystko</label>
+                    </div>
                   </div>
 
                   {!isNoDetectionsFilterSelected && (
-                    <div className="mb-3">
-                      <div className="d-flex justify-content-between align-items-center mb-2">
-                        <div className="small text-muted">Filtr tagów</div>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline-secondary py-0"
-                          onClick={() => {
-                            setSelectedTagFilters([]);
-                            setIsTagFilterDropdownOpen(false);
-                          }}
-                          disabled={selectedTagFilters.length === 0}
-                        >
-                          Wyczyść
-                        </button>
-                      </div>
-
-                      {availableDetectionTags.length === 0 ? (
-                        <div className="small text-muted">Brak dostępnych tagów dla wybranego statusu.</div>
-                      ) : (
-                        <>
-                          <div className="dropdown tag-filter-dropdown mb-2" ref={tagFilterDropdownRef}>
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-outline-secondary w-100 d-flex justify-content-between align-items-center"
-                              onClick={() => setIsTagFilterDropdownOpen((prevState) => !prevState)}
-                              aria-expanded={isTagFilterDropdownOpen}
-                              aria-haspopup="listbox"
-                            >
-                              <span>
-                                {selectedTagFilters.length > 0
-                                  ? `Wybrane tagi (${selectedTagFilters.length})`
-                                  : "Wybierz tagi"}
-                              </span>
-                              <span className="small text-muted">
-                                {isTagFilterDropdownOpen ? "Zamknij" : "Otwórz"}
-                              </span>
-                            </button>
-
-                            {isTagFilterDropdownOpen && (
-                              <div className="dropdown-menu d-block w-100 mt-1 p-2 tag-filter-dropdown-menu">
-                                {availableDetectionTags.map((tag) => {
-                                  const isChecked = selectedTagFilters.includes(tag);
-
-                                  return (
-                                    <label key={`tag-filter-${tag}`} className="form-check mb-1 tag-filter-option">
-                                      <input
-                                        className="form-check-input"
-                                        type="checkbox"
-                                        checked={isChecked}
-                                        onChange={() => handleToggleTagFilter(tag)}
-                                      />
-                                      <span className="form-check-label small">{tag}</span>
-                                    </label>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-
-                          {selectedTagFilters.length > 0 ? (
-                            <div className="d-flex flex-wrap gap-1 mb-2">
-                              {selectedTagFilters.map((tag) => (
-                                <span
-                                  key={`active-tag-filter-${tag}`}
-                                  className="badge text-bg-light border dense-tag-chip d-inline-flex align-items-center"
-                                >
-                                  <span className="me-1">{tag}</span>
-                                  <button
-                                    type="button"
-                                    className="btn btn-sm p-0 border-0 bg-transparent detection-tag-remove"
-                                    onClick={() => handleRemoveTagFilter(tag)}
-                                    aria-label={`Usuń filtr tagu ${tag}`}
-                                  >
-                                    x
-                                  </button>
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="small text-muted mb-2">Brak wybranych tagów.</div>
-                          )}
-
-                          <div className="small text-muted mb-1">Tryb dopasowania:</div>
-                          <div className="d-flex align-items-center gap-3 mb-1">
-                            <div className="form-check form-check-inline mb-0">
-                              <input
-                                className="form-check-input"
-                                type="radio"
-                                name="tag-filter-mode"
-                                id="tag-filter-mode-or"
-                                checked={tagFilterMode === "or"}
-                                onChange={() => setTagFilterMode("or")}
-                              />
-                              <label className="form-check-label small" htmlFor="tag-filter-mode-or">
-                                OR
-                              </label>
-                            </div>
-                            <div className="form-check form-check-inline mb-0">
-                              <input
-                                className="form-check-input"
-                                type="radio"
-                                name="tag-filter-mode"
-                                id="tag-filter-mode-and"
-                                checked={tagFilterMode === "and"}
-                                onChange={() => setTagFilterMode("and")}
-                              />
-                              <label className="form-check-label small" htmlFor="tag-filter-mode-and">
-                                AND
-                              </label>
-                            </div>
-                          </div>
-
-                          <div className="small text-muted">
-                            {tagFilterMode === "or"
-                              ? "OR: pokaż detekcje zawierające dowolny wybrany tag."
-                              : "AND: pokaż tylko detekcje zawierające wszystkie wybrane tagi."}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
-
-                  {isNoDetectionsFilterSelected ? (
-                    <>
-                      <div className="form-check mb-2">
-                        <input
-                          ref={masterNoDetectionsCheckboxRef}
-                          className="form-check-input detection-select-checkbox"
-                          type="checkbox"
-                          checked={areAllVisibleNoDetectionsSelected}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                          }}
-                          onChange={(event) => {
-                            event.stopPropagation();
-                            handleToggleSelectAllNoDetections();
-                          }}
-                          disabled={
-                            selectableNoDetectionImageIds.length === 0 ||
-                            deleteModal.isDeleting ||
-                            isNoDetectionBulkTagging
-                          }
-                          aria-label="Zaznacz lub odznacz wszystkie obrazy no_detections"
-                        />
-                        <label className="form-check-label small ms-1">Select / Deselect All</label>
-                      </div>
-
-                      <div className="d-flex gap-2 mb-2">
-                        <input
-                          className="form-control form-control-sm tag-input-single-line"
-                          type="text"
-                          placeholder="Dodaj tag"
-                          value={noDetectionBulkTagDraft}
-                          onChange={(event) => setNoDetectionBulkTagDraft(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              handleApplyNoDetectionBulkTag();
-                            }
-                          }}
-                          disabled={
-                            selectedNoDetectionImageIds.length === 0 ||
-                            deleteModal.isDeleting ||
-                            isNoDetectionBulkTagging
-                          }
-                        />
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline-primary tag-add-btn"
-                          onClick={handleApplyNoDetectionBulkTag}
-                          disabled={
-                            selectedNoDetectionImageIds.length === 0 ||
-                            deleteModal.isDeleting ||
-                            isNoDetectionBulkTagging ||
-                            String(noDetectionBulkTagDraft || "").trim().length === 0
-                          }
-                        >
-                          {isNoDetectionBulkTagging ? "Dodawanie..." : "Dodaj tag"}
-                        </button>
-                      </div>
+                    <div className="d-flex gap-2 mb-3">
                       <button
                         type="button"
-                        className="btn btn-sm btn-outline-danger w-100 mb-3"
-                        onClick={handleRequestBulkDeleteNoDetectionImages}
-                        disabled={
-                          selectedNoDetectionImageIds.length === 0 ||
-                          deleteModal.isDeleting ||
-                          isNoDetectionBulkTagging
-                        }
+                        className="btn btn-sm btn-success flex-fill d-flex align-items-center justify-content-center gap-1"
+                        onClick={() => handleBulkValidate("confirmed")}
+                        disabled={selectedIds.length === 0 || isBulkValidating || deleteModal.isDeleting}
                       >
-                        Usuń zaznaczone obrazy
-                        {selectedNoDetectionImageIds.length > 0
-                          ? ` (${selectedNoDetectionImageIds.length})`
-                          : ""}
+                        {isBulkValidating && (
+                          <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                        )}
+                        Zatwierdź{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
                       </button>
-                    </>
-                  ) : (
-                    <>
-                      <div className="form-check mb-2">
-                        <input
-                          ref={masterDetectionsCheckboxRef}
-                          className="form-check-input detection-select-checkbox"
-                          type="checkbox"
-                          checked={areAllVisibleDetectionsSelected}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                          }}
-                          onChange={(event) => {
-                            event.stopPropagation();
-                            handleToggleSelectAllDetections();
-                          }}
-                          disabled={
-                            selectableDetectionIds.length === 0 ||
-                            deleteModal.isDeleting ||
-                            isBulkTagging
-                          }
-                          aria-label="Zaznacz lub odznacz wszystkie detekcje"
-                        />
-                        <label className="form-check-label small ms-1">Select / Deselect All</label>
-                      </div>
-
-                      <div className="d-flex gap-2 mb-2">
-                        <input
-                          className="form-control form-control-sm tag-input-single-line"
-                          type="text"
-                          placeholder="Dodaj tag"
-                          value={bulkTagDraft}
-                          onChange={(event) => setBulkTagDraft(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              handleApplyBulkTag();
-                            }
-                          }}
-                          disabled={
-                            selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging
-                          }
-                        />
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline-primary tag-add-btn"
-                          onClick={handleApplyBulkTag}
-                          disabled={
-                            selectedIds.length === 0 ||
-                            deleteModal.isDeleting ||
-                            isBulkTagging ||
-                            String(bulkTagDraft || "").trim().length === 0
-                          }
-                        >
-                          {isBulkTagging ? "Dodawanie..." : "Dodaj tag"}
-                        </button>
-                      </div>
-                      <div className="d-flex gap-2 mb-2">
-                        <select
-                          className="form-select form-select-sm"
-                          value={exportFormat}
-                          onChange={(event) => setExportFormat(event.target.value)}
-                          disabled={selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging}
-                        >
-                          <option value="json">JSON</option>
-                          <option value="csv">CSV</option>
-                        </select>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline-secondary"
-                          onClick={handleExportSelectedDetections}
-                          disabled={selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging}
-                        >
-                          Export
-                        </button>
-                      </div>
                       <button
                         type="button"
-                        className="btn btn-sm btn-outline-danger w-100 mb-3"
+                        className="btn btn-sm btn-danger flex-fill d-flex align-items-center justify-content-center gap-1"
+                        onClick={() => handleBulkValidate("rejected")}
+                        disabled={selectedIds.length === 0 || isBulkValidating || deleteModal.isDeleting}
+                      >
+                        {isBulkValidating && (
+                          <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                        )}
+                        Odrzuć{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-danger flex-fill"
                         onClick={handleRequestBulkDeleteDetections}
                         disabled={selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging || isBulkValidating || isReanalyzing}
                       >
-                        Usuń zaznaczone{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+                        Usuń{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
                       </button>
-                      <div className="d-flex gap-2 mb-3">
-                        {statusFilter === "to_verify" && (
+                    </div>
+                  )}
+
+                  <details className="sidebar-settings-section mb-3">
+                    <summary className="small fw-semibold">Filtry i operacje ▼</summary>
+
+                    {!isNoDetectionsFilterSelected && (
+                      <div className="mb-3">
+                        <div className="d-flex justify-content-between align-items-center mb-2">
+                          <div className="small text-muted">Filtr tagów</div>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-secondary py-0"
+                            onClick={() => {
+                              setSelectedTagFilters([]);
+                              setIsTagFilterDropdownOpen(false);
+                            }}
+                            disabled={selectedTagFilters.length === 0}
+                          >
+                            Wyczyść
+                          </button>
+                        </div>
+
+                        {availableDetectionTags.length === 0 ? (
+                          <div className="small text-muted">Brak dostępnych tagów dla wybranego statusu.</div>
+                        ) : (
                           <>
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-success flex-fill d-flex align-items-center justify-content-center gap-1"
-                              onClick={() => handleBulkValidate("confirmed")}
-                              disabled={selectedIds.length === 0 || isBulkValidating || deleteModal.isDeleting}
-                            >
-                              {isBulkValidating && (
-                                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                            <div className="dropdown tag-filter-dropdown mb-2" ref={tagFilterDropdownRef}>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline-secondary w-100 d-flex justify-content-between align-items-center"
+                                onClick={() => setIsTagFilterDropdownOpen((prevState) => !prevState)}
+                                aria-expanded={isTagFilterDropdownOpen}
+                                aria-haspopup="listbox"
+                              >
+                                <span>
+                                  {selectedTagFilters.length > 0
+                                    ? `Wybrane tagi (${selectedTagFilters.length})`
+                                    : "Wybierz tagi"}
+                                </span>
+                                <span className="small text-muted">
+                                  {isTagFilterDropdownOpen ? "Zamknij" : "Otwórz"}
+                                </span>
+                              </button>
+
+                              {isTagFilterDropdownOpen && (
+                                <div className="dropdown-menu d-block w-100 mt-1 p-2 tag-filter-dropdown-menu">
+                                  {availableDetectionTags.map((tag) => {
+                                    const isChecked = selectedTagFilters.includes(tag);
+
+                                    return (
+                                      <label key={`tag-filter-${tag}`} className="form-check mb-1 tag-filter-option">
+                                        <input
+                                          className="form-check-input"
+                                          type="checkbox"
+                                          checked={isChecked}
+                                          onChange={() => handleToggleTagFilter(tag)}
+                                        />
+                                        <span className="form-check-label small">{tag}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
                               )}
-                              Zatwierdź{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-danger flex-fill d-flex align-items-center justify-content-center gap-1"
-                              onClick={() => handleBulkValidate("rejected")}
-                              disabled={selectedIds.length === 0 || isBulkValidating || deleteModal.isDeleting}
-                            >
-                              {isBulkValidating && (
-                                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                              )}
-                              Odrzuć{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
-                            </button>
-                          </>
-                        )}
-                        {statusFilter === "confirmed" && (
-                          <>
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-warning flex-fill d-flex align-items-center justify-content-center gap-1"
-                              onClick={() => handleBulkValidate("to_verify")}
-                              disabled={selectedIds.length === 0 || isBulkValidating || deleteModal.isDeleting}
-                            >
-                              {isBulkValidating && (
-                                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                              )}
-                              Cofnij do weryfikacji{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-danger flex-fill d-flex align-items-center justify-content-center gap-1"
-                              onClick={() => handleBulkValidate("rejected")}
-                              disabled={selectedIds.length === 0 || isBulkValidating || deleteModal.isDeleting}
-                            >
-                              {isBulkValidating && (
-                                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                              )}
-                              Odrzuć{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
-                            </button>
-                          </>
-                        )}
-                        {statusFilter === "rejected" && (
-                          <>
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-success flex-fill d-flex align-items-center justify-content-center gap-1"
-                              onClick={() => handleBulkValidate("confirmed")}
-                              disabled={selectedIds.length === 0 || isBulkValidating || deleteModal.isDeleting}
-                            >
-                              {isBulkValidating && (
-                                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                              )}
-                              Zatwierdź{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-warning flex-fill d-flex align-items-center justify-content-center gap-1"
-                              onClick={() => handleBulkValidate("to_verify")}
-                              disabled={selectedIds.length === 0 || isBulkValidating || deleteModal.isDeleting}
-                            >
-                              {isBulkValidating && (
-                                <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                              )}
-                              Do weryfikacji{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
-                            </button>
+                            </div>
+
+                            {selectedTagFilters.length > 0 && (
+                              <div className="d-flex flex-wrap gap-1 mb-2">
+                                {selectedTagFilters.map((tag) => (
+                                  <span
+                                    key={`active-tag-filter-${tag}`}
+                                    className="badge text-bg-light border dense-tag-chip d-inline-flex align-items-center"
+                                  >
+                                    <span className="me-1">{tag}</span>
+                                    <button
+                                      type="button"
+                                      className="btn btn-sm p-0 border-0 bg-transparent detection-tag-remove"
+                                      onClick={() => handleRemoveTagFilter(tag)}
+                                      aria-label={`Usuń filtr tagu ${tag}`}
+                                    >
+                                      x
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+
+                            <div className="small text-muted mb-1">Tryb dopasowania</div>
+                            <div className="d-flex align-items-center gap-3 mb-1">
+                              <div className="form-check form-check-inline mb-0">
+                                <input
+                                  className="form-check-input"
+                                  type="radio"
+                                  name="tag-filter-mode"
+                                  id="tag-filter-mode-or"
+                                  checked={tagFilterMode === "or"}
+                                  onChange={() => setTagFilterMode("or")}
+                                />
+                                <label className="form-check-label small" htmlFor="tag-filter-mode-or">
+                                  OR
+                                </label>
+                              </div>
+                              <div className="form-check form-check-inline mb-0">
+                                <input
+                                  className="form-check-input"
+                                  type="radio"
+                                  name="tag-filter-mode"
+                                  id="tag-filter-mode-and"
+                                  checked={tagFilterMode === "and"}
+                                  onChange={() => setTagFilterMode("and")}
+                                />
+                                <label className="form-check-label small" htmlFor="tag-filter-mode-and">
+                                  AND
+                                </label>
+                              </div>
+                            </div>
                           </>
                         )}
                       </div>
-                    </>
-                  )}
+                    )}
+
+                    {isNoDetectionsFilterSelected ? (
+                      <>
+                        <div className="d-flex gap-2 mb-2">
+                          <input
+                            className="form-control form-control-sm tag-input-single-line"
+                            type="text"
+                            placeholder="Dodaj tag"
+                            value={noDetectionBulkTagDraft}
+                            onChange={(event) => setNoDetectionBulkTagDraft(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                handleApplyNoDetectionBulkTag();
+                              }
+                            }}
+                            disabled={
+                              selectedNoDetectionImageIds.length === 0 ||
+                              deleteModal.isDeleting ||
+                              isNoDetectionBulkTagging
+                            }
+                          />
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-primary tag-add-btn"
+                            onClick={handleApplyNoDetectionBulkTag}
+                            disabled={
+                              selectedNoDetectionImageIds.length === 0 ||
+                              deleteModal.isDeleting ||
+                              isNoDetectionBulkTagging ||
+                              String(noDetectionBulkTagDraft || "").trim().length === 0
+                            }
+                          >
+                            {isNoDetectionBulkTagging ? "Dodawanie..." : "Dodaj tag"}
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-danger w-100"
+                          onClick={handleRequestBulkDeleteNoDetectionImages}
+                          disabled={
+                            selectedNoDetectionImageIds.length === 0 ||
+                            deleteModal.isDeleting ||
+                            isNoDetectionBulkTagging
+                          }
+                        >
+                          Usuń zaznaczone obrazy
+                          {selectedNoDetectionImageIds.length > 0
+                            ? ` (${selectedNoDetectionImageIds.length})`
+                            : ""}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <div className="d-flex gap-2 mb-2">
+                          <input
+                            className="form-control form-control-sm tag-input-single-line"
+                            type="text"
+                            placeholder="Dodaj tag"
+                            value={bulkTagDraft}
+                            onChange={(event) => setBulkTagDraft(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                handleApplyBulkTag();
+                              }
+                            }}
+                            disabled={selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging}
+                          />
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-primary tag-add-btn"
+                            onClick={handleApplyBulkTag}
+                            disabled={
+                              selectedIds.length === 0 ||
+                              deleteModal.isDeleting ||
+                              isBulkTagging ||
+                              String(bulkTagDraft || "").trim().length === 0
+                            }
+                          >
+                            {isBulkTagging ? "Dodawanie..." : "Dodaj tag"}
+                          </button>
+                        </div>
+                        <div className="d-flex gap-2 mb-2">
+                          <select
+                            className="form-select form-select-sm"
+                            value={exportFormat}
+                            onChange={(event) => setExportFormat(event.target.value)}
+                            disabled={selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging}
+                          >
+                            <option value="json">JSON</option>
+                            <option value="csv">CSV</option>
+                          </select>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-secondary"
+                            onClick={handleExportSelectedDetections}
+                            disabled={selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging}
+                          >
+                            Export
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-danger w-100"
+                          onClick={handleRequestBulkDeleteDetections}
+                          disabled={selectedIds.length === 0 || deleteModal.isDeleting || isBulkTagging || isBulkValidating || isReanalyzing}
+                        >
+                          Usuń zaznaczone{selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+                        </button>
+                      </>
+                    )}
+                    </details>
+
+                    </div>
 
               <div className="sidebar-detection-list-wrap">
                 {isNoDetectionsFilterSelected ? (
@@ -5053,11 +4987,7 @@ export default function App() {
                   <div className="small text-muted">Brak detekcji. Kliknij "Uruchom analizę".</div>
                 ) : filteredDetections.length === 0 ? (
                   <div className="small text-muted">
-                    Brak detekcji dla statusu: {STATUS_LABEL_MAP[statusFilter] ?? STATUS_LABEL_MAP[statusFilter] ?? statusFilter}
-                    {selectedTagFilters.length > 0
-                      ? ` (tagi: ${selectedTagFilters.join(", ")} - ${tagFilterMode.toUpperCase()})`
-                      : ""}
-                    .
+                    Brak detekcji dla wybranego statusu.
                   </div>
                 ) : (
                   <div className="list-group dense-detection-list">
@@ -5146,23 +5076,12 @@ export default function App() {
                             <div className="detection-dense-tags">
                               {detectionTags.length > 0 ? (
                                 detectionTags.map((tag) => (
-                                  <button
-                                    type="button"
+                                  <span
                                     key={`${detection.detection_id}|dense|${tag}`}
-                                    className={`badge border dense-tag-chip tag-filter-chip-btn ${
-                                      selectedTagFilters.includes(tag)
-                                        ? "text-bg-primary border-primary is-active"
-                                        : "text-bg-light"
-                                    }`}
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      handleToggleTagFilter(tag);
-                                    }}
-                                    title="Kliknij, aby dodac/usunac tag z filtra"
-                                    aria-label={`Przelacz filtr tagu ${tag}`}
+                                    className="badge border dense-tag-chip text-bg-light"
                                   >
                                     {tag}
-                                  </button>
+                                  </span>
                                 ))
                               ) : (
                                 <span className="small text-muted">-</span>
@@ -5235,18 +5154,9 @@ export default function App() {
                                 <div className="d-flex flex-wrap gap-1 mb-2">
                                   {detectionTags.map((tag) => (
                                     <span key={`${detection.detection_id}|${tag}`} className="badge text-bg-light border dense-tag-chip">
-                                      <button
-                                        type="button"
-                                        className={`btn btn-sm p-0 border-0 bg-transparent detection-tag-filter-toggle me-1 ${
-                                          selectedTagFilters.includes(tag)
-                                            ? "text-primary fw-semibold"
-                                            : "text-body"
-                                        }`}
-                                        onClick={() => handleToggleTagFilter(tag)}
-                                        aria-label={`Przelacz filtr tagu ${tag}`}
-                                      >
+                                      <span className="me-1">
                                         {tag}
-                                      </button>
+                                      </span>
                                       <button
                                         type="button"
                                         className="btn btn-sm p-0 border-0 bg-transparent detection-tag-remove"
