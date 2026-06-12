@@ -98,7 +98,14 @@ def _append_rows_to_parquet(parquet_file: Path, rows: list[dict]) -> Path:
             columns = list(dict.fromkeys([*existing_frame.columns, *new_frame.columns]))
             existing_aligned = existing_frame.reindex(columns=columns)
             new_aligned = new_frame.reindex(columns=columns)
-            combined_frame = pd.concat([existing_aligned, new_aligned], ignore_index=True)
+            concat_sources = []
+            for frame in (existing_aligned, new_aligned):
+                non_empty_columns = [
+                    column_name for column_name in columns if not frame[column_name].isna().all()
+                ]
+                concat_sources.append(frame.loc[:, non_empty_columns])
+
+            combined_frame = pd.concat(concat_sources, ignore_index=True).reindex(columns=columns)
         combined_frame.to_parquet(parquet_file, index=False)
     else:
         new_frame.to_parquet(parquet_file, index=False)
