@@ -5333,6 +5333,14 @@ export default function App() {
                               {Number(detection.confidence).toFixed(2)}
                             </div>
 
+                            <div className="detection-dense-meta detection-dense-coord text-muted">
+                              lat: {formatCoordinate(imageLat, 4)}
+                            </div>
+
+                            <div className="detection-dense-meta detection-dense-coord text-muted">
+                              lon: {formatCoordinate(imageLon, 4)}
+                            </div>
+
                             <div className="detection-dense-tags">
                               {detectionTags.length > 0 ? (
                                 detectionTags.map((tag) => (
