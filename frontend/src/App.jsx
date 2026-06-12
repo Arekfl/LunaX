@@ -5263,6 +5263,10 @@ export default function App() {
                       const resolutionLabel = String(detection?.resolution ?? "").trim();
                       const timestampLabel = String(detection?.timestamp ?? "").trim();
                       const bbox = detection?.bbox ?? {};
+                      const relatedImage = resolveAnalysisImageForDetection(detection, analysisFilteredImages);
+                      const imageCoordsFromPath = extractLatLonFromPath(relatedImage?.path);
+                      const imageLat = imageCoordsFromPath ? imageCoordsFromPath.lat : Number(relatedImage?.lat);
+                      const imageLon = imageCoordsFromPath ? imageCoordsFromPath.lon : Number(relatedImage?.lon);
 
                       return (
                         <div
@@ -5399,6 +5403,8 @@ export default function App() {
                                 <div><strong>resolution:</strong> {resolutionLabel || "-"}</div>
                                 <div><strong>analysis_id:</strong> {detection.analysis_id || "-"}</div>
                                 <div><strong>timestamp:</strong> {timestampLabel || "-"}</div>
+                                <div><strong>lat:</strong> {formatCoordinate(imageLat, 6)}</div>
+                                <div><strong>lon:</strong> {formatCoordinate(imageLon, 6)}</div>
                                 <div>
                                   <strong>bbox:</strong>{" "}
                                   x={formatCoordinate(bbox.x, 2)}, y={formatCoordinate(bbox.y, 2)}, w={formatCoordinate(bbox.width, 2)}, h={formatCoordinate(bbox.height, 2)}
