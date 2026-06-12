@@ -1668,32 +1668,6 @@ export default function App() {
   );
 
   const mapPointMarkers = useMemo(() => {
-    if (isNoDetectionsFilterSelected) {
-      return sortedNoDetectionImages
-        .map((image) => {
-          const imageId = String(image?.image_id || "").trim();
-          if (!imageId) {
-            return null;
-          }
-
-          const coordsFromPath = extractLatLonFromPath(image?.path);
-          const lat = coordsFromPath ? coordsFromPath.lat : Number(image?.lat);
-          const lon = coordsFromPath ? coordsFromPath.lon : Number(image?.lon);
-          if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-            return null;
-          }
-
-          return {
-            markerId: `image:${imageId}`,
-            type: "image",
-            imageId,
-            lat,
-            lon,
-          };
-        })
-        .filter(Boolean);
-    }
-
     return filteredDetections
       .map((detection, index) => {
         const relatedImage = resolveAnalysisImageForDetection(detection, analysisFilteredImages);
@@ -1723,8 +1697,6 @@ export default function App() {
       })
       .filter(Boolean);
   }, [
-    isNoDetectionsFilterSelected,
-    sortedNoDetectionImages,
     filteredDetections,
     analysisFilteredImages,
   ]);
@@ -4712,7 +4684,7 @@ export default function App() {
                       onChange={(event) => setShowAnalysisPoints(event.target.checked)}
                     />
                     <label className="form-check-label" htmlFor="toggle-analysis-points-detections">
-                      Pokaż punkty analiz
+                      Pokaż punkty detekcji
                     </label>
                   </div>
 

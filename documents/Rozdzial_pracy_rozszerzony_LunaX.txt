@@ -1,0 +1,297 @@
+ROZDIAŁ: OPIS SYSTEMU LUNAX
+
+Wprowadzenie
+
+Niniejszy rozdział przedstawia szczegółowy opis aplikacji LunaX, opracowanej jako narzędzie wspomagające analizę powierzchni Księżyca na podstawie zobrazowań satelitarnych oraz metod sztucznej inteligencji. System został zaprojektowany jako środowisko badawczo-analityczne, którego zadaniem jest wspieranie użytkownika w wykrywaniu, przeglądaniu, porządkowaniu oraz weryfikacji obiektów rozpoznanych automatycznie na danych obrazowych. W odróżnieniu od prostych demonstratorów modeli uczenia maszynowego, LunaX nie ogranicza się do jednorazowego uruchomienia algorytmu detekcyjnego. Aplikacja realizuje pełny przepływ pracy, obejmujący wybór obszaru analizy, pobranie obrazów, uruchomienie modelu, zapis wyników, wizualizację danych, filtrowanie rezultatów oraz ręczną ocenę detekcji.
+
+System ten powstał jako odpowiedź na potrzebę wsparcia badań nad powierzchnią Księżyca, szczególnie w kontekście identyfikacji struktur geologicznych istotnych z punktu widzenia przyszłych misji badawczych i eksploracyjnych. Duże zbiory danych satelitarnych są trudne do manualnego przeglądania, a ich analiza wymaga zarówno odpowiednich narzędzi informatycznych, jak i mechanizmów pozwalających połączyć działanie algorytmów z oceną eksperta. Z tego powodu w projekcie przyjęto podejście human in the loop, w którym model sztucznej inteligencji pełni rolę wspomagającą, a człowiek zachowuje kontrolę nad ostateczną interpretacją wyników.
+
+W kolejnych częściach rozdziału omówiono cel pracy, architekturę rozwiązania, szczegóły implementacyjne, zakres przeprowadzonych testów oraz wnioski wynikające z realizacji projektu. Dodatkowo w tekście wskazano propozycje zrzutów ekranu, które można umieścić w pracy dyplomowej, tak aby warstwa ilustracyjna była logicznie powiązana z opisem merytorycznym.
+
+1. Cel pracy
+
+1.1. Uzasadnienie podjęcia tematu
+
+Analiza danych obrazowych pochodzących z obserwacji planetarnych jest zadaniem złożonym i czasochłonnym. Współczesne repozytoria danych kosmicznych udostępniają coraz większe zbiory zobrazowań wysokiej rozdzielczości, jednak ich efektywne wykorzystanie zależy od zdolności przetwarzania dużych wolumenów informacji. W przypadku powierzchni Księżyca szczególnie interesujące są obiekty, które mogą świadczyć o procesach geologicznych, warunkach środowiskowych lub potencjalnej przydatności określonych obszarów dla przyszłej infrastruktury badawczej.
+
+Ręczna analiza takich danych jest nieefektywna z kilku powodów. Po pierwsze, ogromna liczba zobrazowań powoduje, że ekspert nie jest w stanie przejrzeć wszystkich dostępnych materiałów w rozsądnym czasie. Po drugie, interpretacja obrazu bywa obarczona subiektywizmem, co utrudnia standaryzację procesu badawczego. Po trzecie, wiele struktur powierzchniowych ma zbliżone cechy wizualne, przez co ich klasyfikacja wymaga doświadczenia i jednocześnie wsparcia narzędziowego. W konsekwencji powstaje potrzeba budowy systemu, który automatycznie ograniczy obszar zainteresowania do najbardziej perspektywicznych przypadków, a następnie umożliwi ekspercką walidację.
+
+1.2. Główny cel projektu
+
+Głównym celem projektu było stworzenie interaktywnej aplikacji umożliwiającej automatyczne wykrywanie wybranych obiektów na powierzchni Księżyca oraz zarządzanie wynikami analizy w sposób uporządkowany i użyteczny z punktu widzenia badacza. System miał integrować techniki wizji komputerowej, warstwę usług sieciowych oraz interfejs pozwalający na przegląd i ocenę danych.
+
+W praktyce oznaczało to konieczność osiągnięcia kilku celów cząstkowych. Po pierwsze, należało przygotować warstwę umożliwiającą pobieranie obrazów wybranego obszaru bezpośrednio z usługi mapowej. Po drugie, konieczne było zintegrowanie modelu detekcyjnego działającego na obrazach wejściowych. Po trzecie, istotne stało się zaprojektowanie trwałego mechanizmu przechowywania wyników analizy. Po czwarte, należało zapewnić użytkownikowi wygodny dostęp do wyników poprzez mapę, listy, filtry, galerie i podglądy. Po piąte wreszcie, system powinien umożliwiać ręczne oznaczanie detekcji, aby wspierać proces ich walidacji i dalszego wykorzystania w badaniach.
+
+1.3. Zakres funkcjonalny systemu
+
+Aplikacja LunaX została zaprojektowana jako kompletne narzędzie wspierające analizę danych. Użytkownik może wskazać obszar zainteresowania za pomocą mapy lub współrzędnych, określić sposób próbkowania przestrzeni, dobrać poziom rozdzielczości i ustawić parametry modelu, w tym próg confidence. Następnie system pobiera obrazy, uruchamia detekcję i zapisuje wyniki.
+
+Po zakończeniu analizy aplikacja pozwala przeglądać uzyskane detekcje w dwóch uzupełniających się trybach. W widoku mapowym użytkownik obserwuje rozmieszczenie wyników w przestrzeni. W widoku galerii może natomiast łatwiej analizować same obrazy i osadzone na nich bounding boxy. Dodatkowe mechanizmy obejmują zmianę statusów detekcji, filtrowanie po klasach, tagach i analizach, dodawanie komentarzy, oznaczanie obrazów jako ulubione oraz wykonywanie operacji masowych.
+
+Na poziomie badawczym istotną cechą systemu jest także możliwość ponownej analizy obrazów już zapisanych w systemie. Pozwala to uruchamiać inne warianty modelu lub zmieniać parametry bez konieczności każdorazowego pobierania tych samych danych z usługi zewnętrznej. Takie rozwiązanie jest szczególnie cenne w eksperymentach porównawczych.
+
+1.4. Znaczenie praktyczne i naukowe rozwiązania
+
+Znaczenie praktyczne projektu polega przede wszystkim na skróceniu czasu potrzebnego na analizę dużych zbiorów zobrazowań. Zamiast ręcznie wyszukiwać potencjalnie interesujące obszary, badacz otrzymuje zestaw wyników wyselekcjonowanych przez model sztucznej inteligencji. Pozwala to skoncentrować pracę eksperta na najbardziej istotnych przypadkach.
+
+Znaczenie naukowe wynika z możliwości wykorzystania aplikacji jako środowiska do eksperymentów z modelami uczenia maszynowego, strategiami próbkowania i różnymi poziomami rozdzielczości danych wejściowych. System może wspierać nie tylko samą identyfikację obiektów, ale również proces tworzenia danych uczących, weryfikacji hipotez badawczych oraz budowy bardziej uporządkowanego repozytorium wyników. W efekcie LunaX może stanowić zarówno narzędzie użytkowe, jak i platformę wspomagającą dalsze badania.
+
+Proponowany screenshot do sekcji 1:
+- Screenshot 1: ekran główny aplikacji po uruchomieniu, pokazujący mapę Księżyca, panel boczny z parametrami analizy oraz podstawowe zakładki. Taki zrzut najlepiej umieścić po podrozdziale 1.3, ponieważ ilustruje zakres funkcjonalny systemu jako całości.
+
+2. Architektura systemu
+
+2.1. Podejście architektoniczne
+
+Aplikacja LunaX została zrealizowana w architekturze klient-serwer. Jest to rozwiązanie naturalne dla systemów, które łączą złożoną logikę przetwarzania danych z interaktywnym interfejsem użytkownika. Warstwa klienta odpowiada za komunikację z użytkownikiem oraz prezentację wyników, natomiast warstwa serwerowa realizuje operacje obliczeniowe, dostęp do danych, integrację z usługami zewnętrznymi oraz trwałość wyników.
+
+Przyjęcie architektury klient-serwer pozwoliło zachować przejrzysty podział odpowiedzialności. Frontend został zaimplementowany przy użyciu biblioteki React i uruchamiany za pomocą środowiska Vite. Backend wykorzystuje framework FastAPI, który odpowiada za obsługę endpointów, walidację danych oraz koordynację logiki aplikacyjnej. Takie połączenie technologiczne jest korzystne, ponieważ React dobrze wspiera interfejsy o dużej liczbie stanów interakcyjnych, a FastAPI zapewnia lekkość, czytelność i wysoką wydajność warstwy API.
+
+2.2. Warstwa frontendowa
+
+Frontend pełni rolę warstwy prezentacyjnej oraz częściowo warstwy sterującej interakcją użytkownika z systemem. Najważniejszym elementem tej części aplikacji jest interaktywna mapa Księżyca, na której użytkownik może wybierać obszary analizy, obserwować wyniki oraz przemieszczać się pomiędzy poziomami szczegółowości. Wykorzystanie biblioteki Leaflet i integracji przez react-leaflet pozwoliło zbudować rozwiązanie przypominające znane interfejsy systemów mapowych, dzięki czemu obsługa jest intuicyjna.
+
+Oprócz warstwy mapowej frontend udostępnia panel boczny zawierający parametry analizy, podsumowanie aktualnych filtrów, listy detekcji oraz elementy administracyjne. Użytkownik może przełączać widoki, sortować wyniki, ograniczać zbiór danych do wybranej analizy, klasy lub statusu, a także zarządzać własnymi oznaczeniami. Frontend pełni zatem nie tylko funkcję wizualizacyjną, ale również rolę centrum sterowania przepływem analitycznym.
+
+2.3. Warstwa backendowa
+
+Backend został zrealizowany jako usługa HTTP udostępniająca REST API. Odpowiada on za przyjmowanie żądań od interfejsu, walidację parametrów, pobieranie danych obrazowych, uruchamianie modelu detekcyjnego, zapisywanie rezultatów oraz zwracanie uporządkowanych wyników do klienta. Centralny punkt wejścia stanowi aplikacja FastAPI, która definiuje zbiór endpointów obejmujących analizę, reanalizę, operacje na detekcjach i obsługę obrazów analitycznych.
+
+Istotną zaletą backendu jest jego modularny podział. Oddzielono warstwę schematów danych, logikę analityczną, mechanizmy trwałości metadanych użytkownika oraz adapter modelu detekcyjnego. Takie rozdzielenie zwiększa czytelność kodu oraz upraszcza utrzymanie. Pozwala też stosunkowo łatwo zastąpić wybrany komponent innym rozwiązaniem, na przykład podmienić model AI lub zmodyfikować sposób przechowywania danych.
+
+2.4. Integracja z modułem sztucznej inteligencji
+
+Szczególne miejsce w architekturze systemu zajmuje warstwa inferencyjna, odpowiedzialna za uruchamianie modelu YOLO. W projekcie zdecydowano się wydzielić ją do dedykowanego adaptera, który ukrywa szczegóły działania biblioteki Ultralytics. Dzięki temu pozostałe moduły systemu korzystają z prostego i stabilnego interfejsu, niezależnie od wewnętrznej struktury danych zwracanych przez model.
+
+Rozwiązanie to ułatwia także zarządzanie wieloma modelami. Aplikacja obsługuje więcej niż jeden plik wag, co pozwala uruchamiać alternatywne warianty detekcji. Jest to cenna cecha z punktu widzenia projektu badawczego, ponieważ system może być rozwijany wraz z pojawianiem się nowych eksperymentalnych wersji modeli.
+
+2.5. Zewnętrzne źródło danych obrazowych
+
+Istotnym elementem architektury jest integracja z usługą WMS udostępniającą zobrazowania powierzchni Księżyca. Zamiast operować wyłącznie na statycznym lokalnym zbiorze danych, LunaX potrafi pobrać obraz bezpośrednio dla wskazanego obszaru. Dzięki temu użytkownik analizuje aktualnie wybrany wycinek powierzchni, a aplikacja nie wymaga wcześniejszego przygotowania kompletnego zbioru rastrowego.
+
+Włączenie usługi zewnętrznej do architektury systemu ma zarówno zalety, jak i ograniczenia. Zaletą jest elastyczność i możliwość pracy na dużym zakresie danych bez lokalnego przechowywania wszystkiego. Ograniczeniem pozostaje zależność od dostępności i jakości odpowiedzi serwera mapowego. W projekcie częściowo zniwelowano ten problem przez zastosowanie walidacji pobieranych obrazów oraz mechanizmów ponawiania prób.
+
+2.6. Architektura przechowywania danych
+
+Warstwa danych ma charakter hybrydowy. Główny magazyn wyników stanowi plik Parquet, w którym zapisywane są zarówno detekcje, jak i metadane obrazów analitycznych. Jest to rozwiązanie lekkie, wydajne i dobrze dopasowane do zastosowań analitycznych. Dodatkowo osobno przechowywane są statusy, komentarze i tagi w formacie JSON.
+
+Taki podział pozwala odseparować dane podstawowe od warstwy adnotacyjnej generowanej przez użytkownika. Zaletą tego podejścia jest prostota aktualizacji metadanych użytkownika bez konieczności kosztownego przebudowywania całego zbioru tabelarycznego. Jednocześnie integracja danych podczas odczytu zapewnia użytkownikowi spójny obraz informacji.
+
+Proponowane screenshoty do sekcji 2:
+- Screenshot 2: widok mapy z nałożoną siatką segmentów i zaznaczonym aktywnym obszarem analizy. Najlepiej umieścić po podrozdziale 2.2.
+- Screenshot 3: panel parametrów analizy z wyborem modelu, rozdzielczości, liczby próbek i progu confidence. Najlepiej umieścić po podrozdziale 2.3.
+- Screenshot 4: zrzut przedstawiający strukturę odpowiedzi lub listę wyników po analizie, aby zilustrować współpracę frontendu z backendem. Najlepiej umieścić po podrozdziale 2.6.
+
+3. Implementacja aplikacji
+
+3.1. Model pracy użytkownika
+
+Proces korzystania z aplikacji został zaprojektowany tak, aby odpowiadał naturalnemu schematowi analizy danych. Użytkownik rozpoczyna pracę od uruchomienia systemu i przejścia do głównego widoku mapowego. Następnie może eksplorować powierzchnię Księżyca, korzystając z siatki segmentów lub ręcznego przejścia do zadanych współrzędnych. Dzięki temu możliwe jest zarówno szybkie zawężanie obszaru, jak i precyzyjne dotarcie do interesującego miejsca.
+
+Po zdefiniowaniu obszaru użytkownik ustala parametry analizy. Wybiera rozdzielczość, sposób próbkowania, liczbę próbek, próg confidence oraz model. Po uruchomieniu procesu aplikacja komunikuje stan analizy i po jej zakończeniu automatycznie odświeża widok wyników. Dalsza praca polega na przeglądzie detekcji, porównywaniu rezultatów, zmianie statusów oraz dodawaniu informacji opisowych.
+
+Tak zaprojektowany model pracy podkreśla rolę użytkownika jako aktywnego uczestnika procesu analitycznego. System nie narzuca jednego sztywnego scenariusza działania, lecz daje możliwość przechodzenia pomiędzy analizą przestrzenną, inspekcją obrazów oraz oceną wyników.
+
+3.2. Implementacja wyboru obszaru i nawigacji
+
+Interfejs mapowy operuje na współrzędnych geograficznych obejmujących cały glob księżycowy. Podstawowy zakres mapy został zdefiniowany jako przedział od -90 do 90 stopni szerokości geograficznej oraz od -180 do 180 stopni długości geograficznej. Na tej podstawie budowana jest siatka dzieląca mapę na segmenty. Użytkownik może przechodzić do kolejnych poziomów szczegółowości, co odpowiada logicznemu procesowi zawężania obszaru badań.
+
+Z technicznego punktu widzenia istotne było zachowanie historii wybranych obszarów i umożliwienie płynnego powrotu do wyższego poziomu przybliżenia. W aplikacji zaimplementowano więc mechanizm przechowywania historii zaznaczeń i resetowania widoku do poziomu całej mapy. Rozwiązanie to ma znaczenie użytecznościowe, ponieważ użytkownik podczas analizy często porusza się między szerszym kontekstem przestrzennym a szczegółową inspekcją lokalną.
+
+Dodatkowo system obsługuje ręczne przejście do zadanych współrzędnych, co bywa wygodniejsze, gdy badacz zna już interesujący punkt i nie chce nawigować po mapie wyłącznie metodą przybliżeń. Taki mechanizm zwiększa precyzję pracy i czyni aplikację bardziej uniwersalną.
+
+3.3. Tryby rozdzielczości danych wejściowych
+
+Aplikacja obsługuje trzy poziomy rozdzielczości: preview, detail oraz ultra. Każdy z nich reprezentuje inny kompromis pomiędzy szybkością działania a szczegółowością danych wejściowych. Tryb preview służy do szybkiej oceny obszaru i ma najmniejszy koszt obliczeniowy. Tryb detail stanowi ustawienie domyślne i oferuje zbalansowane połączenie jakości i czasu działania. Tryb ultra jest przeznaczony do najbardziej szczegółowej analizy, kosztem większego czasu przetwarzania.
+
+Z punktu widzenia implementacyjnego każdy tryb różni się rozmiarem pobieranego obrazu oraz efektywną wielkością analizowanego okna przestrzennego. Dzięki temu użytkownik może świadomie dobierać parametry do celu analizy. W pracy dyplomowej warto podkreślić, że taka elastyczność zwiększa wartość badawczą aplikacji, ponieważ pozwala porównywać wpływ skali danych wejściowych na jakość detekcji.
+
+3.4. Strategie próbkowania przestrzeni
+
+Jednym z bardziej interesujących elementów implementacji jest mechanizm próbkowania obszaru. W systemie zaimplementowano dwa tryby rozmieszczenia próbek: uniform oraz random. W trybie uniform analizowane okna są rozmieszczane w sposób uporządkowany, zgodnie z logiką siatki. Dla niewielkiej liczby próbek zastosowano dodatkowe warianty specjalne, na przykład pojedynczy środek, środek z bokami lub narożniki z centrum. Dzięki temu nawet mała liczba próbek daje sensowny rozkład przestrzenny.
+
+Tryb random polega na losowym wyznaczaniu środków analizowanych okien wewnątrz wybranego obszaru. Takie podejście może być użyteczne wtedy, gdy użytkownik chce eksplorować rozległy teren w sposób mniej deterministyczny lub badać wpływ losowego pokrycia na uzyskane wyniki. Oba tryby są istotne z perspektywy badawczej, ponieważ pozwalają ocenić, czy sposób poboru próbek wpływa na rozkład i liczbę detekcji.
+
+3.5. Pobieranie danych z usługi mapowej
+
+Po wyznaczeniu obszaru i parametrów backend generuje zapytanie do usługi WMS. Proces ten obejmuje normalizację bounding boxa, wyznaczenie rzeczywistego okna pobrania oraz budowę zapytania GetMap zawierającego informacje o współrzędnych, rozdzielczości i żądanej warstwie mapowej. Implementacja zakłada pracę na konkretnym źródle danych i konkretnej warstwie obrazowej, co upraszcza integrację i zwiększa przewidywalność wyników.
+
+Na etapie pobierania zastosowano mechanizmy odpornościowe. Backend sprawdza, czy odpowiedź serwera rzeczywiście jest obrazem. Następnie kontrolowana jest jakość pozyskanego rastra. System wykrywa sytuacje, w których obraz jest pusty, całkowicie przezroczysty albo jednorodny. Dodatkowo analizowane są charakterystyczne artefakty w postaci pionowych jasnych pasów. W praktyce taki filtr jakościowy ma duże znaczenie, ponieważ błędne dane wejściowe mogłyby wywołać niepotrzebne fałszywe detekcje i zniekształcić proces badawczy.
+
+3.6. Integracja modelu YOLO z backendem
+
+Po pobraniu obrazu backend przekazuje go do adaptera inferencyjnego. Implementacja modelu opiera się na bibliotece Ultralytics YOLO. Istotnym szczegółem jest zastosowanie pamięci podręcznej modeli. Dzięki temu po pierwszym załadowaniu pliku wag kolejne wywołania nie wymagają ponownej inicjalizacji, co skraca czas odpowiedzi systemu.
+
+Model zwraca zestaw bounding boxów wraz z poziomem pewności i identyfikatorem klasy. Wyniki są przekształcane do wspólnej struktury danych wykorzystywanej przez resztę systemu. Każda detekcja otrzymuje własny identyfikator, identyfikator analizy oraz opis przestrzenny obiektu. Następnie backend odrzuca wyniki poniżej ustalonego progu confidence, pozostawiając jedynie te wykrycia, które spełniają minimalne kryterium jakościowe.
+
+W projekcie przewidziano obsługę przynajmniej dwóch rodzajów modeli. Jeden z nich służy do klasyfikacji kraterów, drugi do wykrywania lunar pits. Z punktu widzenia pracy dyplomowej ważne jest podkreślenie, że mechanizm doboru modelu został wbudowany bezpośrednio w interfejs użytkownika, co czyni system bardziej elastycznym i użytecznym eksperymentalnie.
+
+3.7. Zapisywanie wyników do magazynu danych
+
+Po przetworzeniu obrazu backend zapisuje wyniki detekcji w pliku Parquet. Wraz z detekcjami zapisywane są również metadane, takie jak identyfikator analizy, rozdzielczość, znacznik czasu oraz podstawowe informacje o pochodzeniu wyniku. Jeśli w danej próbce wykryto obiekty, zapisywana jest zarówno lista detekcji, jak i odpowiadający im obraz analityczny. Jeśli detekcji nie było, system mimo to zachowuje obraz i nadaje mu odpowiedni status.
+
+Takie podejście jest ważne, ponieważ obrazy bez detekcji nie są bezużyteczne. Przeciwnie, stanowią cenny materiał porównawczy i pozwalają analizować obszary negatywne. W późniejszym etapie mogą zostać użyte do rozbudowy zbioru uczącego, kontroli jakości modelu lub oceny doboru obszarów badawczych.
+
+3.8. Przechowywanie statusów, tagów i komentarzy
+
+Oprócz głównych danych analitycznych system utrzymuje warstwę adnotacyjną tworzoną przez użytkownika. Obejmuje ona statusy detekcji, komentarze tekstowe oraz tagi. Dane te są zapisywane w osobnych plikach JSON. Przyjęcie takiego rozwiązania upraszcza zarządzanie modyfikacjami tworzonymi przez użytkownika i pozwala zachować logiczne rozdzielenie pomiędzy wynikiem automatycznej analizy a warstwą interpretacyjną.
+
+Statusy pełnią szczególną funkcję organizacyjną. Użytkownik może oznaczyć detekcję jako potwierdzoną, odrzuconą lub pozostawioną do dalszej weryfikacji. Komentarze pozwalają na dopisanie własnych obserwacji, natomiast tagi służą do bardziej elastycznego opisywania wyników. Dzięki temu aplikacja staje się nie tylko narzędziem detekcyjnym, lecz również prostym środowiskiem porządkowania wiedzy eksperckiej.
+
+3.9. Odczyt i filtrowanie wyników
+
+Odczyt danych z pliku Parquet realizowany jest z użyciem DuckDB. Pozwala to wykonywać zapytania w stylu SQL bez konieczności uruchamiania osobnej bazy danych. Z perspektywy implementacyjnej jest to rozwiązanie lekkie, ale zarazem bardzo praktyczne. Umożliwia filtrowanie po statusie, klasie, rozdzielczości, identyfikatorze analizy i poziomie confidence, a także sortowanie po dacie lub pewności predykcji.
+
+Ważnym aspektem jest to, że odczyt wyników uwzględnia także statusy i komentarze zapisane osobno. W praktyce backend scala dane podstawowe z pliku Parquet z warstwą nadpisań przechowywaną w JSON. Dzięki temu frontend otrzymuje jeden spójny zbiór rekordów gotowych do prezentacji użytkownikowi. Z punktu widzenia architektury jest to elegancki kompromis pomiędzy prostotą przechowywania a wygodą korzystania z danych.
+
+3.10. Prezentacja wyników w interfejsie
+
+Wyniki są prezentowane w kilku uzupełniających się widokach. Najbardziej naturalny jest widok mapowy, w którym użytkownik obserwuje lokalizacje analiz i detekcji w kontekście całej powierzchni Księżyca. Taka forma prezentacji jest szczególnie użyteczna wtedy, gdy istotny jest rozkład przestrzenny wykrytych obiektów.
+
+Drugim ważnym widokiem jest galeria obrazów. W tym trybie użytkownik może skupić się na samych materiałach wejściowych i analizować wizualnie konkretne próbki. Aplikacja potrafi nanieść bounding boxy bezpośrednio na miniaturę lub na obraz podglądowy w większym rozmiarze. Dzięki temu można w prosty sposób ocenić, czy model poprawnie zlokalizował obiekt i czy wynik jest wiarygodny.
+
+Trzecim uzupełnieniem jest widok listowy i panel szczegółów. Użytkownik może przejrzeć listę detekcji, szybko je porównać, posortować oraz rozwinąć poszczególne wpisy w celu dodania komentarza lub tagów. Takie połączenie mapy, galerii i listy daje użytkownikowi kilka perspektyw pracy z tym samym zbiorem wyników.
+
+3.11. Mechanizmy filtrowania i sortowania
+
+W systemie zaimplementowano rozbudowany zestaw filtrów. Wyniki można ograniczać do wybranego statusu, klasy, analizy, zestawu tagów lub obrazów oznaczonych jako ulubione. Dodatkowo dostępne jest sortowanie według confidence albo daty. To bardzo istotne w pracy z większą liczbą detekcji, ponieważ pozwala użytkownikowi szybko przejść do wyników najbardziej istotnych z aktualnego punktu widzenia.
+
+Przykładowo badacz może najpierw przeglądać wyłącznie wyniki o najwyższym confidence, a później przełączyć się na detekcje oznaczone jako do weryfikacji. Może też analizować tylko jedną sesję analityczną lub tylko te rekordy, które mają przypisany określony tag. Taka elastyczność zwiększa ergonomię aplikacji i pozwala dostosować ją do różnych strategii pracy.
+
+3.12. Operacje zbiorcze i organizacja pracy
+
+W celu usprawnienia pracy na większych zbiorach danych wdrożono operacje masowe. Użytkownik może zaznaczyć wiele detekcji lub obrazów i wykonać na nich jednocześnie określone działania, takie jak zmiana statusu, przypisanie tagu czy usunięcie. W praktyce mechanizm ten znacząco skraca czas potrzebny na porządkowanie wyników.
+
+Istotna jest również obsługa obrazów bez detekcji. System przewiduje ich odrębny filtr i odrębny przebieg interakcji, dzięki czemu użytkownik może pracować także na próbkach negatywnych. Pozwala to lepiej zrozumieć rozkład analizowanych danych oraz jakość procesu detekcyjnego.
+
+3.13. Reanaliza i analiza lokalna
+
+Jednym z ważniejszych rozszerzeń funkcjonalnych jest możliwość ponownej analizy zapisanych obrazów. Gdy użytkownik chce porównać działanie innego modelu lub zmienić parametry inferencji, nie musi ponownie pobierać danych z usługi mapowej. Wystarczy wybrać obrazy już obecne w systemie i uruchomić reanalizę. Dzięki temu znacznie ogranicza się zależność od zewnętrznych zasobów i przyspiesza realizację eksperymentów.
+
+Dodatkowo aplikacja obsługuje analizę lokalną na obrazach walidacyjnych zapisanych w katalogu projektu. Rozwiązanie to ma wartość praktyczną w testach laboratoryjnych, podczas pracy offline oraz w sytuacjach, gdy badacz chce wykorzystywać przygotowany wcześniej zestaw obrazów kontrolnych.
+
+3.14. Jakość interfejsu i doświadczenie użytkownika
+
+Mimo że aplikacja ma charakter techniczno-badawczy, w implementacji uwzględniono elementy poprawiające komfort użytkowania. Interfejs wykorzystuje czytelne oznaczenia statusów kolorami, obsługuje płynne przełączanie zakładek, ułatwia przewijanie do wybranego elementu listy oraz pozwala na szybkie przechodzenie pomiędzy mapą a galerią. Wprowadzono również podgląd obrazu w powiększeniu wraz z przełączaniem widoczności bounding boxa.
+
+Takie elementy nie są jedynie dodatkiem wizualnym. W systemach analitycznych komfort pracy i ograniczenie liczby zbędnych operacji mają bezpośredni wpływ na produktywność użytkownika oraz jakość jego oceny eksperckiej. Dlatego można uznać, że kwestie UX również stanowiły ważną część implementacji.
+
+Proponowane screenshoty do sekcji 3:
+- Screenshot 5: widok mapy po wybraniu segmentu i przed uruchomieniem analizy. Umieścić po podrozdziale 3.2.
+- Screenshot 6: panel ustawień z wybranym trybem resolution, sampling mode i modelem. Umieścić po podrozdziale 3.4.
+- Screenshot 7: widok wyników w galerii z zaznaczonym bounding boxem na obrazie. Umieścić po podrozdziale 3.10.
+- Screenshot 8: lista detekcji z filtrami statusu, klasy, tagów oraz sortowaniem. Umieścić po podrozdziale 3.11.
+- Screenshot 9: okno podglądu pojedynczej detekcji z możliwością powiększenia i ukrycia bounding boxa. Umieścić po podrozdziale 3.14.
+- Screenshot 10: widok rekordów bez detekcji lub filtr no_detections. Umieścić po podrozdziale 3.12.
+
+4. Testy i weryfikacja działania systemu
+
+4.1. Cele procesu testowania
+
+Proces testowania miał na celu potwierdzenie, że najważniejsze funkcje aplikacji działają zgodnie z założeniami projektowymi. Testy były potrzebne nie tylko do wychwycenia błędów implementacyjnych, ale także do weryfikacji poprawności przepływu danych pomiędzy modułami. W projekcie tego typu szczególnie ważne było sprawdzenie, czy backend zwraca poprawne odpowiedzi, czy dane są zapisywane w spójny sposób oraz czy wyniki można później poprawnie odczytać i przefiltrować.
+
+Dodatkowym celem testów było zapewnienie odporności aplikacji na niektóre sytuacje nietypowe, takie jak brak prawidłowej odpowiedzi z usługi WMS, brak obrazów walidacyjnych, nieistniejące identyfikatory detekcji lub pusty zbiór wyników. Dzięki temu aplikacja staje się bardziej przewidywalna i łatwiejsza do utrzymania.
+
+4.2. Zakres testów backendu
+
+Największy nacisk położono na testy backendowe. Wynika to z faktu, że właśnie w tej warstwie koncentruje się logika odpowiedzialna za analizę, zapis danych i ich odczyt. Testy API obejmowały między innymi sprawdzenie endpointu zdrowia, uruchomienia analizy, wielopróbkowej agregacji wyników oraz przekazywania parametrów do modelu inferencyjnego.
+
+Weryfikowano również, czy odpowiedzi serwera mają prawidłową strukturę. Szczególne znaczenie miało sprawdzenie, czy każda detekcja zawiera komplet pól, takich jak identyfikator detekcji, identyfikator analizy, bounding box, confidence i klasa. Tego rodzaju testy mają znaczenie praktyczne, ponieważ frontend jest silnie zależny od przewidywalnej struktury danych zwracanych z backendu.
+
+4.3. Testowanie logiki analizy i próbkowania
+
+Osobnym obszarem testów była logika uruchamiania analizy. Sprawdzano, czy przy zadanej liczbie próbek system rzeczywiście wykonuje odpowiednią liczbę wywołań procesu pobierania obrazów. Weryfikowano także, czy różne próbki odpowiadają różnym wycinkom badanego obszaru, co jest istotne dla poprawności analiz przestrzennych.
+
+Z punktu widzenia metodologii projektu testy te są szczególnie ważne. Jeśli system deklaruje analizę wielopróbkową, ale w rzeczywistości wielokrotnie przetwarza ten sam wycinek obszaru, uzyskane wyniki byłyby mylące. Testy potwierdzają zatem, że implementacja strategii próbkowania nie jest wyłącznie formalna, lecz rzeczywiście wpływa na przebieg analizy.
+
+4.4. Testy odporności na błędy danych wejściowych
+
+Aplikacja współpracuje z zewnętrzną usługą mapową, dlatego konieczne było sprawdzenie, jak zachowa się w przypadku niepowodzenia po stronie źródła danych. Przygotowano scenariusze, w których pobieranie obrazu kończy się błędem, a backend powinien zwrócić odpowiednią informację bez zapisywania wadliwych wyników.
+
+Takie testy mają duże znaczenie praktyczne. W systemach zależnych od usług zewnętrznych błędy komunikacyjne, puste odpowiedzi albo niepoprawne zasoby nie są sytuacją wyjątkową. Odpowiednia obsługa takich przypadków podnosi niezawodność rozwiązania i zmniejsza ryzyko powstawania niespójnych danych.
+
+4.5. Testy trwałości danych
+
+Kolejnym obszarem testów była warstwa trwałości danych. Sprawdzano, czy detekcje są poprawnie zapisywane do pliku Parquet, czy rekord zawiera komplet informacji oraz czy metadane, takie jak rozdzielczość i czas analizy, są zachowane. Weryfikowano również odczyt zapisanych wyników oraz filtrowanie po statusie, klasie i poziomie confidence.
+
+W projektach analitycznych poprawność zapisu danych ma podstawowe znaczenie. Nawet poprawnie działający model i interfejs nie miałyby praktycznej wartości, gdyby wyniki nie były przechowywane w sposób umożliwiający ich późniejsze wykorzystanie. Dlatego testy tej warstwy należy uznać za jeden z kluczowych elementów walidacji całego rozwiązania.
+
+4.6. Izolacja środowiska testowego
+
+W celu zachowania bezpieczeństwa danych i powtarzalności testów zastosowano izolację środowiska testowego. Podczas testów ścieżki do plików danych, katalogów obrazów oraz plików statusów były przekierowywane do zasobów tymczasowych. Dzięki temu testy nie ingerowały w rzeczywiste dane projektu ani w wyniki wygenerowane podczas normalnego użytkowania aplikacji.
+
+Zaletą takiego podejścia jest pełna odtwarzalność testów. Każde uruchomienie odbywa się w kontrolowanych warunkach i nie zależy od stanu danych z poprzednich sesji. Jest to dobra praktyka inżynierska, szczególnie ważna w pracach dyplomowych, gdzie należy wykazać, że rozwiązanie nie działa przypadkowo, ale zostało przygotowane w sposób uporządkowany.
+
+4.7. Ograniczenia aktualnego zakresu testów
+
+Mimo obecności testów automatycznych należy zaznaczyć, że nie obejmują one wszystkich możliwych scenariuszy. Aktualny zakres skupia się przede wszystkim na backendzie i logice danych. Mniej rozbudowane jest natomiast testowanie warstwy frontendowej i interakcji użytkownika. W przyszłości warto byłoby rozważyć dodanie testów komponentów lub testów end to end obejmujących cały przepływ pracy użytkownika.
+
+Nie zmienia to jednak faktu, że obecny zestaw testów pokrywa rdzeń funkcjonalny systemu i stanowi istotny dowód na poprawność implementacji. Dla pracy dyplomowej jest to zakres wystarczający do wykazania, że rozwiązanie zostało poddane realnej weryfikacji technicznej.
+
+Proponowane screenshoty do sekcji 4:
+- Screenshot 11: wynik uruchomienia testów w terminalu, pokazujący poprawne przejście wybranych testów. Umieścić po podrozdziale 4.2.
+- Screenshot 12: przykładowy fragment wygenerowanych danych lub wyników po teście analitycznym, na przykład zapisany rekord z detekcją. Umieścić po podrozdziale 4.5.
+
+5. Wnioski
+
+5.1. Ocena realizacji celów projektu
+
+Na podstawie przeprowadzonej implementacji można stwierdzić, że główny cel pracy został osiągnięty. Opracowano aplikację zdolną do pobierania zobrazowań powierzchni Księżyca, uruchamiania modelu detekcyjnego, trwałego zapisywania wyników oraz ich późniejszej prezentacji i walidacji. System łączy funkcje analityczne, organizacyjne i wizualizacyjne, tworząc spójne środowisko wspierające pracę badacza.
+
+Szczególnie istotne jest to, że projekt nie kończy się na warstwie czysto algorytmicznej. Z punktu widzenia praktyki badawczej najważniejsza była integracja modelu AI z interaktywnym interfejsem i mechanizmami utrwalania wiedzy użytkownika. To właśnie połączenie automatycznej detekcji z ręczną oceną sprawia, że LunaX może być użyteczna w rzeczywistych zastosowaniach.
+
+5.2. Mocne strony rozwiązania
+
+Do najmocniejszych stron systemu należy zaliczyć kompletność przepływu pracy. Użytkownik może przejść od wyboru obszaru aż do końcowej walidacji bez opuszczania aplikacji. Kolejną zaletą jest elastyczność konfiguracji analizy, obejmująca wybór modelu, rozdzielczości, sposobu próbkowania i progu confidence. Pozwala to traktować system jako platformę eksperymentalną.
+
+Warto również podkreślić trafny dobór technologii. Połączenie FastAPI, React, Leaflet, Parquet i DuckDB okazało się lekkie, a jednocześnie wystarczająco funkcjonalne. Zamiast rozbudowanej infrastruktury bazodanowej zastosowano architekturę odpowiadającą skali i charakterowi projektu badawczego. Taki wybór należy ocenić pozytywnie, ponieważ umożliwił skoncentrowanie się na kluczowych funkcjach bez nadmiernego rozbudowywania zaplecza technicznego.
+
+5.3. Ograniczenia i obszary do poprawy
+
+Najważniejszym ograniczeniem obecnej wersji systemu jest stopień złożoności głównego komponentu frontendu. Duża część logiki interfejsu została skupiona w jednym pliku, co utrudnia dalszą modularizację i może zwiększać koszt utrzymania przy kolejnych rozszerzeniach. W dalszym rozwoju warto byłoby wydzielić osobne komponenty odpowiedzialne za mapę, listy, galerie i formularze.
+
+Drugie ograniczenie dotyczy zależności od zewnętrznej usługi WMS. Mimo zastosowania walidacji odpowiedzi i ponawiania prób nadal jest to element pozostający poza bezpośrednią kontrolą aplikacji. W przyszłości można rozważyć lokalne buforowanie wybranych obrazów lub budowę własnego repozytorium danych źródłowych dla często analizowanych obszarów.
+
+Kolejny obszar rozwoju dotyczy testów frontendowych oraz testów end to end. Obecna wersja systemu posiada dobrą podstawę testową po stronie backendu, lecz pełna weryfikacja użyteczności i stabilności interakcji użytkownika wymagałaby rozszerzenia procesu testowania.
+
+5.4. Możliwości dalszego rozwoju
+
+Aplikacja LunaX może być rozwijana w kilku kierunkach. Pierwszym z nich jest rozszerzenie zestawu modeli i klas detekcji. System już teraz obsługuje więcej niż jeden model, co stanowi dobrą podstawę do dalszych eksperymentów. Możliwe byłoby dodanie kolejnych wariantów wyspecjalizowanych do określonych struktur geologicznych.
+
+Drugim kierunkiem rozwoju jest wzbogacenie mechanizmów analitycznych. Można rozważyć statystyki przestrzenne, bardziej zaawansowane metryki jakości detekcji, eksport wyników w dodatkowych formatach lub integrację z zewnętrznymi narzędziami GIS. Taki rozwój zwiększyłby wartość aplikacji dla użytkowników badawczych.
+
+Trzecim kierunkiem jest rozwój warstwy współpracy i pracy zespołowej. Obecna architektura dobrze nadaje się do pracy indywidualnej lub w małym zespole, ale można ją rozbudować o logowanie użytkowników, historię zmian i współdzielone adnotacje. W przyszłości pozwoliłoby to wykorzystać system również w bardziej sformalizowanych projektach badawczych.
+
+5.5. Podsumowanie końcowe
+
+LunaX jest przykładem rozwiązania, które skutecznie łączy techniki sztucznej inteligencji z praktycznym interfejsem analitycznym. Projekt pokazuje, że nawet stosunkowo lekki technologicznie system może realizować złożone zadania związane z pozyskiwaniem, przetwarzaniem i interpretacją danych obrazowych. Zastosowanie podejścia human in the loop sprawia, że wynik działania modelu nie jest traktowany jako decyzja ostateczna, lecz jako wsparcie dla eksperta.
+
+Z perspektywy pracy podyplomowej projekt ten ma wartość zarówno implementacyjną, jak i poznawczą. Udowadnia możliwość budowy narzędzia dedykowanego analizie danych planetarnych, a jednocześnie stanowi dobrą bazę do dalszych badań i rozwoju. Ostatecznie można stwierdzić, że LunaX spełnia założenia postawione na początku pracy i stanowi udane połączenie warstwy naukowej, inżynierskiej oraz użytkowej.
+
+Proponowane screenshoty do sekcji 5:
+- Screenshot 13: końcowy widok aplikacji po wykonaniu analizy, z widocznymi wynikami na mapie i listą detekcji. Umieścić na początku podrozdziału 5.1 jako syntetyczne podsumowanie działania systemu.
+- Screenshot 14: widok porównawczy dwóch trybów pracy, na przykład mapa i galeria dla tej samej analizy. Umieścić przy podrozdziale 5.2, aby zaakcentować mocne strony rozwiązania.
+
+Zestawienie proponowanych ilustracji do pracy
+
+Rysunek 1. Ekran główny aplikacji z mapą i panelem sterowania.
+Rysunek 2. Widok mapy z siatką segmentów i wybranym obszarem analizy.
+Rysunek 3. Formularz parametrów analizy z wyborem modelu, rozdzielczości i liczby próbek.
+Rysunek 4. Widok wyników po zakończonej analizie i odświeżeniu danych.
+Rysunek 5. Zaznaczony segment przed uruchomieniem analizy.
+Rysunek 6. Szczegóły konfiguracji procesu analitycznego.
+Rysunek 7. Galeria obrazów z naniesionym bounding boxem.
+Rysunek 8. Lista detekcji z aktywnymi filtrami i sortowaniem.
+Rysunek 9. Okno podglądu pojedynczej detekcji z powiększeniem obrazu.
+Rysunek 10. Widok obrazów bez detekcji lub filtr wyników negatywnych.
+Rysunek 11. Wynik uruchomienia testów w terminalu.
+Rysunek 12. Przykładowy zapis rekordu analitycznego lub wynik zapytania do danych.
+Rysunek 13. Zintegrowany końcowy widok aplikacji po analizie.
+Rysunek 14. Porównanie widoku mapowego i galeryjnego.
+
+Uwagi edycyjne
+
+1. Jeżeli praca ma mieć bardziej formalny styl uczelniany, można zastąpić słowo screenshot określeniem zrzut ekranu albo rysunek.
+2. Jeżeli promotorka lub promotor wymaga podpisów pod ilustracjami, najlepiej stosować format: Rysunek X. Nazwa widoku. Źródło: opracowanie własne.
+3. Jeżeli objętość rozdziału okaże się wciąż zbyt mała po sformatowaniu w edytorze tekstu, najłatwiej rozszerzyć podrozdziały 3.5, 3.6, 3.10 oraz 5.4 o przykłady zastosowań i porównania wariantów analizy.
+4. Jeżeli objętość okaże się zbyt duża, można skrócić w pierwszej kolejności podrozdziały 2.5, 3.14 i 4.7 bez utraty spójności tekstu.

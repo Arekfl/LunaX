@@ -57,10 +57,20 @@ def test_analysis_run_returns_mock_detections_with_expected_json_structure(monke
     assert response.status_code == 200
 
     payload = response.json()
-    assert set(payload.keys()) == {"analysis_id", "source", "detections"}
+    assert set(payload.keys()) == {
+        "analysis_id",
+        "source",
+        "detections",
+        "requested_samples",
+        "analyzed_samples",
+        "skipped_samples",
+    }
     assert isinstance(payload["analysis_id"], str)
     assert payload["analysis_id"]
     assert payload["source"] == "mock"
+    assert payload["requested_samples"] == 1
+    assert payload["analyzed_samples"] == 1
+    assert payload["skipped_samples"] == 0
 
     detections = payload["detections"]
     assert isinstance(detections, list)

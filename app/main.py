@@ -253,6 +253,9 @@ def _build_sample_bboxes(
     if total_samples <= 0:
         return []
 
+    if total_samples == 1:
+        return [list(base_bbox)]
+
     if sampling_mode == "random":
         return _build_random_sample_bboxes(base_bbox, total_samples)
 
