@@ -39,6 +39,38 @@
   display: flex;
   gap: 0.3em;
 }
+.gallery-favorite-btn {
+  position: absolute;
+  top: 0.35em;
+  right: 0.35em;
+  z-index: 3;
+  border: 0;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.92);
+  color: #6c757d;
+  box-shadow: 0 1px 4px #0001;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, color 0.12s ease;
+}
+
+.gallery-favorite-btn.is-favorite {
+  color: #d39e00;
+}
+
+.gallery-favorite-btn:hover:not(:disabled),
+.gallery-favorite-btn:focus-visible {
+  transform: scale(1.04);
+  box-shadow: 0 2px 6px #0002;
+}
+
+.gallery-favorite-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 .gallery-bbox-overlay {
   position: absolute;
   border: 1.5px solid #ff4d4f;

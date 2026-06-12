@@ -1100,6 +1100,8 @@ export default function App() {
   const [analysisStatus, setAnalysisStatus] = useState(null);
   const [showAnalysisPoints, setShowAnalysisPoints] = useState(true);
   const [showGalleryBbox, setShowGalleryBbox] = useState(false);
+  const [favoriteImageIds, setFavoriteImageIds] = useState([]);
+  const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
   const [activeSidebarTab, setActiveSidebarTab] = useState(SIDEBAR_TAB_ANALYSIS);
   const [viewMode, setViewMode] = useState("map");
   const [resolutionMode, setResolutionMode] = useState("detail");
@@ -1396,6 +1398,69 @@ export default function App() {
     );
   }, [analysisImages, resolvedAnalysisFilterId]);
 
+  const availableImageIds = useMemo(() => {
+    const imageIds = new Set();
+
+    for (const image of analysisImages) {
+      const imageId = String(image?.image_id || "").trim();
+      if (imageId) {
+        imageIds.add(imageId);
+      }
+    }
+
+    for (const detection of statusResolvedDetections) {
+      const imageId = getDetectionImageId(detection, analysisImages);
+      if (imageId) {
+        imageIds.add(imageId);
+      }
+    }
+
+    return imageIds;
+  }, [analysisImages, statusResolvedDetections]);
+
+  const favoriteImageIdSet = useMemo(() => {
+    const normalizedFavorites = new Set();
+
+    for (const imageId of favoriteImageIds) {
+      const normalizedImageId = String(imageId || "").trim();
+      if (!normalizedImageId) {
+        continue;
+      }
+
+      if (availableImageIds.has(normalizedImageId)) {
+        normalizedFavorites.add(normalizedImageId);
+      }
+    }
+
+    return normalizedFavorites;
+  }, [favoriteImageIds, availableImageIds]);
+
+  const hasFavoriteImages = favoriteImageIdSet.size > 0;
+
+  const handleToggleFavoriteImage = useCallback((imageId) => {
+    const normalizedImageId = String(imageId || "").trim();
+    if (!normalizedImageId) {
+      return;
+    }
+
+    setFavoriteImageIds((previousImageIds) => {
+      const previousSet = new Set(previousImageIds.map((id) => String(id || "").trim()).filter(Boolean));
+      if (previousSet.has(normalizedImageId)) {
+        previousSet.delete(normalizedImageId);
+      } else {
+        previousSet.add(normalizedImageId);
+      }
+
+      return Array.from(previousSet);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (showOnlyFavorites && !hasFavoriteImages) {
+      setShowOnlyFavorites(false);
+    }
+  }, [showOnlyFavorites, hasFavoriteImages]);
+
   const detectionsForCurrentView = useMemo(
     () =>
       getDisplayDetectionsForStatus(analysisFilteredDetections, statusFilter, {
@@ -1405,6 +1470,17 @@ export default function App() {
       }),
     [analysisFilteredDetections, statusFilter, selectedTagFilters, tagFilterMode]
   );
+
+  const favoriteFilteredDetections = useMemo(() => {
+    if (!showOnlyFavorites) {
+      return detectionsForCurrentView;
+    }
+
+    return detectionsForCurrentView.filter((detection) => {
+      const imageId = getDetectionImageId(detection, analysisFilteredImages);
+      return imageId && favoriteImageIdSet.has(imageId);
+    });
+  }, [showOnlyFavorites, detectionsForCurrentView, analysisFilteredImages, favoriteImageIdSet]);
 
   const availableDetectionTags = useMemo(() => {
     if (isNoDetectionsFilterSelected) {
@@ -1434,6 +1510,17 @@ export default function App() {
       ),
     [analysisFilteredImages]
   );
+
+  const favoriteFilteredNoDetectionImages = useMemo(() => {
+    if (!showOnlyFavorites) {
+      return visibleAnalysisImages;
+    }
+
+    return visibleAnalysisImages.filter((image) => {
+      const imageId = String(image?.image_id || "").trim();
+      return imageId && favoriteImageIdSet.has(imageId);
+    });
+  }, [showOnlyFavorites, visibleAnalysisImages, favoriteImageIdSet]);
 
   const activeAnalysisFilterOption = useMemo(() => {
     if (!resolvedAnalysisFilterId) {
@@ -1501,8 +1588,8 @@ export default function App() {
   const effectiveSortOrder = detectionSortOrder === "asc" ? "asc" : "desc";
 
   const filteredDetections = useMemo(
-    () => sortDetectionList(detectionsForCurrentView, effectiveSortBy, effectiveSortOrder),
-    [detectionsForCurrentView, effectiveSortBy, effectiveSortOrder]
+    () => sortDetectionList(favoriteFilteredDetections, effectiveSortBy, effectiveSortOrder),
+    [favoriteFilteredDetections, effectiveSortBy, effectiveSortOrder]
   );
 
   const classFilterOptions = useMemo(() => {
@@ -1541,8 +1628,8 @@ export default function App() {
   );
 
   const sortedNoDetectionImages = useMemo(
-    () => sortDetectionList(visibleAnalysisImages, effectiveSortBy, effectiveSortOrder),
-    [visibleAnalysisImages, effectiveSortBy, effectiveSortOrder]
+    () => sortDetectionList(favoriteFilteredNoDetectionImages, effectiveSortBy, effectiveSortOrder),
+    [favoriteFilteredNoDetectionImages, effectiveSortBy, effectiveSortOrder]
   );
 
   const mapPointMarkers = useMemo(() => {
@@ -3975,6 +4062,7 @@ export default function App() {
                         (typeof image.status === "string" ? image.status : NO_DETECTIONS_FILTER) ===
                         NO_DETECTIONS_FILTER;
                       const isSelected = selectedNoDetectionImageIds.includes(imageId);
+                      const isFavorite = favoriteImageIdSet.has(imageId);
                       const isHovered = hoveredDetectionId === imageId;
 
                       return (
@@ -4008,6 +4096,26 @@ export default function App() {
                             style={{ cursor: "pointer" }}
                           >
                             <div className="gallery-img-wrap position-relative">
+                              <button
+                                type="button"
+                                className={`gallery-favorite-btn${isFavorite ? " is-favorite" : ""}`}
+                                aria-label={isFavorite ? "Usuń z ulubionych" : "Dodaj do ulubionych"}
+                                title={isFavorite ? "Usuń z ulubionych" : "Dodaj do ulubionych"}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleToggleFavoriteImage(imageId);
+                                }}
+                              >
+                                <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" focusable="false">
+                                  <path
+                                    d="M8 1.2l2.1 4.26 4.7.68-3.4 3.31.8 4.68L8 11.9l-4.2 2.23.8-4.68-3.4-3.31 4.7-.68L8 1.2z"
+                                    fill={isFavorite ? "#ffc107" : "none"}
+                                    stroke={isFavorite ? "#d39e00" : "currentColor"}
+                                    strokeWidth="1.3"
+                                    strokeLinejoin="round"
+                                  />
+                                </svg>
+                              </button>
                               <img
                                 src={getAnalysisImageUrl(image.image_id)}
                                 alt={`Zapis analizy ${image.image_id}`}
@@ -4088,6 +4196,8 @@ export default function App() {
                     const statusBadgeClass = getStatusBadgeClass(detection.status);
                     const previewImage = resolveAnalysisImageForDetection(detection, analysisImages);
                     const previewUrl = previewImage ? getAnalysisImageUrl(previewImage.image_id) : getDetectionPreviewUrl(detection);
+                    const detectionImageId = getDetectionImageId(detection, analysisFilteredImages);
+                    const isFavorite = detectionImageId ? favoriteImageIdSet.has(detectionImageId) : false;
                     const galleryBBoxStyle =
                       showGalleryBbox && previewImage
                         ? getGalleryBBoxOverlayStyle(detection, previewImage)
@@ -4130,6 +4240,35 @@ export default function App() {
                           style={{ cursor: "pointer" }}
                         >
                           <div className="gallery-img-wrap position-relative">
+                            <button
+                              type="button"
+                              className={`gallery-favorite-btn${isFavorite ? " is-favorite" : ""}`}
+                              aria-label={isFavorite ? "Usuń z ulubionych" : "Dodaj do ulubionych"}
+                              title={
+                                detectionImageId
+                                  ? isFavorite
+                                    ? "Usuń z ulubionych"
+                                    : "Dodaj do ulubionych"
+                                  : "Brak przypisanego zdjęcia"
+                              }
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                if (detectionImageId) {
+                                  handleToggleFavoriteImage(detectionImageId);
+                                }
+                              }}
+                              disabled={!detectionImageId}
+                            >
+                              <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" focusable="false">
+                                <path
+                                  d="M8 1.2l2.1 4.26 4.7.68-3.4 3.31.8 4.68L8 11.9l-4.2 2.23.8-4.68-3.4-3.31 4.7-.68L8 1.2z"
+                                  fill={isFavorite ? "#ffc107" : "none"}
+                                  stroke={isFavorite ? "#d39e00" : "currentColor"}
+                                  strokeWidth="1.3"
+                                  strokeLinejoin="round"
+                                />
+                              </svg>
+                            </button>
                             {previewUrl ? (
                               <img
                                 src={previewUrl}
@@ -4561,6 +4700,22 @@ export default function App() {
                       onClick={() => setStatusFilter(NO_DETECTIONS_FILTER)}
                     >
                       Brak detekcji
+                    </button>
+                  </div>
+
+                  <div className="mb-3">
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${showOnlyFavorites ? "btn-warning" : "btn-outline-warning"}`}
+                      onClick={() => setShowOnlyFavorites((previousValue) => !previousValue)}
+                      disabled={!hasFavoriteImages}
+                      title={
+                        hasFavoriteImages
+                          ? "Pokaż tylko ulubione zdjęcia"
+                          : "Brak ulubionych zdjęć do filtrowania"
+                      }
+                    >
+                      Tylko ulubione zdjęcia
                     </button>
                   </div>
 
