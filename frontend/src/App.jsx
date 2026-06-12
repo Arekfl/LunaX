@@ -1142,7 +1142,7 @@ export default function App() {
   const [samplingMode, setSamplingMode] = useState(SAMPLING_MODE_UNIFORM);
   const [numSamples, setNumSamples] = useState(5);
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
-  const [selectedModel, setSelectedModel] = useState("best.pt");
+  const [selectedModel, setSelectedModel] = useState("best_kratery_3.pt");
   const [classFilter, setClassFilter] = useState(null);
   const [storedStatuses, setStoredStatuses] = useState({});
   const [statusFilter, setStatusFilter] = useState("to_verify");
