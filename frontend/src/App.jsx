@@ -4332,7 +4332,6 @@ export default function App() {
                             )}
                           </div>
                           <div className="card-body py-2">
-                            <div className="fw-semibold small">{detection.detection_id}</div>
                             <div className="small mt-1">
                               <span className={`badge ${statusBadgeClass}`}>{STATUS_LABEL_MAP[detection.status] ?? detection.status}</span>
                             </div>
@@ -5684,8 +5683,15 @@ export default function App() {
             )}
 
             <div className="small text-muted detection-preview-meta-grid">
-              <div><strong>ID:</strong> {detectionPreviewModal.detection.detection_id}</div>
-              <div><strong>analysis_id:</strong> {detectionPreviewModal.detection.analysis_id}</div>
+              <div>
+                <strong>lat/lon:</strong>{" "}
+                {(() => {
+                  const coordsFromPath = extractLatLonFromPath(detectionPreviewModal.image?.path);
+                  const lat = coordsFromPath ? coordsFromPath.lat : Number(detectionPreviewModal.image?.lat);
+                  const lon = coordsFromPath ? coordsFromPath.lon : Number(detectionPreviewModal.image?.lon);
+                  return `${formatCoordinate(lat, 6)} / ${formatCoordinate(lon, 6)}`;
+                })()}
+              </div>
               <div><strong>status:</strong> {STATUS_LABEL_MAP[detectionPreviewModal.detection.status] ?? detectionPreviewModal.detection.status}</div>
               <div><strong>class:</strong> {getClassDisplayLabel(getDetectionClassName(detectionPreviewModal.detection)) || NO_CLASS_LABEL}</div>
               <div>
@@ -5700,16 +5706,10 @@ export default function App() {
                 {JSON.stringify(parseBBoxToMinMax(detectionPreviewModal.detection.bbox) || {})}
               </div>
               <div>
-                <strong>obraz_id:</strong> {detectionPreviewModal.image?.image_id || "-"}
+                <strong>resolution:</strong> {detectionPreviewModal.image?.resolution || detectionPreviewModal.detection?.resolution || "-"}
               </div>
               <div>
-                <strong>obraz_status:</strong> {detectionPreviewModal.image?.status || "-"}
-              </div>
-              <div>
-                <strong>obraz_resolution:</strong> {detectionPreviewModal.image?.resolution || "-"}
-              </div>
-              <div>
-                <strong>obraz_timestamp:</strong> {detectionPreviewModal.image?.timestamp || "-"}
+                <strong>timestamp:</strong> {detectionPreviewModal.image?.timestamp || detectionPreviewModal.detection?.timestamp || "-"}
               </div>
               <div className="text-break">
                 <strong>obraz_path:</strong> {detectionPreviewModal.image?.path || "-"}
