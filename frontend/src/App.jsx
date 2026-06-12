@@ -61,14 +61,17 @@ const RESOLUTION_DELTA_DEG_MAP = {
   detail: 0.8,
   ultra: 0.028279379,
 };
+const SAMPLING_MODE_RANDOM = "random";
+const SAMPLING_MODE_UNIFORM = "uniform";
 
 const GRID_SIZE = 4;
 const GRID_ROWS = GRID_SIZE;
 const GRID_COLS = GRID_SIZE;
 
 const MODEL_OPTIONS = [
-  { value: "best.pt", label: "Lunar pits detector (best.pt)" },
-  { value: "best_kratery.pt", label: "Crater classifier (best_kratery.pt)" },
+
+  { value: "best_kratery_3.pt", label: "Crater classifier" },
+  { value: "best.pt", label: "Lunar pits detector" },
 ];
 
 const CRATER_CLASSES = {
@@ -119,6 +122,37 @@ function getClassDisplayLabel(className) {
   }
 
   return normalizedClassName;
+}
+
+function getUniformSamplingPlanDescription(sampleCount) {
+  const normalizedCount = Number(sampleCount);
+  if (!Number.isFinite(normalizedCount) || normalizedCount <= 0) {
+    return "Równomiernie: brak poprawnej liczby próbek.";
+  }
+
+  const count = Math.floor(normalizedCount);
+  if (count === 1) {
+    return "Równomiernie: 1 próbka -> środek analizowanego sektora.";
+  }
+  if (count === 2) {
+    return "Równomiernie: 2 próbki -> środek + lewy bok sektora.";
+  }
+  if (count === 3) {
+    return "Równomiernie: 3 próbki -> środek + lewy bok + prawy bok sektora.";
+  }
+  if (count === 4) {
+    return "Równomiernie: 4 próbki -> cztery narożniki sektora.";
+  }
+  if (count === 5) {
+    return "Równomiernie: 5 próbek -> narożniki + środek sektora.";
+  }
+
+  const cols = Math.ceil(Math.sqrt(count));
+  const rows = Math.ceil(count / cols);
+  return (
+    `Równomiernie: ${count} próbek -> siatka ${rows}x${cols}, ` +
+    "próby z centrow pól, kolejność wężykowa (serpentyna)."
+  );
 }
 
 function matchesDetectionClassFilter(detection, classFilter) {
@@ -1105,6 +1139,7 @@ export default function App() {
   const [activeSidebarTab, setActiveSidebarTab] = useState(SIDEBAR_TAB_ANALYSIS);
   const [viewMode, setViewMode] = useState("map");
   const [resolutionMode, setResolutionMode] = useState("detail");
+  const [samplingMode, setSamplingMode] = useState(SAMPLING_MODE_UNIFORM);
   const [numSamples, setNumSamples] = useState(5);
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
   const [selectedModel, setSelectedModel] = useState("best.pt");
@@ -2368,6 +2403,7 @@ export default function App() {
         },
         body: JSON.stringify({
           resolutionMode,
+          samplingMode,
           numSamples,
           confidenceThreshold,
           modelName: selectedModel,
@@ -2397,6 +2433,18 @@ export default function App() {
         runPayload && typeof runPayload === "object" && Array.isArray(runPayload.detections)
           ? runPayload.detections
           : [];
+      const requestedSamplesCount =
+        runPayload && typeof runPayload === "object"
+          ? Number(runPayload.requested_samples)
+          : NaN;
+      const analyzedSamplesCount =
+        runPayload && typeof runPayload === "object"
+          ? Number(runPayload.analyzed_samples)
+          : NaN;
+      const skippedSamplesCount =
+        runPayload && typeof runPayload === "object"
+          ? Number(runPayload.skipped_samples)
+          : NaN;
 
       if (!analysisId) {
         throw new Error("Missing analysis_id in /analysis/run response");
@@ -2450,16 +2498,34 @@ export default function App() {
       } catch (refreshError) {
         console.warn("Nie udało się odświeżyć listy zapisanych obrazów analizy:", refreshError);
       }
+      const analyzedCountForMessage = Number.isFinite(analyzedSamplesCount)
+        ? analyzedSamplesCount
+        : analyzedImageCount;
+      const skippedCountForMessage = Number.isFinite(skippedSamplesCount)
+        ? skippedSamplesCount
+        : 0;
+      const requestedCountForMessage = Number.isFinite(requestedSamplesCount)
+        ? requestedSamplesCount
+        : numSamples;
+
+      const skippedSamplesSuffix = skippedCountForMessage > 0
+        ? ` (z ${requestedCountForMessage}; pominieto ${skippedCountForMessage} z powodu braku danych WMS)`
+        : "";
+
       setSelectedDetection(null);
       setAnalysisStatus("success");
       if (detectionsWithStatus.length === 0) {
-        const noDetectionMessage = `Przeanalizowano ${analyzedImageCount} obrazów. Brak detekcji.`;
+        const noDetectionMessage = `Przeanalizowano ${analyzedCountForMessage} obrazów${skippedSamplesSuffix}. Brak detekcji.`;
         setChosenMessage(noDetectionMessage);
         return;
       }
 
       const detectedImageCount = countDetectedImages(detectionsWithStatus, refreshedImages);
-      showDetectedResultsInGallery(analyzedImageCount, detectionsWithStatus.length, detectedImageCount);
+      const summaryMessage =
+        `Przeanalizowano ${analyzedCountForMessage} obrazów${skippedSamplesSuffix}. ` +
+        `Znaleziono ${detectionsWithStatus.length} detekcji na ${detectedImageCount} obrazach.`;
+      setViewMode("gallery");
+      setChosenMessage(summaryMessage);
     } catch (error) {
       console.error("Błąd podczas pobierania detekcji:", error);
       const errorMessage =
@@ -4505,6 +4571,29 @@ export default function App() {
                   </div>
                   <div className="small text-muted mb-3">
                     {RESOLUTION_DESCRIPTION_MAP[resolutionMode]} (ok. {RESOLUTION_MPP_MAP[resolutionMode].toFixed(2)} mpp)
+                  </div>
+
+                  <div className="small text-muted mb-2">Metoda wyboru probek</div>
+                  <div className="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="Metoda wyboru probek analizy">
+                    <button
+                      type="button"
+                      className={`btn ${samplingMode === SAMPLING_MODE_RANDOM ? "btn-primary" : "btn-outline-primary"}`}
+                      onClick={() => setSamplingMode(SAMPLING_MODE_RANDOM)}
+                    >
+                      Losowo
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn ${samplingMode === SAMPLING_MODE_UNIFORM ? "btn-primary" : "btn-outline-primary"}`}
+                      onClick={() => setSamplingMode(SAMPLING_MODE_UNIFORM)}
+                    >
+                      Rownomiernie
+                    </button>
+                  </div>
+                  <div className="small text-muted mb-3">
+                    {samplingMode === SAMPLING_MODE_RANDOM
+                      ? "Losowo: próbki są losowane z zaznaczonego obszaru."
+                      : getUniformSamplingPlanDescription(numSamples)}
                   </div>
 
                   <div className="small text-muted mb-2">Liczba próbek ({numSamples})</div>

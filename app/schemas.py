@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-ModelName = Literal["best.pt", "best_kratery.pt"]
+ModelName = Literal["best.pt", "best_kratery.pt", "best_kratery_3.pt"]
 
 
 class HealthResponse(BaseModel):
@@ -28,6 +28,7 @@ class Detection(BaseModel):
 
 
 AnalysisResolutionMode = Literal["preview", "detail", "ultra"]
+AnalysisSamplingMode = Literal["random", "uniform"]
 
 
 class AnalysisRunRequest(BaseModel):
@@ -35,6 +36,7 @@ class AnalysisRunRequest(BaseModel):
 
     region_id: str | None = None
     resolution_mode: AnalysisResolutionMode = Field(default="detail", alias="resolutionMode")
+    sampling_mode: AnalysisSamplingMode = Field(default="uniform", alias="samplingMode")
     num_samples: int = Field(default=1, ge=1, le=20, alias="numSamples")
     confidence_threshold: float = Field(0.5, ge=0, le=1, alias="confidenceThreshold")
     model_name: ModelName = Field(default="best.pt", alias="modelName")
@@ -61,6 +63,9 @@ class AnalysisRunResponse(BaseModel):
     analysis_id: str
     source: Literal["mock"]
     detections: list[Detection]
+    requested_samples: int | None = None
+    analyzed_samples: int | None = None
+    skipped_samples: int | None = None
 
 
 class AnalysisReanalysisSettings(BaseModel):

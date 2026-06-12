@@ -1,6 +1,7 @@
 import logging
 import math
 import os
+import random
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -129,28 +130,133 @@ def _normalize_analysis_bbox_to_geo(bbox: list[float]) -> list[float]:
     return _pixel_bbox_to_geo_bbox(bbox)
 
 
-def _build_sample_bbox(
-    base_bbox: list[float], sample_index: int, total_samples: int
+def _build_bbox_from_center(
+    base_bbox: list[float],
+    *,
+    center_x: float,
+    center_y: float,
+    window_width: float,
+    window_height: float,
 ) -> list[float]:
-    if total_samples <= 1:
+    x_min, y_min, x_max, y_max = base_bbox
+    base_width = x_max - x_min
+    base_height = y_max - y_min
+
+    width = max(0.0, min(window_width, base_width))
+    height = max(0.0, min(window_height, base_height))
+
+    if width == 0.0 or height == 0.0:
         return list(base_bbox)
 
-    x_min, y_min, x_max, y_max = base_bbox
+    sample_x_min = max(x_min, min(center_x - width / 2.0, x_max - width))
+    sample_y_min = max(y_min, min(center_y - height / 2.0, y_max - height))
+    return [sample_x_min, sample_y_min, sample_x_min + width, sample_y_min + height]
+
+
+def _uniform_anchor_points(total_samples: int) -> tuple[list[tuple[float, float]], int, int]:
+    if total_samples <= 1:
+        return [(0.5, 0.5)], 3, 3
+    if total_samples == 2:
+        return [(0.5, 0.5), (0.0, 0.5)], 3, 3
+    if total_samples == 3:
+        return [(0.5, 0.5), (0.0, 0.5), (1.0, 0.5)], 3, 3
+    if total_samples == 4:
+        return [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)], 3, 3
+    if total_samples == 5:
+        return [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0), (0.5, 0.5)], 3, 3
+
     cols = math.ceil(math.sqrt(total_samples))
     rows = math.ceil(total_samples / cols)
+    anchors: list[tuple[float, float]] = []
+    for row in range(rows):
+        col_indexes = list(range(cols))
+        if row % 2 == 1:
+            col_indexes.reverse()
 
-    cell_width = (x_max - x_min) / cols
-    cell_height = (y_max - y_min) / rows
+        for col in col_indexes:
+            anchor_x = (col + 0.5) / cols
+            anchor_y = (row + 0.5) / rows
+            anchors.append((anchor_x, anchor_y))
+            if len(anchors) >= total_samples:
+                return anchors, cols, rows
 
-    col = sample_index % cols
-    row = sample_index // cols
+    return anchors[:total_samples], cols, rows
 
-    sample_x_min = x_min + col * cell_width
-    sample_y_min = y_min + row * cell_height
-    sample_x_max = x_max if col == cols - 1 else x_min + (col + 1) * cell_width
-    sample_y_max = y_max if row == rows - 1 else y_min + (row + 1) * cell_height
 
-    return [sample_x_min, sample_y_min, sample_x_max, sample_y_max]
+def _build_uniform_sample_bboxes(base_bbox: list[float], total_samples: int) -> list[list[float]]:
+    x_min, y_min, x_max, y_max = base_bbox
+    width = x_max - x_min
+    height = y_max - y_min
+
+    anchors, cols, rows = _uniform_anchor_points(total_samples)
+    if total_samples <= 5:
+        sample_width = width / 3.0
+        sample_height = height / 3.0
+    else:
+        sample_width = width / cols
+        sample_height = height / rows
+
+    sample_bboxes: list[list[float]] = []
+    for anchor_x, anchor_y in anchors:
+        center_x = x_min + anchor_x * width
+        center_y = y_min + anchor_y * height
+        sample_bboxes.append(
+            _build_bbox_from_center(
+                base_bbox,
+                center_x=center_x,
+                center_y=center_y,
+                window_width=sample_width,
+                window_height=sample_height,
+            )
+        )
+
+    return sample_bboxes
+
+
+def _build_random_sample_bboxes(base_bbox: list[float], total_samples: int) -> list[list[float]]:
+    x_min, y_min, x_max, y_max = base_bbox
+    width = x_max - x_min
+    height = y_max - y_min
+
+    cols = math.ceil(math.sqrt(total_samples))
+    rows = math.ceil(total_samples / cols)
+    sample_width = width / cols
+    sample_height = height / rows
+
+    min_center_x = x_min + sample_width / 2.0
+    max_center_x = x_max - sample_width / 2.0
+    min_center_y = y_min + sample_height / 2.0
+    max_center_y = y_max - sample_height / 2.0
+
+    sample_bboxes: list[list[float]] = []
+    for _ in range(total_samples):
+        center_x = random.uniform(min_center_x, max_center_x)
+        center_y = random.uniform(min_center_y, max_center_y)
+        sample_bboxes.append(
+            _build_bbox_from_center(
+                base_bbox,
+                center_x=center_x,
+                center_y=center_y,
+                window_width=sample_width,
+                window_height=sample_height,
+            )
+        )
+
+    return sample_bboxes
+
+
+def _build_sample_bboxes(
+    base_bbox: list[float],
+    total_samples: int,
+    sampling_mode: str,
+) -> list[list[float]]:
+    if total_samples <= 0:
+        return []
+
+    if sampling_mode == "random":
+        return _build_random_sample_bboxes(base_bbox, total_samples)
+
+    return _build_uniform_sample_bboxes(base_bbox, total_samples)
 
 
 def _extract_lat_lon_from_path(path_value: str | None) -> tuple[float, float] | None:
@@ -222,12 +328,14 @@ def _pixel_bbox_to_display_bbox(
 def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
     analysis_id = str(uuid4())
     geo_bbox = _normalize_analysis_bbox_to_geo(payload.bbox)
+    sample_bboxes = _build_sample_bboxes(geo_bbox, payload.num_samples, payload.sampling_mode)
+    requested_samples = len(sample_bboxes)
+    analyzed_samples = 0
 
     filtered_detections: list[Detection] = []
     sample_download_errors: list[str] = []
-    for sample_index in range(payload.num_samples):
+    for sample_index, sample_bbox in enumerate(sample_bboxes):
         sample_timestamp = datetime.now(timezone.utc).isoformat()
-        sample_bbox = _build_sample_bbox(geo_bbox, sample_index, payload.num_samples)
         center_lon = (sample_bbox[0] + sample_bbox[2]) / 2.0
         center_lat = (sample_bbox[1] + sample_bbox[3]) / 2.0
 
@@ -247,6 +355,7 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
                 exc,
             )
             continue
+        analyzed_samples += 1
         sample_detections = run_inference(
             image=tile_image,
             confidence_threshold=payload.confidence_threshold,
@@ -310,6 +419,9 @@ def run_analysis(payload: AnalysisRunRequest) -> AnalysisRunResponse:
         analysis_id=analysis_id,
         source="mock",
         detections=filtered_detections,
+        requested_samples=requested_samples,
+        analyzed_samples=analyzed_samples,
+        skipped_samples=max(0, requested_samples - analyzed_samples),
     )
 
 

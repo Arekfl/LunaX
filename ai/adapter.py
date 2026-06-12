@@ -25,7 +25,7 @@ AdapterDetection = TypedDict(
 )
 
 MODELS_DIR = Path(__file__).resolve().parent / "models"
-DEFAULT_MODEL_NAME = "best.pt"
+DEFAULT_MODEL_NAME = "best_kratery_3.pt"
 # Backward-compatible path reference.
 MODEL_PATH = MODELS_DIR / DEFAULT_MODEL_NAME
 
@@ -34,10 +34,14 @@ _model_cache: dict[str, YOLO] = {}
 
 
 def _get_model(model_name: str = DEFAULT_MODEL_NAME) -> YOLO:
-    if model_name not in _model_cache:
-        model_path = MODELS_DIR / model_name
-        _model_cache[model_name] = YOLO(str(model_path))
-    return _model_cache[model_name]
+    normalized_name = str(model_name).strip()
+    if normalized_name and "." not in Path(normalized_name).name:
+        normalized_name = f"{normalized_name}.pt"
+
+    if normalized_name not in _model_cache:
+        model_path = MODELS_DIR / normalized_name
+        _model_cache[normalized_name] = YOLO(str(model_path))
+    return _model_cache[normalized_name]
 
 
 # Pre-load default model at import time (preserves existing behaviour).
