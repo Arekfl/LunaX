@@ -1691,6 +1691,7 @@ export default function App() {
           type: "detection",
           detection,
           detectionMarkerId,
+          statusColor: getStatusColor(detection?.status),
           lat,
           lon,
         };
@@ -3941,6 +3942,7 @@ export default function App() {
                   <Pane name="analysis-points" style={{ zIndex: 650 }}>
                     {mapPointMarkers.map((marker) => {
                       const isActive = activeMapMarkerId === marker.markerId;
+                      const markerColor = marker.statusColor;
 
                       return (
                         <CircleMarker
@@ -3949,10 +3951,10 @@ export default function App() {
                           center={[marker.lat, marker.lon]}
                           radius={isActive ? 8 : 6}
                           pathOptions={{
-                            color: isActive ? "#fd7e14" : "#0d6efd",
-                            weight: isActive ? 2 : 1,
+                            color: isActive ? "#fd7e14" : markerColor,
+                            weight: isActive ? 3 : 1,
                             opacity: 1,
-                            fillColor: isActive ? "#fd7e14" : "#0d6efd",
+                            fillColor: markerColor,
                             fillOpacity: isActive ? 0.95 : 0.8,
                             bubblingMouseEvents: false,
                           }}
