@@ -1,3 +1,9 @@
+⚠️ This software is NOT open source.
+
+Non-commercial use only.
+No modifications allowed without permission.
+
+
 # LunaX
 Postgraduade thesis app
 
