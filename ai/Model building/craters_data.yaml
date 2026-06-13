@@ -1,0 +1,17 @@
+# folder docelowy z danymi do treningu
+path: craters_training_dataset_yolo
+train: images/train
+val: images/val
+test: images/test
+
+# liczba klas
+nc: 6
+
+# klasy kraterów, epoka geologiczna w której powstały
+names:
+  0: Pre-Nectarian
+  1: Nectarian
+  2: Lower Imbrian
+  3: Upper Imbrian
+  4: Eratosthenian
+  5: Copernican

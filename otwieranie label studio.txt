@@ -1,7 +1,0 @@
-Otwórz cmd.
-
-Wejdź do folderu: cd D:\projekt_labeling.
-
-Aktywuj środowisko: .\venv\Scripts\activate.
-
-Wpisz: label-studio.
